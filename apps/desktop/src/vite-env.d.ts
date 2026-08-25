@@ -18,6 +18,9 @@ declare global {
       selectStoragePath?: () => Promise<string | null>
       resetStoragePath?: () => Promise<string>
       openPathInFinder?: (targetPath: string) => Promise<void>
+      loadLocalSkills?: () => Promise<any[]>
+      saveLocalSkill?: (skill: any) => Promise<boolean>
+      deleteLocalSkill?: (skillId: string) => Promise<boolean>
       onRecorderMessage: (listener: (message: RecorderEnvelope) => void) => () => void
     }
   }

@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('workflowSkill', {
   selectStoragePath: () => ipcRenderer.invoke('system:select-storage-path') as Promise<string | null>,
   resetStoragePath: () => ipcRenderer.invoke('system:reset-storage-path') as Promise<string>,
   openPathInFinder: (targetPath: string) => ipcRenderer.invoke('system:open-path', targetPath) as Promise<void>,
+  loadLocalSkills: () => ipcRenderer.invoke('system:load-local-skills') as Promise<any[]>,
+  saveLocalSkill: (skill: any) => ipcRenderer.invoke('system:save-local-skill', skill) as Promise<boolean>,
+  deleteLocalSkill: (skillId: string) => ipcRenderer.invoke('system:delete-local-skill', skillId) as Promise<boolean>,
   onRecorderMessage: (listener: (message: RecorderEnvelope) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, message: RecorderEnvelope) => listener(message)
     ipcRenderer.on('recorder:message', handler)

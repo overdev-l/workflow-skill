@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -328,6 +328,56 @@ app.whenReady().then(() => {
         mkdirSync(targetPath, { recursive: true })
         await shell.openPath(targetPath)
       } catch {}
+    }
+  })
+
+  ipcMain.handle('system:load-local-skills', () => {
+    const root = getStoredTraceHome()
+    const skillsDir = path.join(root, 'skills')
+    ensureTraceDirectories(root)
+    const skills: any[] = []
+    try {
+      if (existsSync(skillsDir)) {
+        const files = readdirSync(skillsDir)
+        for (const file of files) {
+          if (file.endsWith('.json')) {
+            try {
+              const content = readFileSync(path.join(skillsDir, file), 'utf8')
+              skills.push(JSON.parse(content))
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+    return skills
+  })
+
+  ipcMain.handle('system:save-local-skill', (_event, skill: any) => {
+    if (!skill || !skill.id) return false
+    const root = getStoredTraceHome()
+    const skillsDir = path.join(root, 'skills')
+    ensureTraceDirectories(root)
+    try {
+      const filePath = path.join(skillsDir, `${skill.id}.json`)
+      writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  ipcMain.handle('system:delete-local-skill', (_event, skillId: string) => {
+    if (!skillId) return false
+    const root = getStoredTraceHome()
+    const skillsDir = path.join(root, 'skills')
+    try {
+      const filePath = path.join(skillsDir, `${skillId}.json`)
+      if (existsSync(filePath)) {
+        unlinkSync(filePath)
+      }
+      return true
+    } catch {
+      return false
     }
   })
 

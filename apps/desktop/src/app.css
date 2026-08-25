@@ -1853,6 +1853,15 @@ pre {
   margin: 0;
   font-size: 0.75rem;
   color: var(--color-muted);
+  max-width: 380px;
+  line-height: 1.45;
+}
+
+.empty-state-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 /* Floating Capsule Toast */

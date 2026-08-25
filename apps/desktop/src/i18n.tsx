@@ -39,6 +39,11 @@ export const translations = {
       confirmCreateBtn: '确认创建',
       createdToast: (name: string) => `已创建“${name}”`,
       emptySearch: '未搜索到匹配的 Skill 资产',
+      emptyLocalTitle: '暂无本地 Skill 资产',
+      emptyLocalDesc: '在后台保持静默观察以自动沉淀高频操作，或点击上方「新建 Skill」创建资产模板。',
+      openLocalDirBtn: '打开本地存储目录',
+      emptyRemoteTitle: '暂无远程 Skill 资产',
+      emptyRemoteDesc: '尚未配置远程 Skill 仓库源。后续配置后可一键同步与发现团队自动化资产。',
 
       remoteLibraryTitle: '远程 Skill 资产库',
       remoteLibrarySub: '探索、同步与分发跨应用自动化操作模式',
@@ -291,6 +296,11 @@ export const translations = {
       confirmCreateBtn: 'Create Skill',
       createdToast: (name: string) => `Created “${name}”`,
       emptySearch: 'No matching skills found',
+      emptyLocalTitle: 'No local skill assets yet',
+      emptyLocalDesc: 'Keep silent observation active in background to auto-distill workflows, or create one manually.',
+      openLocalDirBtn: 'Open Local Directory',
+      emptyRemoteTitle: 'No remote skill assets yet',
+      emptyRemoteDesc: 'No remote skill source configured yet. Connect a remote repository to sync assets.',
 
       remoteLibraryTitle: 'Remote Skill Hub',
       remoteLibrarySub: 'Discover, sync, and distribute cross-app automation patterns',

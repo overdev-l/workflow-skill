@@ -48,13 +48,10 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import {
-  demoSkills,
-  feedbackWorkflow,
-  reportWorkflow,
-  type Skill,
-  type Workflow,
-  type WorkflowNode,
+import type {
+  Skill,
+  Workflow,
+  WorkflowNode,
 } from '@workflow-skill/workflow-model'
 import type {
   CaptureEvent,
@@ -67,8 +64,6 @@ import { useI18n, type Locale, type TranslationKeys } from './i18n'
 type View = 'skills' | 'workflows'
 type SettingsTab = 'general' | 'shortcuts' | 'permissions' | 'about'
 export type ThemeMode = 'dark' | 'light' | 'system'
-
-const initialDiscoveries = [reportWorkflow, feedbackWorkflow]
 
 interface ActiveDetailState {
   workflow: Workflow
@@ -332,55 +327,6 @@ function WorkflowsOverviewPage({
 /* =========================================================================
    Level 1: Skills Overview (Clean Flat Table & Segmented Filter)
    ========================================================================= */
-interface RemoteSkillItem {
-  id: string
-  name: string
-  description: string
-  apps: string[]
-  author: string
-  version: string
-  category: 'dev' | 'office'
-}
-
-const demoRemoteSkills: RemoteSkillItem[] = [
-  {
-    id: 'remote_git_flow',
-    name: 'Git 变更分析与 PR 自动化工作流',
-    description: '监听本地代码提交，提取关键差异并自动生成规范化 Commit 与 PR 摘要',
-    apps: ['Terminal', 'VS Code', 'GitHub'],
-    author: '@trace/devtools',
-    version: '1.2.0',
-    category: 'dev',
-  },
-  {
-    id: 'remote_figma_react',
-    name: 'Figma 设计稿转 React & Tailwind 组件',
-    description: '捕获 Figma 选区图层与设计变量，在本地 IDE 自动生成标准化前端组件',
-    apps: ['Figma', 'VS Code', 'Chrome'],
-    author: '@trace/design',
-    version: '2.0.0',
-    category: 'dev',
-  },
-  {
-    id: 'remote_daily_meeting',
-    name: '团队每日站会纪要与任务派发',
-    description: '录制站会重点，自动提取待办事项并同步至 Jira / 飞书项目看板',
-    apps: ['Lark', 'Notion', 'Linear'],
-    author: '@trace/productivity',
-    version: '1.0.4',
-    category: 'office',
-  },
-  {
-    id: 'remote_pdf_extractor',
-    name: '财务发票与 PDF 表格智能清洗提取',
-    description: '识别多页 PDF 票据中的表格与金额明细，清洗后结构化导入电子表格',
-    apps: ['Preview', 'Excel', 'Browser'],
-    author: '@trace/finance',
-    version: '1.1.0',
-    category: 'office',
-  },
-]
-
 function SkillsOverviewPage({
   skills,
   onOpenDetail,
@@ -397,7 +343,6 @@ function SkillsOverviewPage({
   const [query, setQuery] = useState('')
   const [filterMode, setFilterMode] = useState<'all' | 'pinned'>('all')
   const [remoteCategory, setRemoteCategory] = useState<'all' | 'dev' | 'office'>('all')
-  const [installedRemoteIds, setInstalledRemoteIds] = useState<Record<string, boolean>>({})
 
   const filteredSkills = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -409,21 +354,14 @@ function SkillsOverviewPage({
     })
   }, [skills, query, filterMode])
 
-  const filteredRemoteSkills = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return demoRemoteSkills.filter((item) => {
-      if (remoteCategory !== 'all' && item.category !== remoteCategory) return false
-      if (!q) return true
-      const searchStr = `${item.name} ${item.description} ${item.apps.join(' ')} ${item.author}`.toLowerCase()
-      return searchStr.includes(q)
-    })
-  }, [query, remoteCategory])
-
   const pinnedCount = useMemo(() => skills.filter((s) => s.pinned).length, [skills])
 
-  const handleInstallRemote = (item: RemoteSkillItem) => {
-    setInstalledRemoteIds((prev) => ({ ...prev, [item.id]: true }))
-    notify?.(`${item.name} · ${t.skills.remoteInstalled}`)
+  const handleOpenLocalDir = () => {
+    if (window.workflowSkill?.getStoragePath && window.workflowSkill?.openPathInFinder) {
+      window.workflowSkill.getStoragePath().then((root) => {
+        void window.workflowSkill?.openPathInFinder?.(root)
+      }).catch(() => {})
+    }
   }
 
   return (
@@ -488,42 +426,44 @@ function SkillsOverviewPage({
       {skillTab === 'local' ? (
         <>
           {/* Local Tab: Filter Row: Floating Capsule Search Box & Flat Segmented Tab */}
-          <div className="filter-toolbar-row stagger-item">
-            <label className="search-capsule-box">
-              <Search size={14} />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t.skills.searchPlaceholder}
-              />
-              {query ? (
-                <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
-                  <X size={13} />
-                </button>
-              ) : null}
-            </label>
+          {skills.length > 0 ? (
+            <div className="filter-toolbar-row stagger-item">
+              <label className="search-capsule-box">
+                <Search size={14} />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t.skills.searchPlaceholder}
+                />
+                {query ? (
+                  <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
+                    <X size={13} />
+                  </button>
+                ) : null}
+              </label>
 
-            {/* Flat Category Switcher */}
-            <div className="flat-segmented-filter">
-              <button
-                type="button"
-                className={`filter-pill-tab ${filterMode === 'all' ? 'is-active' : ''}`}
-                onClick={() => setFilterMode('all')}
-              >
-                <span>{t.skills.allSection}</span>
-                <span className="filter-count-badge font-mono">{skills.length}</span>
-              </button>
-              <button
-                type="button"
-                className={`filter-pill-tab ${filterMode === 'pinned' ? 'is-active' : ''}`}
-                onClick={() => setFilterMode('pinned')}
-              >
-                <Bookmark size={12} className="filter-pin-icon" />
-                <span>{t.skills.pinnedSection}</span>
-                <span className="filter-count-badge font-mono">{pinnedCount}</span>
-              </button>
+              {/* Flat Category Switcher */}
+              <div className="flat-segmented-filter">
+                <button
+                  type="button"
+                  className={`filter-pill-tab ${filterMode === 'all' ? 'is-active' : ''}`}
+                  onClick={() => setFilterMode('all')}
+                >
+                  <span>{t.skills.allSection}</span>
+                  <span className="filter-count-badge font-mono">{skills.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`filter-pill-tab ${filterMode === 'pinned' ? 'is-active' : ''}`}
+                  onClick={() => setFilterMode('pinned')}
+                >
+                  <Bookmark size={12} className="filter-pin-icon" />
+                  <span>{t.skills.pinnedSection}</span>
+                  <span className="filter-count-badge font-mono">{pinnedCount}</span>
+                </button>
+              </div>
             </div>
-          </div>
+          ) : null}
 
           {/* Local Skills List Container */}
           <div className="flat-table-wrap stagger-item">
@@ -566,10 +506,32 @@ function SkillsOverviewPage({
                 </div>
               ))}
 
-              {filteredSkills.length === 0 ? (
+              {skills.length > 0 && filteredSkills.length === 0 ? (
                 <div className="clean-empty-state">
                   <Search size={24} className="empty-icon" />
                   <p>{t.skills.emptySearch}</p>
+                </div>
+              ) : null}
+
+              {skills.length === 0 ? (
+                <div className="clean-empty-state">
+                  <Boxes size={32} className="empty-icon" />
+                  <h3>{t.skills.emptyLocalTitle}</h3>
+                  <p>{t.skills.emptyLocalDesc}</p>
+                  <div className="empty-state-actions">
+                    <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
+                      <Plus size={13} />
+                      <span>{t.skills.newSkill}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--capsule"
+                      onClick={handleOpenLocalDir}
+                    >
+                      <FolderOpen size={13} />
+                      <span>{t.skills.openLocalDirBtn}</span>
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -598,108 +560,24 @@ function SkillsOverviewPage({
             </button>
           </div>
 
-          {/* Remote Filter Toolbar */}
-          <div className="filter-toolbar-row stagger-item">
-            <label className="search-capsule-box">
-              <Search size={14} />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t.skills.remoteSearchPlaceholder}
-              />
-              {query ? (
-                <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
-                  <X size={13} />
-                </button>
-              ) : null}
-            </label>
-
-            {/* Remote Category Switcher */}
-            <div className="flat-segmented-filter">
-              <button
-                type="button"
-                className={`filter-pill-tab ${remoteCategory === 'all' ? 'is-active' : ''}`}
-                onClick={() => setRemoteCategory('all')}
-              >
-                <span>{t.skills.remoteTagAll}</span>
-                <span className="filter-count-badge font-mono">{demoRemoteSkills.length}</span>
-              </button>
-              <button
-                type="button"
-                className={`filter-pill-tab ${remoteCategory === 'dev' ? 'is-active' : ''}`}
-                onClick={() => setRemoteCategory('dev')}
-              >
-                <span>{t.skills.remoteTagDev}</span>
-              </button>
-              <button
-                type="button"
-                className={`filter-pill-tab ${remoteCategory === 'office' ? 'is-active' : ''}`}
-                onClick={() => setRemoteCategory('office')}
-              >
-                <span>{t.skills.remoteTagOffice}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Remote Skills List Container */}
+          {/* Remote Skills Clean Empty State */}
           <div className="flat-table-wrap stagger-item">
             <div className="flat-rows-list">
-              {filteredRemoteSkills.map((item, idx) => {
-                const isInstalled = Boolean(installedRemoteIds[item.id])
-                return (
-                  <div
-                    key={item.id}
-                    className="flat-row flat-row--remote"
-                    style={{ animationDelay: `${idx * 20}ms` }}
+              <div className="clean-empty-state">
+                <Globe size={32} className="empty-icon" />
+                <h3>{t.skills.emptyRemoteTitle}</h3>
+                <p>{t.skills.emptyRemoteDesc}</p>
+                <div className="empty-state-actions">
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--capsule"
+                    onClick={() => notify?.(t.skills.remoteComingSoonToast)}
                   >
-                    <div className="flat-row__left">
-                      <div className="flat-title-row">
-                        <strong className="flat-row-title">{item.name}</strong>
-                      </div>
-                      <span className="flat-row-desc">{item.description}</span>
-                    </div>
-
-                    <div className="flat-row__middle">
-                      <div className="app-chips-row">
-                        {item.apps.map((a) => (
-                          <span key={a} className="app-capsule-chip font-mono">
-                            {a}
-                          </span>
-                        ))}
-                      </div>
-                      <span className="remote-author-tag font-mono">{item.author}</span>
-                    </div>
-
-                    <div className="flat-row__right">
-                      <span className="pinned-ver-pill font-mono">{t.skills.remoteVersion(item.version)}</span>
-                      <button
-                        type="button"
-                        className={`btn btn--capsule btn--sm ${isInstalled ? 'btn--secondary' : 'btn--primary'}`}
-                        onClick={() => handleInstallRemote(item)}
-                      >
-                        {isInstalled ? (
-                          <>
-                            <Check size={12} />
-                            <span>{t.skills.remoteInstalled}</span>
-                          </>
-                        ) : (
-                          <>
-                            <Download size={12} />
-                            <span>{t.skills.remoteInstallBtn}</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-
-              {filteredRemoteSkills.length === 0 ? (
-                <div className="clean-empty-state">
-                  <Search size={24} className="empty-icon" />
-                  <p>{t.skills.emptySearch}</p>
+                    <Sliders size={13} />
+                    <span>{t.skills.remoteConfigureBtn}</span>
+                  </button>
                 </div>
-              ) : null}
+              </div>
             </div>
           </div>
         </>
@@ -2111,9 +1989,26 @@ export function App() {
     workflow: Workflow | null
   }>({ open: false, skillName: '', workflow: null })
 
-  // Dynamic Skills & Discoveries in State
-  const [skills, setSkills] = useState<Skill[]>(demoSkills)
-  const [discoveries, setDiscoveries] = useState<Workflow[]>(initialDiscoveries)
+  // Real Dynamic Skills & Discoveries in State (Zero Fake Data)
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [discoveries, setDiscoveries] = useState<Workflow[]>([])
+
+  useEffect(() => {
+    let active = true
+    if (window.workflowSkill?.loadLocalSkills) {
+      window.workflowSkill
+        .loadLocalSkills()
+        .then((loaded) => {
+          if (active && Array.isArray(loaded)) {
+            setSkills(loaded)
+          }
+        })
+        .catch(() => {})
+    }
+    return () => {
+      active = false
+    }
+  }, [])
 
   // Active Level-2 Workflow Detail State
   const [activeDetail, setActiveDetail] = useState<ActiveDetailState | null>(null)
@@ -2292,24 +2187,29 @@ export function App() {
   const handleSaveWorkflow = (wf: Workflow) => {
     setSavedWorkflowIds((prev) => ({ ...prev, [wf.id]: true }))
 
-    // Add to skills state if not already there
+    const appList = Array.from(new Set(wf.nodes.map((n) => n.app).filter((a): a is string => Boolean(a))))
+    const newSk: Skill = {
+      id: wf.id,
+      name: wf.name,
+      description: wf.summary,
+      apps: appList.length > 0 ? appList : ['System'],
+      versions: 1,
+      pinned: true,
+      sourceRuns: wf.repeatCount || 1,
+      workflow: wf,
+      updatedLabel: '刚刚',
+    }
+
     setSkills((prev) => {
       const existing = prev.find((s) => s.id === wf.id)
       if (existing) return prev
-      const appList = Array.from(new Set(wf.nodes.map((n) => n.app).filter((a): a is string => Boolean(a))))
-      const newSk: Skill = {
-        id: wf.id,
-        name: wf.name,
-        description: wf.summary,
-        apps: appList.length > 0 ? appList : ['System'],
-        versions: 1,
-        pinned: true,
-        sourceRuns: wf.repeatCount || 1,
-        workflow: wf,
-        updatedLabel: '刚刚',
-      }
       return [newSk, ...prev]
     })
+
+    if (window.workflowSkill?.saveLocalSkill) {
+      void window.workflowSkill.saveLocalSkill(newSk)
+    }
+
     setToast(t.workflows.savedToast(wf.name))
   }
 
@@ -2344,6 +2244,9 @@ export function App() {
       updatedLabel: '刚刚',
     }
     setSkills((prev) => [newSkill, ...prev])
+    if (window.workflowSkill?.saveLocalSkill) {
+      void window.workflowSkill.saveLocalSkill(newSkill)
+    }
     setNewSkillOpen(false)
     setToast(t.skills.createdToast(name))
   }
