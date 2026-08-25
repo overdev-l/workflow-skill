@@ -660,8 +660,10 @@ function SkillDetailDrawer({
             </div>
 
             <div className="drawer-tool-list">
-              {aiTools.map((tool) => {
-                const isLinked = Boolean(skill.targetTools?.includes(tool.id))
+              {aiTools
+                .filter((tool) => tool.installed)
+                .map((tool) => {
+                  const isLinked = Boolean(skill.targetTools?.includes(tool.id))
                 return (
                   <div key={tool.id} className={`drawer-tool-row ${isLinked ? 'is-linked' : ''}`}>
                     <div className="drawer-tool-left">
@@ -995,7 +997,7 @@ function SkillsOverviewPage({
                   </button>
                 </div>
 
-                {/* Secondary Quick Filter: Specific AI Tools Chips */}
+                {/* Secondary Quick Filter: Specific AI Tools Chips (Only Installed) */}
                 <div className="tool-quick-filter-chips">
                   <button
                     type="button"
@@ -1005,7 +1007,7 @@ function SkillsOverviewPage({
                     <span>{t.skills.allToolsFilter}</span>
                   </button>
                   {aiTools
-                    .filter((tool) => categoryFilter === 'all' || tool.category === categoryFilter)
+                    .filter((tool) => tool.installed && (categoryFilter === 'all' || tool.category === categoryFilter))
                     .map((tool) => {
                       const count = skills.filter((s) => s.targetTools?.includes(tool.id)).length
                       const isSelected = selectedToolFilter === tool.id
@@ -1013,7 +1015,7 @@ function SkillsOverviewPage({
                         <button
                           key={tool.id}
                           type="button"
-                          className={`tool-filter-chip ${isSelected ? 'is-active' : ''} ${tool.installed ? 'is-installed' : ''}`}
+                          className={`tool-filter-chip ${isSelected ? 'is-active' : ''} is-installed`}
                           onClick={() => setSelectedToolFilter(isSelected ? 'all' : tool.id)}
                         >
                           <AIToolLogo toolId={tool.id} size={12} color={isSelected} />
@@ -1029,45 +1031,46 @@ function SkillsOverviewPage({
               {filteredSkills.length > 0 ? (
                 <div className="flat-table-wrap stagger-item">
                   <div className="flat-rows-list">
-                    {filteredSkills.map((sk, idx) => (
-                      <div
-                        key={sk.id}
-                        className="flat-row skill-distribution-row"
-                        style={{ animationDelay: `${idx * 20}ms` }}
-                        onClick={() => setDrawerSkill(sk)}
-                        role="button"
-                        tabIndex={0}
-                      >
-                        {/* Left: Metadata */}
-                        <div className="flat-row__left">
-                          <div className="flat-title-row">
-                            {sk.pinned ? <Bookmark size={13} className="flat-pinned-icon" /> : null}
-                            <strong className="flat-row-title">{sk.name}</strong>
-                            {sk.tags?.slice(0, 2).map((tag) => (
-                              <span key={tag} className="skill-tag-pill font-mono">
-                                #{tag}
-                              </span>
-                            ))}
-                          </div>
-                          <span className="flat-row-desc">{sk.description}</span>
-                          {sk.triggers && sk.triggers.length > 0 ? (
-                            <div className="skill-triggers-row">
-                              {sk.triggers.map((trig) => (
-                                <span key={trig} className="skill-trigger-chip font-mono">
-                                  {trig}
+                    {filteredSkills.map((sk, idx) => {
+                      const installedTargets = aiTools.filter(
+                        (tool) => tool.installed && (categoryFilter === 'all' || tool.category === categoryFilter),
+                      )
+                      return (
+                        <div
+                          key={sk.id}
+                          className="flat-row skill-distribution-row"
+                          style={{ animationDelay: `${idx * 20}ms` }}
+                          onClick={() => setDrawerSkill(sk)}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          {/* Left: Metadata */}
+                          <div className="flat-row__left">
+                            <div className="flat-title-row">
+                              {sk.pinned ? <Bookmark size={13} className="flat-pinned-icon" /> : null}
+                              <strong className="flat-row-title">{sk.name}</strong>
+                              {sk.tags?.slice(0, 2).map((tag) => (
+                                <span key={tag} className="skill-tag-pill font-mono">
+                                  #{tag}
                                 </span>
                               ))}
                             </div>
-                          ) : null}
-                        </div>
+                            <span className="flat-row-desc">{sk.description}</span>
+                            {sk.triggers && sk.triggers.length > 0 ? (
+                              <div className="skill-triggers-row">
+                                {sk.triggers.map((trig) => (
+                                  <span key={trig} className="skill-trigger-chip font-mono">
+                                    {trig}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
 
-                        {/* Middle: Live Distribution Capsule Pills Matrix */}
-                        <div className="flat-row__middle">
-                          <div className="target-capsules-group">
-                            {aiTools
-                              .filter((tool) => categoryFilter === 'all' || tool.category === categoryFilter)
-                              .slice(0, 5)
-                              .map((tool) => {
+                          {/* Middle: Live Distribution Capsule Pills Matrix (Only Installed) */}
+                          <div className="flat-row__middle">
+                            <div className="target-capsules-group">
+                              {installedTargets.slice(0, 5).map((tool) => {
                                 const isLinked = Boolean(sk.targetTools?.includes(tool.id))
                                 return (
                                   <AIToolTargetPill
@@ -1083,21 +1086,21 @@ function SkillsOverviewPage({
                                   />
                                 )
                               })}
-                            {aiTools.length > 5 && categoryFilter === 'all' ? (
-                              <button
-                                type="button"
-                                className="target-capsule-more font-mono"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setDrawerSkill(sk)
-                                }}
-                              >
-                                +{aiTools.length - 5}
-                              </button>
-                            ) : null}
+                              {installedTargets.length > 5 && categoryFilter === 'all' ? (
+                                <button
+                                  type="button"
+                                  className="target-capsule-more font-mono"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setDrawerSkill(sk)
+                                  }}
+                                >
+                                  +{installedTargets.length - 5}
+                                </button>
+                              ) : null}
+                            </div>
+                            <WorkflowGraph workflow={sk.workflow} compact />
                           </div>
-                          <WorkflowGraph workflow={sk.workflow} compact />
-                        </div>
 
                         {/* Right: Meta, Actions, and Chevron */}
                         <div className="flat-row__right">
@@ -1114,12 +1117,9 @@ function SkillsOverviewPage({
                           >
                             <MoreHorizontal size={15} />
                           </button>
-                          <div className="row-chevron-indicator">
-                            <ChevronRight size={14} />
-                          </div>
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               ) : (
@@ -1253,21 +1253,30 @@ function AIEnvironmentsPage({
   const [categoryFilter, setCategoryFilter] = useState<AIToolCategory>('all')
   const [query, setQuery] = useState('')
 
+  // Only consider installed/detected physical directory environments
+  const installedTools = useMemo(() => aiTools.filter((t) => t.installed), [aiTools])
+
   const filteredTools = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return aiTools.filter((tool) => {
+    return installedTools.filter((tool) => {
       if (categoryFilter !== 'all' && tool.category !== categoryFilter) return false
       if (!q) return true
-      const searchStr = `${tool.name} ${tool.description || ''} ${tool.defaultDir} ${tool.category}`.toLowerCase()
+      const searchStr = `${tool.name} ${tool.description || ''} ${tool.defaultDir} ${tool.category} ${(tool.compatibleTools || []).map((c) => c.name).join(' ')}`.toLowerCase()
       return searchStr.includes(q)
     })
-  }, [aiTools, categoryFilter, query])
+  }, [installedTools, categoryFilter, query])
 
-  const installedCount = useMemo(() => aiTools.filter((t) => t.installed).length, [aiTools])
+  const totalCompatibleAgents = useMemo(() => {
+    return installedTools.reduce((acc, t) => acc + (t.compatibleTools?.length || 1), 0)
+  }, [installedTools])
 
   const totalActiveLinks = useMemo(() => {
-    return skills.reduce((acc, sk) => acc + (sk.targetTools?.length || 0), 0)
-  }, [skills])
+    const installedIds = new Set(installedTools.map((t) => t.id))
+    return skills.reduce((acc, sk) => {
+      const active = (sk.targetTools || []).filter((id) => installedIds.has(id)).length
+      return acc + active
+    }, 0)
+  }, [skills, installedTools])
 
   const handleOpenToolDir = (tool: AIToolTarget) => {
     const targetPath = tool.detectedPath || tool.defaultDir
@@ -1320,21 +1329,21 @@ function AIEnvironmentsPage({
       {/* Hero Metric Cards */}
       <div className="env-hero-metrics-grid stagger-item">
         <div className="env-metric-card">
-          <span className="env-metric-label">{t.environments.metricSupported}</span>
+          <span className="env-metric-label">{t.environments.metricInstalled}</span>
           <div className="env-metric-value-row">
-            <span className="env-metric-num font-mono">{aiTools.length}</span>
-            <span className="env-metric-unit">大主流环境</span>
+            <span className="env-metric-num font-mono is-green">{installedTools.length}</span>
+            <span className="env-metric-unit">个本地已就绪</span>
           </div>
-          <span className="env-metric-hint">AI IDE、终端 Agent、插件扩展与开放标准</span>
+          <span className="env-metric-hint">已自动感知物理配置目录与技能路径</span>
         </div>
 
         <div className="env-metric-card">
-          <span className="env-metric-label">{t.environments.metricInstalled}</span>
+          <span className="env-metric-label">兼容共用 Agent 工具</span>
           <div className="env-metric-value-row">
-            <span className="env-metric-num font-mono is-green">{installedCount}</span>
-            <span className="env-metric-unit">个本地已就绪</span>
+            <span className="env-metric-num font-mono">{totalCompatibleAgents}</span>
+            <span className="env-metric-unit">个主流 Agent</span>
           </div>
-          <span className="env-metric-hint">已自动感知配置目录与技能路径</span>
+          <span className="env-metric-hint">包含 Antigravity、Claude Code、Cursor 等</span>
         </div>
 
         <div className="env-metric-card">
@@ -1354,7 +1363,7 @@ function AIEnvironmentsPage({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索 AI 环境名称、目录或分类…"
+            placeholder="搜索已就绪环境名称、目录或工具…"
           />
           {query ? (
             <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
@@ -1371,7 +1380,17 @@ function AIEnvironmentsPage({
             onClick={() => setCategoryFilter('all')}
           >
             <span>{t.skills.categoryAll}</span>
-            <span className="cat-count-badge font-mono">{aiTools.length}</span>
+            <span className="cat-count-badge font-mono">{installedTools.length}</span>
+          </button>
+          <button
+            type="button"
+            className={`cat-pill-btn ${categoryFilter === 'standard' ? 'is-active' : ''}`}
+            onClick={() => setCategoryFilter('standard')}
+          >
+            <span>{t.skills.categoryStandard}</span>
+            <span className="cat-count-badge font-mono">
+              {installedTools.filter((t) => t.category === 'standard').length}
+            </span>
           </button>
           <button
             type="button"
@@ -1380,7 +1399,7 @@ function AIEnvironmentsPage({
           >
             <span>{t.skills.categoryIde}</span>
             <span className="cat-count-badge font-mono">
-              {aiTools.filter((t) => t.category === 'ide').length}
+              {installedTools.filter((t) => t.category === 'ide').length}
             </span>
           </button>
           <button
@@ -1390,7 +1409,7 @@ function AIEnvironmentsPage({
           >
             <span>{t.skills.categoryCli}</span>
             <span className="cat-count-badge font-mono">
-              {aiTools.filter((t) => t.category === 'cli').length}
+              {installedTools.filter((t) => t.category === 'cli').length}
             </span>
           </button>
           <button
@@ -1400,161 +1419,174 @@ function AIEnvironmentsPage({
           >
             <span>{t.skills.categoryExtension}</span>
             <span className="cat-count-badge font-mono">
-              {aiTools.filter((t) => t.category === 'extension').length}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'standard' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('standard')}
-          >
-            <span>{t.skills.categoryStandard}</span>
-            <span className="cat-count-badge font-mono">
-              {aiTools.filter((t) => t.category === 'standard').length}
+              {installedTools.filter((t) => t.category === 'extension').length}
             </span>
           </button>
         </div>
       </div>
 
       {/* Environments Grid List */}
-      <div className="env-cards-grid stagger-item">
-        {filteredTools.map((tool, idx) => {
-          const mountedSkills = skills.filter((s) => s.targetTools?.includes(tool.id))
-          const isAllMounted = mountedSkills.length === skills.length && skills.length > 0
-          return (
-            <div
-              key={tool.id}
-              className={`env-card ${tool.installed ? 'is-installed' : ''}`}
-              style={{ animationDelay: `${idx * 25}ms` }}
-            >
-              {/* Card Header: LobeHub Official Logo Cluster + Titles + Badges */}
-              <div className="env-card-header">
-                <div className="env-logo-wrap">
-                  {tool.compatibleTools && tool.compatibleTools.length > 1 ? (
-                    <div className="env-logo-cluster">
-                      {tool.compatibleTools.slice(0, 4).map((ct) => (
-                        <div key={ct.id} className="env-logo-cluster-item" title={ct.name}>
-                          <AIToolLogo toolId={ct.logoId} size={16} color />
-                        </div>
+      {filteredTools.length > 0 ? (
+        <div className="env-cards-grid stagger-item">
+          {filteredTools.map((tool, idx) => {
+            const mountedSkills = skills.filter((s) => s.targetTools?.includes(tool.id))
+            const isAllMounted = mountedSkills.length === skills.length && skills.length > 0
+            return (
+              <div
+                key={tool.id}
+                className="env-card is-installed"
+                style={{ animationDelay: `${idx * 25}ms` }}
+              >
+                {/* Card Header: LobeHub Official Logo Cluster + Titles + Badges */}
+                <div className="env-card-header">
+                  <div className="env-logo-wrap">
+                    {tool.compatibleTools && tool.compatibleTools.length > 1 ? (
+                      <div className="env-logo-cluster">
+                        {tool.compatibleTools.slice(0, 4).map((ct) => (
+                          <div key={ct.id} className="env-logo-cluster-item" title={ct.name}>
+                            <AIToolLogo toolId={ct.logoId} size={16} color />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <AIToolLogo toolId={tool.id} size={36} color />
+                    )}
+                  </div>
+                  <div className="env-title-meta">
+                    <div className="env-title-row">
+                      <h3 className="env-tool-name">{tool.name}</h3>
+                      <span className="env-cat-badge">{tool.category.toUpperCase()}</span>
+                    </div>
+                    <span className="env-status-pill is-ready">
+                      <span className="env-status-dot" />
+                      <span>{t.environments.installedReady}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Shared AI Tools Badges */}
+                {tool.compatibleTools && tool.compatibleTools.length > 0 ? (
+                  <div className="env-shared-tools-row">
+                    <span className="env-shared-tools-label">{t.environments.sharedToolsLabel}:</span>
+                    <div className="env-shared-tools-badges">
+                      {tool.compatibleTools.map((ct) => (
+                        <span key={ct.id} className="env-shared-tool-badge">
+                          <AIToolLogo toolId={ct.logoId} size={13} color />
+                          <span>{ct.name}</span>
+                        </span>
                       ))}
                     </div>
-                  ) : (
-                    <AIToolLogo toolId={tool.id} size={36} color />
-                  )}
-                </div>
-                <div className="env-title-meta">
-                  <div className="env-title-row">
-                    <h3 className="env-tool-name">{tool.name}</h3>
-                    <span className="env-cat-badge">{tool.category.toUpperCase()}</span>
                   </div>
-                  <span className={`env-status-pill ${tool.installed ? 'is-ready' : 'is-unready'}`}>
-                    <span className="env-status-dot" />
-                    <span>{tool.installed ? t.environments.installedReady : t.environments.notDetected}</span>
-                  </span>
-                </div>
-              </div>
+                ) : null}
 
-              {/* Shared AI Tools Badges */}
-              {tool.compatibleTools && tool.compatibleTools.length > 0 ? (
-                <div className="env-shared-tools-row">
-                  <span className="env-shared-tools-label">{t.environments.sharedToolsLabel}</span>
-                  <div className="env-shared-tools-badges">
-                    {tool.compatibleTools.map((ct) => (
-                      <span key={ct.id} className="env-shared-tool-badge">
-                        <AIToolLogo toolId={ct.logoId} size={13} color />
-                        <span>{ct.name}</span>
-                      </span>
-                    ))}
+                {/* Description */}
+                <p className="env-desc">{tool.description}</p>
+
+                {/* Directory Path */}
+                <div className="env-path-box">
+                  <div className="env-path-text font-mono" title={tool.detectedPath || tool.defaultDir}>
+                    <Folder size={12} className="env-path-icon" />
+                    <span>{tool.detectedPath || tool.defaultDir}</span>
                   </div>
-                </div>
-              ) : null}
-
-              {/* Description */}
-              <p className="env-desc">{tool.description}</p>
-
-              {/* Directory Path */}
-              <div className="env-path-box">
-                <div className="env-path-text font-mono" title={tool.detectedPath || tool.defaultDir}>
-                  <Folder size={12} className="env-path-icon" />
-                  <span>{tool.detectedPath || tool.defaultDir}</span>
-                </div>
-                <button
-                  type="button"
-                  className="env-path-open-btn"
-                  title={t.environments.openDirBtn}
-                  onClick={() => handleOpenToolDir(tool)}
-                >
-                  <ExternalLink size={12} />
-                </button>
-              </div>
-
-              {/* Mounted Skills Summary & Chips */}
-              <div className="env-mounted-section">
-                <div className="env-mounted-header">
-                  <span className="env-mounted-title">
-                    {t.environments.mountedSkillsLabel(mountedSkills.length)}
-                  </span>
-                  <span className="env-mounted-ratio font-mono">
-                    {mountedSkills.length}/{skills.length}
-                  </span>
-                </div>
-
-                <div className="env-skill-chips-wrap">
-                  {mountedSkills.length > 0 ? (
-                    mountedSkills.map((sk) => (
-                      <button
-                        key={sk.id}
-                        type="button"
-                        className="env-skill-chip is-linked"
-                        title="点击解除此 Skill 软链接"
-                        onClick={() => void onToggleLinkTarget(sk, tool.id)}
-                      >
-                        <Link2 size={10} className="env-chip-link-icon" />
-                        <span>{sk.name}</span>
-                        <X size={10} className="env-chip-unlink-icon" />
-                      </button>
-                    ))
-                  ) : (
-                    <span className="env-no-skills-hint">{t.environments.noMountedSkills}</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Card Footer Actions */}
-              <div className="env-card-footer">
-                {isAllMounted ? (
                   <button
                     type="button"
-                    className="btn btn--secondary btn--capsule btn--sm"
-                    onClick={() => void onBulkUnlink(tool.id)}
+                    className="env-path-open-btn"
+                    title={t.environments.openDirBtn}
+                    onClick={() => handleOpenToolDir(tool)}
                   >
-                    <Unlink size={12} />
-                    <span>{t.environments.unlinkAllFromTargetBtn}</span>
+                    <ExternalLink size={12} />
                   </button>
-                ) : (
+                </div>
+
+                {/* Mounted Skills Summary & Chips */}
+                <div className="env-mounted-section">
+                  <div className="env-mounted-header">
+                    <span className="env-mounted-title">
+                      {t.environments.mountedSkillsLabel(mountedSkills.length)}
+                    </span>
+                    <span className="env-mounted-ratio font-mono">
+                      {mountedSkills.length}/{skills.length}
+                    </span>
+                  </div>
+
+                  <div className="env-skill-chips-wrap">
+                    {mountedSkills.length > 0 ? (
+                      mountedSkills.map((sk) => (
+                        <button
+                          key={sk.id}
+                          type="button"
+                          className="env-skill-chip is-linked"
+                          title="点击解除此 Skill 软链接"
+                          onClick={() => void onToggleLinkTarget(sk, tool.id)}
+                        >
+                          <Link2 size={10} className="env-chip-link-icon" />
+                          <span>{sk.name}</span>
+                          <X size={10} className="env-chip-unlink-icon" />
+                        </button>
+                      ))
+                    ) : (
+                      <span className="env-no-skills-hint">{t.environments.noMountedSkills}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Card Footer Actions */}
+                <div className="env-card-footer">
+                  {isAllMounted ? (
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--capsule btn--sm"
+                      onClick={() => void onBulkUnlink(tool.id)}
+                    >
+                      <Unlink size={12} />
+                      <span>{t.environments.unlinkAllFromTargetBtn}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--capsule btn--sm"
+                      onClick={() => void onBulkLink(tool.id)}
+                    >
+                      <Link2 size={12} />
+                      <span>{t.environments.syncAllToTargetBtn}</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
-                    className="btn btn--primary btn--capsule btn--sm"
-                    onClick={() => void onBulkLink(tool.id)}
+                    className="btn btn--capsule-ghost btn--capsule btn--sm"
+                    onClick={() => handleOpenToolDir(tool)}
                   >
-                    <Link2 size={12} />
-                    <span>{t.environments.syncAllToTargetBtn}</span>
+                    <FolderOpen size={12} />
+                    <span>打开目录</span>
                   </button>
-                )}
-
-                <button
-                  type="button"
-                  className="btn btn--capsule-ghost btn--capsule btn--sm"
-                  onClick={() => handleOpenToolDir(tool)}
-                >
-                  <FolderOpen size={12} />
-                  <span>打开目录</span>
-                </button>
+                </div>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      ) : (
+        /* Zero Installed Environments Clean Empty State */
+        <div className="clean-empty-state stagger-item">
+          <div className="empty-icon-halo">
+            <FolderTree size={30} className="empty-icon-glow" />
+          </div>
+          <h3 className="empty-title">未检测到已就绪的 AI 环境技能目录</h3>
+          <p className="empty-desc">
+            Trace 会自动扫描本机上的 `.agents`、`.claude`、`.cursor` 等 AI 工具目录。
+          </p>
+          <div className="empty-state-actions">
+            <button
+              type="button"
+              className="btn btn--primary btn--capsule"
+              onClick={onDetectTools}
+            >
+              <Sparkles size={13} />
+              <span>重新扫描物理目录</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
