@@ -1240,7 +1240,10 @@ function SettingsMainPage({
                 <strong className="flat-setting-title">{t.settings.dataStoragePathTitle}</strong>
                 <p className="flat-setting-desc font-mono" title={storagePath}>
                   {storagePath
-                    ? storagePath.replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~').replace(/^\/Users\/[^/]+/, '~')
+                    ? storagePath
+                        .replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~')
+                        .replace(/^\/Users\/[^/]+/, '~')
+                        .replace(/^\\Users\\[^\\]+/, '~')
                     : t.settings.dataStoragePathPlaceholder}
                 </p>
               </div>
@@ -1254,29 +1257,41 @@ function SettingsMainPage({
                     <FolderOpen size={12} />
                     <span>{t.settings.dataStoragePathSelectBtn}</span>
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
-                    onClick={handleRevealStoragePath}
-                    title={t.settings.dataStoragePathRevealBtn}
-                    aria-label={t.settings.dataStoragePathRevealBtn}
-                  >
-                    <ExternalLink size={12} />
-                  </button>
-                  {storagePath &&
-                  !storagePath.endsWith('.trace') &&
-                  !storagePath.endsWith('.trace\\') &&
-                  !storagePath.endsWith('.trace/') ? (
-                    <button
-                      type="button"
-                      className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
-                      onClick={handleResetStoragePath}
-                      title={t.settings.dataStoragePathResetBtn}
-                      aria-label={t.settings.dataStoragePathResetBtn}
-                    >
-                      <RotateCcw size={12} />
-                    </button>
-                  ) : null}
+                  {(() => {
+                    const isMac = typeof navigator !== 'undefined' && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform || navigator.userAgent)
+                    const revealTitle = isMac ? t.settings.dataStoragePathRevealBtnMac : t.settings.dataStoragePathRevealBtnWin
+                    const isDefault =
+                      storagePath.endsWith('.trace') ||
+                      storagePath.endsWith('.trace\\') ||
+                      storagePath.endsWith('.trace/') ||
+                      storagePath.endsWith('/.trace') ||
+                      storagePath.endsWith('\\.trace')
+
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
+                          onClick={handleRevealStoragePath}
+                          title={revealTitle}
+                          aria-label={revealTitle}
+                        >
+                          <ExternalLink size={12} />
+                        </button>
+                        {storagePath && !isDefault ? (
+                          <button
+                            type="button"
+                            className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
+                            onClick={handleResetStoragePath}
+                            title={t.settings.dataStoragePathResetBtn}
+                            aria-label={t.settings.dataStoragePathResetBtn}
+                          >
+                            <RotateCcw size={12} />
+                          </button>
+                        ) : null}
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
             </div>

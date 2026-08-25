@@ -95,7 +95,8 @@ export const translations = {
       dataStoragePathDesc: '存放工作区配置、Skill 资产、Workflow 流程与录制缓存的根目录',
       dataStoragePathPlaceholder: '未设置存储路径',
       dataStoragePathSelectBtn: '更改目录…',
-      dataStoragePathRevealBtn: '在访达中打开',
+      dataStoragePathRevealBtnMac: '在访达中打开',
+      dataStoragePathRevealBtnWin: '在文件资源管理器中打开',
       dataStoragePathResetBtn: '恢复默认',
       dataStoragePathChangedToast: '存储路径已更新',
 
@@ -328,7 +329,8 @@ export const translations = {
       dataStoragePathDesc: 'Root directory for workspace configuration, skills, workflows, and observation data',
       dataStoragePathPlaceholder: 'No storage path configured',
       dataStoragePathSelectBtn: 'Change Directory…',
-      dataStoragePathRevealBtn: 'Reveal in Finder',
+      dataStoragePathRevealBtnMac: 'Reveal in Finder',
+      dataStoragePathRevealBtnWin: 'Open in File Explorer',
       dataStoragePathResetBtn: 'Reset to Default',
       dataStoragePathChangedToast: 'Storage path updated',
 
