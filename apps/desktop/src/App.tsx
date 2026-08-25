@@ -345,14 +345,13 @@ function SkillSegmentedTabs({
   value,
   onChange,
 }: {
-  value: 'local' | 'environments' | 'remote'
-  onChange: (val: 'local' | 'environments' | 'remote') => void
+  value: 'local' | 'remote'
+  onChange: (val: 'local' | 'remote') => void
 }) {
   const { t } = useI18n()
   const options = useMemo(
     () => [
       { key: 'local' as const, label: t.skills.tabLocal, icon: Folder },
-      { key: 'environments' as const, label: t.environments.tabEnvironments, icon: Cpu },
       { key: 'remote' as const, label: t.skills.tabRemote, icon: Globe },
     ],
     [t],
@@ -832,22 +831,14 @@ function SkillsOverviewPage({
       <header className="page-header stagger-item">
         <div className="page-header__left">
           <h1 className="page-title">
-            {skillTab === 'local'
-              ? t.skills.title
-              : skillTab === 'environments'
-              ? t.environments.title
-              : t.skills.remoteLibraryTitle}
+            {skillTab === 'local' ? t.skills.title : t.skills.remoteLibraryTitle}
           </h1>
           <span className="page-subtitle">
-            {skillTab === 'local'
-              ? t.skills.subtitle
-              : skillTab === 'environments'
-              ? t.environments.subtitle
-              : t.skills.remoteLibrarySub}
+            {skillTab === 'local' ? t.skills.subtitle : t.skills.remoteLibrarySub}
           </span>
         </div>
 
-        {/* Centered Segmented Tab Switcher (Local vs Environments vs Remote with Spring Slider) */}
+        {/* Centered Segmented Tab Switcher (Local vs Remote with Spring Slider) */}
         <div className="page-header__center">
           <SkillSegmentedTabs
             value={skillTab}
@@ -873,26 +864,6 @@ function SkillsOverviewPage({
               <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
                 <Plus size={13} />
                 <span>{t.skills.newSkill}</span>
-              </button>
-            </>
-          ) : skillTab === 'environments' ? (
-            <>
-              <button
-                type="button"
-                className="btn btn--secondary btn--capsule"
-                onClick={onDetectTools}
-                title={t.environments.rescanBtn}
-              >
-                <Sparkles size={13} className="sparkle-active-icon" />
-                <span>{t.environments.rescanBtn}</span>
-              </button>
-              <button
-                type="button"
-                className="btn btn--capsule-ghost btn--capsule"
-                onClick={handleOpenCentralStore}
-              >
-                <FolderOpen size={13} />
-                <span>中央仓库</span>
               </button>
             </>
           ) : (
@@ -1187,17 +1158,6 @@ function SkillsOverviewPage({
             </div>
           )}
         </div>
-      ) : skillTab === 'environments' ? (
-        <div key="environments-tab" className="tab-content-pane">
-          <AIEnvironmentsContent
-            aiTools={aiTools}
-            skills={skills}
-            onToggleLinkTarget={onToggleLinkTarget}
-            onBulkLink={onBulkLink}
-            onBulkUnlink={onBulkUnlink}
-            notify={notify}
-          />
-        </div>
       ) : (
         <div key="remote-tab" className="tab-content-pane">
           {/* Zero-Card Clean Empty Remote Skills State */}
@@ -1251,271 +1211,6 @@ function SkillsOverviewPage({
         onClose={() => setDeleteModalSkill(null)}
         onConfirm={onDeleteSkill}
       />
-    </div>
-  )
-}
-
-/* =========================================================================
-   AI Environments Hub Content (Rendered within Skills Overview Page)
-   ========================================================================= */
-function AIEnvironmentsContent({
-  aiTools,
-  skills,
-  onToggleLinkTarget,
-  onBulkLink,
-  onBulkUnlink,
-  notify,
-}: {
-  aiTools: AIToolTarget[]
-  skills: Skill[]
-  onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
-  onBulkLink: (targetId: string) => Promise<void>
-  onBulkUnlink: (targetId: string) => Promise<void>
-  notify?: (msg: string) => void
-}) {
-  const { t } = useI18n()
-  const [categoryFilter, setCategoryFilter] = useState<AIToolCategory>('all')
-  const [query, setQuery] = useState('')
-
-  const filteredTools = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return aiTools.filter((tool) => {
-      if (categoryFilter !== 'all' && tool.category !== categoryFilter) return false
-      if (!q) return true
-      const searchStr = `${tool.name} ${tool.description || ''} ${tool.defaultDir} ${tool.category}`.toLowerCase()
-      return searchStr.includes(q)
-    })
-  }, [aiTools, categoryFilter, query])
-
-  const installedCount = useMemo(() => aiTools.filter((t) => t.installed).length, [aiTools])
-
-  const totalActiveLinks = useMemo(() => {
-    return skills.reduce((acc, sk) => acc + (sk.targetTools?.length || 0), 0)
-  }, [skills])
-
-  const handleOpenToolDir = (tool: AIToolTarget) => {
-    const targetPath = tool.detectedPath || tool.defaultDir
-    if (window.workflowSkill?.openPathInFinder) {
-      void window.workflowSkill.openPathInFinder(targetPath)
-    }
-  }
-
-  return (
-    <div className="tab-content-pane view-enter">
-
-      {/* Hero Metric Cards */}
-      <div className="env-hero-metrics-grid stagger-item">
-        <div className="env-metric-card">
-          <span className="env-metric-label">{t.environments.metricSupported}</span>
-          <div className="env-metric-value-row">
-            <span className="env-metric-num font-mono">{aiTools.length}</span>
-            <span className="env-metric-unit">大主流环境</span>
-          </div>
-          <span className="env-metric-hint">AI IDE、终端 Agent、插件扩展与开放标准</span>
-        </div>
-
-        <div className="env-metric-card">
-          <span className="env-metric-label">{t.environments.metricInstalled}</span>
-          <div className="env-metric-value-row">
-            <span className="env-metric-num font-mono is-green">{installedCount}</span>
-            <span className="env-metric-unit">个本地已就绪</span>
-          </div>
-          <span className="env-metric-hint">已自动感知配置目录与技能路径</span>
-        </div>
-
-        <div className="env-metric-card">
-          <span className="env-metric-label">{t.environments.metricLinks}</span>
-          <div className="env-metric-value-row">
-            <span className="env-metric-num font-mono is-accent">{totalActiveLinks}</span>
-            <span className="env-metric-unit">处实时挂载</span>
-          </div>
-          <span className="env-metric-hint">NTFS Junction / Symlink 物理软链分发</span>
-        </div>
-      </div>
-
-      {/* Filter Toolbar: Search & Categories */}
-      <div className="filter-toolbar-row stagger-item">
-        <label className="search-capsule-box">
-          <Search size={14} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索 AI 环境名称、目录或分类…"
-          />
-          {query ? (
-            <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
-              <X size={13} />
-            </button>
-          ) : null}
-        </label>
-
-        {/* Category Segmented Tabs */}
-        <div className="category-capsule-tabs">
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'all' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('all')}
-          >
-            <span>{t.skills.categoryAll}</span>
-            <span className="cat-count-badge font-mono">{aiTools.length}</span>
-          </button>
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'ide' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('ide')}
-          >
-            <span>{t.skills.categoryIde}</span>
-            <span className="cat-count-badge font-mono">
-              {aiTools.filter((t) => t.category === 'ide').length}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'cli' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('cli')}
-          >
-            <span>{t.skills.categoryCli}</span>
-            <span className="cat-count-badge font-mono">
-              {aiTools.filter((t) => t.category === 'cli').length}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'extension' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('extension')}
-          >
-            <span>{t.skills.categoryExtension}</span>
-            <span className="cat-count-badge font-mono">
-              {aiTools.filter((t) => t.category === 'extension').length}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'standard' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('standard')}
-          >
-            <span>{t.skills.categoryStandard}</span>
-            <span className="cat-count-badge font-mono">
-              {aiTools.filter((t) => t.category === 'standard').length}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* Environments Grid List */}
-      <div className="env-cards-grid stagger-item">
-        {filteredTools.map((tool, idx) => {
-          const mountedSkills = skills.filter((s) => s.targetTools?.includes(tool.id))
-          const isAllMounted = mountedSkills.length === skills.length && skills.length > 0
-          return (
-            <div
-              key={tool.id}
-              className={`env-card ${tool.installed ? 'is-installed' : ''}`}
-              style={{ animationDelay: `${idx * 25}ms` }}
-            >
-              {/* Card Header: LobeHub Official Logo + Titles + Badges */}
-              <div className="env-card-header">
-                <div className="env-logo-wrap">
-                  <AIToolLogo toolId={tool.id} size={36} color />
-                </div>
-                <div className="env-title-meta">
-                  <div className="env-title-row">
-                    <h3 className="env-tool-name">{tool.name}</h3>
-                    <span className="env-cat-badge">{tool.category.toUpperCase()}</span>
-                  </div>
-                  <span className={`env-status-pill ${tool.installed ? 'is-ready' : 'is-unready'}`}>
-                    <span className="env-status-dot" />
-                    <span>{tool.installed ? t.environments.installedReady : t.environments.notDetected}</span>
-                  </span>
-                </div>
-              </div>
-
-              {/* Description */}
-              <p className="env-desc">{tool.description}</p>
-
-              {/* Directory Path */}
-              <div className="env-path-box">
-                <div className="env-path-text font-mono" title={tool.detectedPath || tool.defaultDir}>
-                  <Folder size={12} className="env-path-icon" />
-                  <span>{tool.detectedPath || tool.defaultDir}</span>
-                </div>
-                <button
-                  type="button"
-                  className="env-path-open-btn"
-                  title={t.environments.openDirBtn}
-                  onClick={() => handleOpenToolDir(tool)}
-                >
-                  <ExternalLink size={12} />
-                </button>
-              </div>
-
-              {/* Mounted Skills Summary & Chips */}
-              <div className="env-mounted-section">
-                <div className="env-mounted-header">
-                  <span className="env-mounted-title">
-                    {t.environments.mountedSkillsLabel(mountedSkills.length)}
-                  </span>
-                  <span className="env-mounted-ratio font-mono">
-                    {mountedSkills.length}/{skills.length}
-                  </span>
-                </div>
-
-                <div className="env-skill-chips-wrap">
-                  {mountedSkills.length > 0 ? (
-                    mountedSkills.map((sk) => (
-                      <button
-                        key={sk.id}
-                        type="button"
-                        className="env-skill-chip is-linked"
-                        title="点击解除此 Skill 软链接"
-                        onClick={() => void onToggleLinkTarget(sk, tool.id)}
-                      >
-                        <Link2 size={10} className="env-chip-link-icon" />
-                        <span>{sk.name}</span>
-                        <X size={10} className="env-chip-unlink-icon" />
-                      </button>
-                    ))
-                  ) : (
-                    <span className="env-no-skills-hint">{t.environments.noMountedSkills}</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Card Footer Actions */}
-              <div className="env-card-footer">
-                {isAllMounted ? (
-                  <button
-                    type="button"
-                    className="btn btn--secondary btn--capsule btn--sm"
-                    onClick={() => void onBulkUnlink(tool.id)}
-                  >
-                    <Unlink size={12} />
-                    <span>{t.environments.unlinkAllFromTargetBtn}</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--capsule btn--sm"
-                    onClick={() => void onBulkLink(tool.id)}
-                  >
-                    <Link2 size={12} />
-                    <span>{t.environments.syncAllToTargetBtn}</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  className="btn btn--capsule-ghost btn--capsule btn--sm"
-                  onClick={() => handleOpenToolDir(tool)}
-                >
-                  <FolderOpen size={12} />
-                  <span>打开目录</span>
-                </button>
-              </div>
-            </div>
-          )
-        })}
-      </div>
     </div>
   )
 }
