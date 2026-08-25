@@ -3638,6 +3638,331 @@ pre {
 }
 
 /* =========================================================================
+   AI Environments Hub & Ecosystem Styling
+   ========================================================================= */
+
+.env-hero-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.env-metric-card {
+  padding: 16px 20px;
+  border-radius: var(--radius-card);
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.24s var(--motion-smooth);
+}
+
+.env-metric-card:hover {
+  background: var(--glass-surface-hover);
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-2px);
+}
+
+.env-metric-label {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  font-weight: 500;
+}
+
+.env-metric-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.env-metric-num {
+  font-size: 1.625rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--color-ink);
+}
+
+.env-metric-num.is-green {
+  color: #10b981;
+}
+
+.env-metric-num.is-accent {
+  color: var(--color-accent);
+}
+
+.env-metric-unit {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  font-weight: 500;
+}
+
+.env-metric-hint {
+  font-size: 0.6875rem;
+  color: var(--color-muted);
+  opacity: 0.85;
+}
+
+.env-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+  margin-bottom: 30px;
+}
+
+.env-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border-radius: var(--radius-card);
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  transition: all 0.22s var(--motion-smooth);
+  position: relative;
+  overflow: hidden;
+}
+
+.env-card:hover {
+  background: var(--glass-surface-hover);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+}
+
+.env-card.is-installed {
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+.env-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.env-logo-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: transform 0.2s var(--motion-spring);
+}
+
+.env-card:hover .env-logo-wrap {
+  transform: scale(1.06);
+}
+
+.env-title-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.env-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.env-tool-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--color-ink);
+  letter-spacing: -0.01em;
+}
+
+.env-cat-badge {
+  font-size: 0.5625rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-muted);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.env-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+
+.env-status-pill.is-ready {
+  color: #10b981;
+}
+
+.env-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+
+.env-status-pill.is-ready .env-status-dot {
+  box-shadow: 0 0 8px #10b981;
+}
+
+.env-desc {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.env-path-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--glass-border-subtle);
+}
+
+.env-path-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.6875rem;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.env-path-icon {
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.env-path-open-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: all 0.16s ease;
+  flex-shrink: 0;
+}
+
+.env-path-open-btn:hover {
+  color: var(--color-ink);
+  background: var(--glass-surface-hover);
+}
+
+.env-mounted-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-card);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--glass-border-subtle);
+  min-height: 70px;
+}
+
+.env-mounted-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.env-mounted-title {
+  font-size: 0.6875rem;
+  color: var(--color-muted);
+  font-weight: 500;
+}
+
+.env-mounted-ratio {
+  font-size: 0.6875rem;
+  color: var(--color-muted);
+}
+
+.env-skill-chips-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.env-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: 0.6875rem;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  cursor: pointer;
+  transition: all 0.18s var(--motion-smooth);
+}
+
+.env-skill-chip:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+
+.env-chip-unlink-icon {
+  display: none;
+}
+
+.env-skill-chip:hover .env-chip-unlink-icon {
+  display: inline-block;
+}
+
+.env-skill-chip:hover .env-chip-link-icon {
+  display: none;
+}
+
+.env-no-skills-hint {
+  font-size: 0.6875rem;
+  color: var(--color-muted);
+  opacity: 0.7;
+  padding: 4px 0;
+}
+
+.env-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--glass-border-subtle);
+}
+
+/* =========================================================================
    Responsive
    ========================================================================= */
 

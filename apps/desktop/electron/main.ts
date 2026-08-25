@@ -615,6 +615,87 @@ ${skill.description || ''}
     }
   })
 
+  ipcMain.handle('system:link-all-skills-target', (_event, targetId: string) => {
+    if (!targetId) return { success: false, count: 0 }
+    const root = getStoredTraceHome()
+    const skillsDir = path.join(root, 'skills')
+    ensureTraceDirectories(root)
+
+    const tool = DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
+    if (!tool) return { success: false, count: 0 }
+
+    const toolDir = getAIToolDirectory(tool)
+    if (!existsSync(toolDir)) {
+      mkdirSync(toolDir, { recursive: true })
+    }
+
+    let count = 0
+    try {
+      if (existsSync(skillsDir)) {
+        const files = readdirSync(skillsDir)
+        for (const file of files) {
+          if (file.endsWith('.json')) {
+            try {
+              const filePath = path.join(skillsDir, file)
+              const skill: Skill = JSON.parse(readFileSync(filePath, 'utf8'))
+              if (skill && skill.id) {
+                const centralFolder = ensureSkillCentralDirectory(skill)
+                const targetLink = path.join(toolDir, skill.id)
+                safeRemoveLink(targetLink)
+                const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
+                symlinkSync(path.resolve(centralFolder), path.resolve(targetLink), symlinkType)
+
+                const updatedTools = Array.from(new Set([...(skill.targetTools || []), targetId]))
+                skill.targetTools = updatedTools
+                writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
+                count++
+              }
+            } catch {}
+          }
+        }
+      }
+      return { success: true, count }
+    } catch {
+      return { success: false, count: 0 }
+    }
+  })
+
+  ipcMain.handle('system:unlink-all-skills-target', (_event, targetId: string) => {
+    if (!targetId) return { success: false, count: 0 }
+    const root = getStoredTraceHome()
+    const skillsDir = path.join(root, 'skills')
+
+    const tool = DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
+    let count = 0
+
+    try {
+      if (tool) {
+        const toolDir = getAIToolDirectory(tool)
+        if (existsSync(toolDir)) {
+          const files = readdirSync(skillsDir)
+          for (const file of files) {
+            if (file.endsWith('.json')) {
+              try {
+                const filePath = path.join(skillsDir, file)
+                const skill: Skill = JSON.parse(readFileSync(filePath, 'utf8'))
+                if (skill && skill.id) {
+                  const targetLink = path.join(toolDir, skill.id)
+                  safeRemoveLink(targetLink)
+                  skill.targetTools = (skill.targetTools || []).filter((id) => id !== targetId)
+                  writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
+                  count++
+                }
+              } catch {}
+            }
+          }
+        }
+      }
+      return { success: true, count }
+    } catch {
+      return { success: false, count: 0 }
+    }
+  })
+
   ipcMain.handle('system:read-skill-markdown', (_event, skillId: string) => {
     const root = getStoredTraceHome()
     const mdPath = path.join(root, 'skills', skillId, 'SKILL.md')

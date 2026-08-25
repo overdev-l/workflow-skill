@@ -68,9 +68,10 @@ import type {
   RecorderStatus,
 } from '@workflow-skill/capture-protocol'
 import { WorkflowGraph } from './components/WorkflowGraph'
+import { AIToolLogo } from './AIToolLogo'
 import { useI18n, type Locale, type TranslationKeys } from './i18n'
 
-type View = 'skills' | 'workflows'
+export type View = 'skills' | 'workflows' | 'environments'
 type SettingsTab = 'general' | 'shortcuts' | 'permissions' | 'about'
 export type ThemeMode = 'dark' | 'light' | 'system'
 
@@ -210,6 +211,20 @@ function AppSidebar({
               <div className="nav-pill-btn__left">
                 <WorkflowIcon size={15} className="nav-icon" />
                 <span>{t.nav.workflow}</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-pill-btn ${view === 'environments' ? 'is-active' : ''}`}
+              onClick={() => {
+                setView('environments')
+                onBackToOverview()
+              }}
+            >
+              <div className="nav-pill-btn__left">
+                <Cpu size={15} className="nav-icon" />
+                <span>{t.nav.environments}</span>
               </div>
             </button>
           </nav>
@@ -476,7 +491,7 @@ function AIToolTargetPill({
       title={title}
     >
       <span className="target-pill-icon">
-        <ToolIcon name={tool.iconName} size={11} />
+        <AIToolLogo toolId={tool.id} size={13} color={isLinked} />
       </span>
       <span className="target-pill-name">{tool.name}</span>
       {isLinked ? (
@@ -525,7 +540,7 @@ function SafeDeleteSkillModal({
             <div className="safe-delete-targets-grid">
               {linkedTools.map((tool) => (
                 <div key={tool.id} className="safe-delete-target-row font-mono">
-                  <ToolIcon name={tool.iconName} size={13} />
+                  <AIToolLogo toolId={tool.id} size={15} color />
                   <span className="target-name">{tool.name}</span>
                   <span className="target-path">({tool.detectedPath || tool.defaultDir}/{skill.id})</span>
                 </div>
@@ -656,7 +671,7 @@ function SkillDetailDrawer({
                   <div key={tool.id} className={`drawer-tool-row ${isLinked ? 'is-linked' : ''}`}>
                     <div className="drawer-tool-left">
                       <div className="drawer-tool-icon-wrap">
-                        <ToolIcon name={tool.iconName} size={15} />
+                        <AIToolLogo toolId={tool.id} size={18} color />
                       </div>
                       <div className="drawer-tool-meta">
                         <div className="drawer-tool-name-row">
@@ -987,7 +1002,7 @@ function SkillsOverviewPage({
                           className={`tool-filter-chip ${isSelected ? 'is-active' : ''} ${tool.installed ? 'is-installed' : ''}`}
                           onClick={() => setSelectedToolFilter(isSelected ? 'all' : tool.id)}
                         >
-                          <ToolIcon name={tool.iconName} size={11} />
+                          <AIToolLogo toolId={tool.id} size={12} color={isSelected} />
                           <span>{tool.name}</span>
                           <span className="tool-chip-count font-mono">{count}</span>
                         </button>
@@ -1196,6 +1211,311 @@ function SkillsOverviewPage({
         onClose={() => setDeleteModalSkill(null)}
         onConfirm={onDeleteSkill}
       />
+    </div>
+  )
+}
+
+/* =========================================================================
+   AI Environments Hub & Tool Distribution Management Page
+   ========================================================================= */
+function AIEnvironmentsPage({
+  aiTools,
+  skills,
+  onDetectTools,
+  onToggleLinkTarget,
+  onBulkLink,
+  onBulkUnlink,
+  notify,
+}: {
+  aiTools: AIToolTarget[]
+  skills: Skill[]
+  onDetectTools: () => void
+  onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
+  onBulkLink: (targetId: string) => Promise<void>
+  onBulkUnlink: (targetId: string) => Promise<void>
+  notify?: (msg: string) => void
+}) {
+  const { t } = useI18n()
+  const [categoryFilter, setCategoryFilter] = useState<AIToolCategory>('all')
+  const [query, setQuery] = useState('')
+
+  const filteredTools = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return aiTools.filter((tool) => {
+      if (categoryFilter !== 'all' && tool.category !== categoryFilter) return false
+      if (!q) return true
+      const searchStr = `${tool.name} ${tool.description || ''} ${tool.defaultDir} ${tool.category}`.toLowerCase()
+      return searchStr.includes(q)
+    })
+  }, [aiTools, categoryFilter, query])
+
+  const installedCount = useMemo(() => aiTools.filter((t) => t.installed).length, [aiTools])
+
+  const totalActiveLinks = useMemo(() => {
+    return skills.reduce((acc, sk) => acc + (sk.targetTools?.length || 0), 0)
+  }, [skills])
+
+  const handleOpenToolDir = (tool: AIToolTarget) => {
+    const targetPath = tool.detectedPath || tool.defaultDir
+    if (window.workflowSkill?.openPathInFinder) {
+      void window.workflowSkill.openPathInFinder(targetPath)
+    }
+  }
+
+  const handleOpenCentralStore = () => {
+    if (window.workflowSkill?.getStoragePath && window.workflowSkill?.openPathInFinder) {
+      window.workflowSkill
+        .getStoragePath()
+        .then((root) => {
+          void window.workflowSkill?.openPathInFinder?.(`${root}/skills`)
+        })
+        .catch(() => {})
+    }
+  }
+
+  return (
+    <div className="clean-page view-enter">
+      {/* Header */}
+      <header className="page-header stagger-item">
+        <div className="page-header__left">
+          <h1 className="page-title">{t.environments.title}</h1>
+          <span className="page-subtitle">{t.environments.subtitle}</span>
+        </div>
+
+        <div className="page-header__right">
+          <button
+            type="button"
+            className="btn btn--secondary btn--capsule"
+            onClick={onDetectTools}
+            title={t.environments.rescanBtn}
+          >
+            <Sparkles size={13} className="sparkle-active-icon" />
+            <span>{t.environments.rescanBtn}</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn--capsule-ghost btn--capsule"
+            onClick={handleOpenCentralStore}
+          >
+            <FolderOpen size={13} />
+            <span>中央仓库</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Hero Metric Cards */}
+      <div className="env-hero-metrics-grid stagger-item">
+        <div className="env-metric-card">
+          <span className="env-metric-label">{t.environments.metricSupported}</span>
+          <div className="env-metric-value-row">
+            <span className="env-metric-num font-mono">{aiTools.length}</span>
+            <span className="env-metric-unit">大主流环境</span>
+          </div>
+          <span className="env-metric-hint">AI IDE、终端 Agent、插件扩展与开放标准</span>
+        </div>
+
+        <div className="env-metric-card">
+          <span className="env-metric-label">{t.environments.metricInstalled}</span>
+          <div className="env-metric-value-row">
+            <span className="env-metric-num font-mono is-green">{installedCount}</span>
+            <span className="env-metric-unit">个本地已就绪</span>
+          </div>
+          <span className="env-metric-hint">已自动感知配置目录与技能路径</span>
+        </div>
+
+        <div className="env-metric-card">
+          <span className="env-metric-label">{t.environments.metricLinks}</span>
+          <div className="env-metric-value-row">
+            <span className="env-metric-num font-mono is-accent">{totalActiveLinks}</span>
+            <span className="env-metric-unit">处实时挂载</span>
+          </div>
+          <span className="env-metric-hint">NTFS Junction / Symlink 物理软链分发</span>
+        </div>
+      </div>
+
+      {/* Filter Toolbar: Search & Categories */}
+      <div className="filter-toolbar-row stagger-item">
+        <label className="search-capsule-box">
+          <Search size={14} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索 AI 环境名称、目录或分类…"
+          />
+          {query ? (
+            <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
+              <X size={13} />
+            </button>
+          ) : null}
+        </label>
+
+        {/* Category Segmented Tabs */}
+        <div className="category-capsule-tabs">
+          <button
+            type="button"
+            className={`cat-pill-btn ${categoryFilter === 'all' ? 'is-active' : ''}`}
+            onClick={() => setCategoryFilter('all')}
+          >
+            <span>{t.skills.categoryAll}</span>
+            <span className="cat-count-badge font-mono">{aiTools.length}</span>
+          </button>
+          <button
+            type="button"
+            className={`cat-pill-btn ${categoryFilter === 'ide' ? 'is-active' : ''}`}
+            onClick={() => setCategoryFilter('ide')}
+          >
+            <span>{t.skills.categoryIde}</span>
+            <span className="cat-count-badge font-mono">
+              {aiTools.filter((t) => t.category === 'ide').length}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`cat-pill-btn ${categoryFilter === 'cli' ? 'is-active' : ''}`}
+            onClick={() => setCategoryFilter('cli')}
+          >
+            <span>{t.skills.categoryCli}</span>
+            <span className="cat-count-badge font-mono">
+              {aiTools.filter((t) => t.category === 'cli').length}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`cat-pill-btn ${categoryFilter === 'extension' ? 'is-active' : ''}`}
+            onClick={() => setCategoryFilter('extension')}
+          >
+            <span>{t.skills.categoryExtension}</span>
+            <span className="cat-count-badge font-mono">
+              {aiTools.filter((t) => t.category === 'extension').length}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`cat-pill-btn ${categoryFilter === 'standard' ? 'is-active' : ''}`}
+            onClick={() => setCategoryFilter('standard')}
+          >
+            <span>{t.skills.categoryStandard}</span>
+            <span className="cat-count-badge font-mono">
+              {aiTools.filter((t) => t.category === 'standard').length}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* Environments Grid List */}
+      <div className="env-cards-grid stagger-item">
+        {filteredTools.map((tool, idx) => {
+          const mountedSkills = skills.filter((s) => s.targetTools?.includes(tool.id))
+          const isAllMounted = mountedSkills.length === skills.length && skills.length > 0
+          return (
+            <div
+              key={tool.id}
+              className={`env-card ${tool.installed ? 'is-installed' : ''}`}
+              style={{ animationDelay: `${idx * 25}ms` }}
+            >
+              {/* Card Header: LobeHub Official Logo + Titles + Badges */}
+              <div className="env-card-header">
+                <div className="env-logo-wrap">
+                  <AIToolLogo toolId={tool.id} size={36} color />
+                </div>
+                <div className="env-title-meta">
+                  <div className="env-title-row">
+                    <h3 className="env-tool-name">{tool.name}</h3>
+                    <span className="env-cat-badge">{tool.category.toUpperCase()}</span>
+                  </div>
+                  <span className={`env-status-pill ${tool.installed ? 'is-ready' : 'is-unready'}`}>
+                    <span className="env-status-dot" />
+                    <span>{tool.installed ? t.environments.installedReady : t.environments.notDetected}</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Description */}
+              <p className="env-desc">{tool.description}</p>
+
+              {/* Directory Path */}
+              <div className="env-path-box">
+                <div className="env-path-text font-mono" title={tool.detectedPath || tool.defaultDir}>
+                  <Folder size={12} className="env-path-icon" />
+                  <span>{tool.detectedPath || tool.defaultDir}</span>
+                </div>
+                <button
+                  type="button"
+                  className="env-path-open-btn"
+                  title={t.environments.openDirBtn}
+                  onClick={() => handleOpenToolDir(tool)}
+                >
+                  <ExternalLink size={12} />
+                </button>
+              </div>
+
+              {/* Mounted Skills Summary & Chips */}
+              <div className="env-mounted-section">
+                <div className="env-mounted-header">
+                  <span className="env-mounted-title">
+                    {t.environments.mountedSkillsLabel(mountedSkills.length)}
+                  </span>
+                  <span className="env-mounted-ratio font-mono">
+                    {mountedSkills.length}/{skills.length}
+                  </span>
+                </div>
+
+                <div className="env-skill-chips-wrap">
+                  {mountedSkills.length > 0 ? (
+                    mountedSkills.map((sk) => (
+                      <button
+                        key={sk.id}
+                        type="button"
+                        className="env-skill-chip is-linked"
+                        title="点击解除此 Skill 软链接"
+                        onClick={() => void onToggleLinkTarget(sk, tool.id)}
+                      >
+                        <Link2 size={10} className="env-chip-link-icon" />
+                        <span>{sk.name}</span>
+                        <X size={10} className="env-chip-unlink-icon" />
+                      </button>
+                    ))
+                  ) : (
+                    <span className="env-no-skills-hint">{t.environments.noMountedSkills}</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Card Footer Actions */}
+              <div className="env-card-footer">
+                {isAllMounted ? (
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--capsule btn--sm"
+                    onClick={() => void onBulkUnlink(tool.id)}
+                  >
+                    <Unlink size={12} />
+                    <span>{t.environments.unlinkAllFromTargetBtn}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--capsule btn--sm"
+                    onClick={() => void onBulkLink(tool.id)}
+                  >
+                    <Link2 size={12} />
+                    <span>{t.environments.syncAllToTargetBtn}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="btn btn--capsule-ghost btn--capsule btn--sm"
+                  onClick={() => handleOpenToolDir(tool)}
+                >
+                  <FolderOpen size={12} />
+                  <span>打开目录</span>
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -2211,6 +2531,12 @@ function AppCommandPalette({
         run: () => onSelectView('workflows'),
       },
       {
+        id: 'view-environments',
+        label: '切换至 AI 环境生态',
+        hint: 'G E',
+        run: () => onSelectView('environments'),
+      },
+      {
         id: 'new-skill',
         label: t.command.newSkill,
         hint: t.command.newSkillHint,
@@ -2705,6 +3031,58 @@ export function App() {
     setToast(`已彻底删除 “${skill.name}”`)
   }
 
+  const handleBulkLinkToTarget = async (targetId: string) => {
+    const tool = aiTools.find((t) => t.id === targetId) || DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
+    const toolName = tool?.name || targetId
+
+    if (window.workflowSkill?.linkAllSkillsToTarget) {
+      const res = await window.workflowSkill.linkAllSkillsToTarget(targetId)
+      if (res.success) {
+        setSkills((prev) =>
+          prev.map((s) => ({
+            ...s,
+            targetTools: Array.from(new Set([...(s.targetTools || []), targetId])),
+          })),
+        )
+        setToast(t.environments.bulkLinkSuccessToast(res.count, toolName))
+      }
+    } else {
+      setSkills((prev) =>
+        prev.map((s) => ({
+          ...s,
+          targetTools: Array.from(new Set([...(s.targetTools || []), targetId])),
+        })),
+      )
+      setToast(t.environments.bulkLinkSuccessToast(skills.length, toolName))
+    }
+  }
+
+  const handleBulkUnlinkFromTarget = async (targetId: string) => {
+    const tool = aiTools.find((t) => t.id === targetId) || DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
+    const toolName = tool?.name || targetId
+
+    if (window.workflowSkill?.unlinkAllSkillsFromTarget) {
+      const res = await window.workflowSkill.unlinkAllSkillsFromTarget(targetId)
+      if (res.success) {
+        setSkills((prev) =>
+          prev.map((s) => ({
+            ...s,
+            targetTools: (s.targetTools || []).filter((id) => id !== targetId),
+          })),
+        )
+        setToast(t.environments.bulkUnlinkSuccessToast(res.count, toolName))
+      }
+    } else {
+      setSkills((prev) =>
+        prev.map((s) => ({
+          ...s,
+          targetTools: (s.targetTools || []).filter((id) => id !== targetId),
+        })),
+      )
+      setToast(t.environments.bulkUnlinkSuccessToast(skills.length, toolName))
+    }
+  }
+
   // Active Level-2 Workflow Detail State
   const [activeDetail, setActiveDetail] = useState<ActiveDetailState | null>(null)
 
@@ -3054,6 +3432,18 @@ export function App() {
                   setToast(t.workflows.dismissedToast)
                 }}
                 observing={observing}
+              />
+            ) : null}
+
+            {view === 'environments' ? (
+              <AIEnvironmentsPage
+                aiTools={aiTools}
+                skills={skills}
+                onDetectTools={handleDetectTools}
+                onToggleLinkTarget={handleToggleLinkTarget}
+                onBulkLink={handleBulkLinkToTarget}
+                onBulkUnlink={handleBulkUnlinkFromTarget}
+                notify={setToast}
               />
             ) : null}
           </>

@@ -26,8 +26,10 @@ contextBridge.exposeInMainWorld('workflowSkill', {
     ipcRenderer.invoke('system:unlink-skill-target', skillId, targetId) as Promise<{ success: boolean }>,
   getSkillLinkHealth: (skillId: string) =>
     ipcRenderer.invoke('system:get-skill-link-health', skillId) as Promise<Record<string, 'healthy' | 'broken' | 'unlinked'>>,
-  deleteSkillCompletely: (skillId: string) =>
-    ipcRenderer.invoke('system:delete-skill-completely', skillId) as Promise<boolean>,
+  linkAllSkillsToTarget: (targetId: string) =>
+    ipcRenderer.invoke('system:link-all-skills-target', targetId) as Promise<{ success: boolean; count: number }>,
+  unlinkAllSkillsFromTarget: (targetId: string) =>
+    ipcRenderer.invoke('system:unlink-all-skills-target', targetId) as Promise<{ success: boolean; count: number }>,
   readSkillMarkdown: (skillId: string) =>
     ipcRenderer.invoke('system:read-skill-markdown', skillId) as Promise<string>,
   saveSkillMarkdown: (skillId: string, markdown: string) =>
