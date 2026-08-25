@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package trace.capture.v1;
+
+message CaptureEvent {
+  string id = 1;
+  int64 occurred_at_unix_ms = 2;
+  string session_id = 3;
+  string application_id = 4;
+  string window_title_hash = 5;
+  string event_type = 6;
+  Point pointer = 7;
+  string ui_element_id = 8;
+  map<string, string> attributes = 9;
+}
+
+message Point {
+  double x = 1;
+  double y = 2;
+}

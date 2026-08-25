@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package trace.recorder.v1;
+
+service RecorderControl {
+  rpc GetStatus(StatusRequest) returns (RecorderStatus);
+  rpc Start(StartRequest) returns (RecorderStatus);
+  rpc Pause(PauseRequest) returns (RecorderStatus);
+  rpc UpdatePolicy(PrivacyPolicy) returns (RecorderStatus);
+}
+
+message StatusRequest {}
+message StartRequest { string session_id = 1; }
+message PauseRequest { string reason = 1; }
+
+message RecorderStatus {
+  string platform = 1;
+  string state = 2;
+  string active_application = 3;
+  int64 captured_event_count = 4;
+}
+
+message PrivacyPolicy {
+  repeated string excluded_bundle_ids = 1;
+  repeated string excluded_window_title_patterns = 2;
+  int32 raw_frame_retention_hours = 3;
+}

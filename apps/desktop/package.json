@@ -1,0 +1,31 @@
+{
+  "name": "@workflow-skill/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@workflow-skill/capture-protocol": "workspace:*",
+    "@workflow-skill/ui": "workspace:*",
+    "@workflow-skill/workflow-model": "workspace:*",
+    "lucide-react": "1.33.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.1.0",
+    "electron": "43.4.1",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vite-plugin-electron": "1.1.1",
+    "vite-plugin-electron-renderer": "1.0.0"
+  }
+}

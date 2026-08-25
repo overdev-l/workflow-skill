@@ -1,0 +1,147 @@
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+  --color-bg: transparent;
+  --shell-bg: transparent;
+  --glass-rail: rgba(255, 255, 255, 0.12);
+  --glass-canvas: rgba(255, 255, 255, 0.78);
+  --glass-surface: rgba(255, 255, 255, 0.45);
+  --glass-surface-strong: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(0, 0, 0, 0.09);
+  --glass-border-specular: rgba(255, 255, 255, 0.95);
+  --color-ink: #111113;
+  --color-muted: #585860;
+  --color-subtle: #7a7a85;
+  --color-primary: #18181b;
+  --color-primary-hover: #27272a;
+  --btn-primary-bg: #18181b;
+  --btn-primary-text: #ffffff;
+  --btn-primary-hover: #27272a;
+  --btn-secondary-bg: rgba(0, 0, 0, 0.05);
+  --btn-secondary-text: #18181b;
+  --btn-secondary-hover: rgba(0, 0, 0, 0.09);
+  --btn-saved-bg: rgba(22, 101, 52, 0.12);
+  --btn-saved-text: #15803d;
+  --btn-saved-border: rgba(22, 101, 52, 0.25);
+  --color-accent: oklch(0.40 0 0);
+  --color-success-bg: rgba(22, 101, 52, 0.12);
+  --color-success-ink: #15803d;
+  --color-waiting-bg: rgba(217, 119, 6, 0.14);
+  --color-waiting-ink: #b45309;
+  --color-danger-bg: rgba(220, 38, 38, 0.12);
+  --color-danger-ink: #b91c1c;
+  --focus-ring: #18181b;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-capsule: 24px;
+  --radius-pill: 9999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --motion-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-fast: 160ms;
+  --motion-base: 240ms;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", "SFMono-Regular", "JetBrains Mono", "Geist Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --color-bg: transparent;
+  --shell-bg: transparent;
+  --glass-rail: rgba(0, 0, 0, 0.10);
+  --glass-canvas: rgba(22, 22, 26, 0.82);
+  --glass-surface: rgba(255, 255, 255, 0.06);
+  --glass-surface-strong: rgba(255, 255, 255, 0.12);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-border-specular: rgba(255, 255, 255, 0.20);
+  --color-ink: #f4f4f5;
+  --color-muted: #a1a1aa;
+  --color-subtle: #71717a;
+  --color-primary: #f4f4f5;
+  --color-primary-hover: #ffffff;
+  --btn-primary-bg: #f4f4f5;
+  --btn-primary-text: #18181b;
+  --btn-primary-hover: #ffffff;
+  --btn-secondary-bg: rgba(255, 255, 255, 0.08);
+  --btn-secondary-text: #f4f4f5;
+  --btn-secondary-hover: rgba(255, 255, 255, 0.14);
+  --btn-saved-bg: rgba(34, 197, 94, 0.16);
+  --btn-saved-text: #86efac;
+  --btn-saved-border: rgba(74, 222, 128, 0.32);
+  --color-accent: oklch(0.72 0 0);
+  --color-success-bg: rgba(34, 197, 94, 0.16);
+  --color-success-ink: #86efac;
+  --color-waiting-bg: rgba(245, 158, 11, 0.16);
+  --color-waiting-ink: #fcd34d;
+  --color-danger-bg: rgba(239, 68, 68, 0.16);
+  --color-danger-ink: #fca5a5;
+  --focus-ring: #f4f4f5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  font-kerning: normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum" 1;
+  background: transparent !important;
+}
+
+body {
+  margin: 0;
+  background: transparent !important;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 1.5px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--glass-surface-strong);
+  color: var(--color-ink);
+}
+
+html,
+body,
+#root {
+  transition: background-color 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* View Transitions API smooth cross-fade animation */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.28s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

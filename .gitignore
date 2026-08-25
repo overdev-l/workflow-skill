@@ -1,0 +1,14 @@
+node_modules
+.turbo
+dist
+dist-electron
+.output
+.wrangler
+recorders/macos/.build
+recorders/windows/**/bin
+recorders/windows/**/obj
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example

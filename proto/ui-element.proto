@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package trace.capture.v1;
+
+message UIElement {
+  string id = 1;
+  string role = 2;
+  string label = 3;
+  string value_type = 4;
+  Bounds bounds = 5;
+  repeated string action_names = 6;
+  string parent_id = 7;
+}
+
+message Bounds {
+  double x = 1;
+  double y = 2;
+  double width = 3;
+  double height = 4;
+}

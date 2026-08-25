@@ -1,0 +1,26 @@
+{
+  "name": "workflow-skill",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "predev:desktop": "pnpm build:recorder",
+    "dev:desktop": "pnpm --filter @workflow-skill/desktop dev",
+    "dev:web": "pnpm --filter @workflow-skill/web dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "build:recorder": "node scripts/build-recorder.mjs",
+    "build:recorder:release": "node scripts/build-recorder.mjs --release",
+    "build:recorder:macos": "swift build --package-path recorders/macos",
+    "build:recorder:windows": "dotnet build recorders/windows/WorkflowRecorder/WorkflowRecorder.csproj",
+    "verify:recorder": "node scripts/verify-recorder.mjs"
+  },
+  "devDependencies": {
+    "turbo": "2.10.11",
+    "typescript": "5.9.3"
+  }
+}
