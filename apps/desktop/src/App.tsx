@@ -1264,8 +1264,8 @@ function SettingsMainPage({
                     <ExternalLink size={12} />
                   </button>
                   {skillStoragePath &&
-                  !skillStoragePath.includes('Trace/Skills') &&
-                  !skillStoragePath.toLowerCase().includes('trace\\skills') ? (
+                  !skillStoragePath.endsWith('.trace/skills') &&
+                  !skillStoragePath.endsWith('.trace\\skills') ? (
                     <button
                       type="button"
                       className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"

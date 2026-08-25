@@ -1,9 +1,25 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { RecorderCommand, RecorderEnvelope } from '@workflow-skill/capture-protocol'
 import { NativeRecorderManager } from './recorder-manager'
+
+const defaultTraceHome = path.join(os.homedir(), '.trace')
+const defaultSkillStoragePath = path.join(defaultTraceHome, 'skills')
+const defaultWorkflowStoragePath = path.join(defaultTraceHome, 'workflows')
+const defaultCapturesStoragePath = path.join(defaultTraceHome, 'captures')
+
+function ensureTraceDirectories() {
+  for (const dir of [defaultTraceHome, defaultSkillStoragePath, defaultWorkflowStoragePath, defaultCapturesStoragePath]) {
+    if (!existsSync(dir)) {
+      try {
+        mkdirSync(dir, { recursive: true })
+      } catch {}
+    }
+  }
+}
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const recorder = new NativeRecorderManager()
@@ -191,6 +207,7 @@ interface WindowBounds {
 }
 
 app.whenReady().then(() => {
+  ensureTraceDirectories()
   const icon = nativeImage.createFromPath(iconPath)
   if (process.platform === 'darwin' && !icon.isEmpty()) app.dock?.setIcon(icon)
   createStatusTray()
@@ -242,9 +259,9 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('system:get-skill-storage-path', () => {
-    const configPath = path.join(app.getPath('userData'), 'config.json')
-    const defaultPath = path.join(app.getPath('documents'), 'Trace', 'Skills')
-    let skillPath = defaultPath
+    ensureTraceDirectories()
+    const configPath = path.join(defaultTraceHome, 'config.json')
+    let skillPath = defaultSkillStoragePath
     try {
       if (existsSync(configPath)) {
         const data = JSON.parse(readFileSync(configPath, 'utf8'))
@@ -260,10 +277,10 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('system:select-skill-storage-path', async (event) => {
+    ensureTraceDirectories()
     const win = BrowserWindow.fromWebContents(event.sender) ?? undefined
-    const configPath = path.join(app.getPath('userData'), 'config.json')
-    const defaultPath = path.join(app.getPath('documents'), 'Trace', 'Skills')
-    let currentPath = defaultPath
+    const configPath = path.join(defaultTraceHome, 'config.json')
+    let currentPath = defaultSkillStoragePath
     try {
       if (existsSync(configPath)) {
         const data = JSON.parse(readFileSync(configPath, 'utf8'))
@@ -273,7 +290,7 @@ app.whenReady().then(() => {
 
     const result = await dialog.showOpenDialog(win!, {
       title: 'Select Skill Storage Folder',
-      defaultPath: existsSync(currentPath) ? currentPath : app.getPath('documents'),
+      defaultPath: existsSync(currentPath) ? currentPath : defaultTraceHome,
       properties: ['openDirectory', 'createDirectory'],
     })
 
@@ -293,22 +310,17 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('system:reset-skill-storage-path', () => {
-    const configPath = path.join(app.getPath('userData'), 'config.json')
-    const defaultPath = path.join(app.getPath('documents'), 'Trace', 'Skills')
+    ensureTraceDirectories()
+    const configPath = path.join(defaultTraceHome, 'config.json')
     try {
       let data: Record<string, any> = {}
       if (existsSync(configPath)) {
         data = JSON.parse(readFileSync(configPath, 'utf8'))
       }
-      data.skillStoragePath = defaultPath
+      data.skillStoragePath = defaultSkillStoragePath
       writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf8')
     } catch {}
-    if (!existsSync(defaultPath)) {
-      try {
-        mkdirSync(defaultPath, { recursive: true })
-      } catch {}
-    }
-    return defaultPath
+    return defaultSkillStoragePath
   })
 
   ipcMain.handle('system:open-path', async (_event, targetPath: string) => {
