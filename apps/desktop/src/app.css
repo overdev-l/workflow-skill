@@ -1238,47 +1238,7 @@ pre {
   border-bottom: 0;
 }
 
-.flat-setting-row--stack {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  min-height: auto;
-}
-
-.skill-path-card-body {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-}
-
-.skill-path-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  border: 1px solid var(--glass-border);
-  font-size: 0.75rem;
-  color: var(--color-ink);
-  user-select: text;
-}
-
-.skill-path-field__icon {
-  color: var(--color-accent);
-  flex-shrink: 0;
-}
-
-.skill-path-field__text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.skill-path-actions {
+.setting-actions-group {
   display: flex;
   align-items: center;
   gap: 6px;

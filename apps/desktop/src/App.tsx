@@ -1235,45 +1235,43 @@ function SettingsMainPage({
             </div>
 
             {/* Row 3: Local Skill Storage Path */}
-            <div className="flat-setting-row flat-setting-row--stack">
+            <div className="flat-setting-row">
               <div className="flat-setting-info">
                 <strong className="flat-setting-title">{t.settings.skillStoragePathTitle}</strong>
-                <p className="flat-setting-desc">{t.settings.skillStoragePathDesc}</p>
+                <p className="flat-setting-desc font-mono" title={skillStoragePath}>
+                  {skillStoragePath ? skillStoragePath.replace(/^\/Users\/[^/]+/, '~') : t.settings.skillStoragePathPlaceholder}
+                </p>
               </div>
-              <div className="skill-path-card-body">
-                <div className="skill-path-field font-mono" title={skillStoragePath}>
-                  <Folder size={15} className="skill-path-field__icon" />
-                  <span className="skill-path-field__text">
-                    {skillStoragePath || t.settings.skillStoragePathPlaceholder}
-                  </span>
-                </div>
-                <div className="skill-path-actions">
+              <div className="flat-setting-control">
+                <div className="setting-actions-group">
                   <button
                     type="button"
-                    className="ghost-action-btn"
+                    className="btn btn--capsule btn--secondary btn--sm"
                     onClick={handleSelectSkillPath}
                   >
-                    <FolderOpen size={14} />
+                    <FolderOpen size={12} />
                     <span>{t.settings.skillStoragePathSelectBtn}</span>
                   </button>
                   <button
                     type="button"
-                    className="ghost-action-btn"
+                    className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
                     onClick={handleRevealSkillPath}
                     title={t.settings.skillStoragePathRevealBtn}
+                    aria-label={t.settings.skillStoragePathRevealBtn}
                   >
-                    <ExternalLink size={14} />
-                    <span>{t.settings.skillStoragePathRevealBtn}</span>
+                    <ExternalLink size={12} />
                   </button>
-                  <button
-                    type="button"
-                    className="ghost-action-btn"
-                    onClick={handleResetSkillPath}
-                    title={t.settings.skillStoragePathResetBtn}
-                  >
-                    <RotateCcw size={14} />
-                    <span>{t.settings.skillStoragePathResetBtn}</span>
-                  </button>
+                  {skillStoragePath && !skillStoragePath.includes('Documents/Trace/Skills') ? (
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
+                      onClick={handleResetSkillPath}
+                      title={t.settings.skillStoragePathResetBtn}
+                      aria-label={t.settings.skillStoragePathResetBtn}
+                    >
+                      <RotateCcw size={12} />
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>
