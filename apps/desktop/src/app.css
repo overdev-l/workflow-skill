@@ -3761,6 +3761,62 @@ pre {
   transform: scale(1.06);
 }
 
+.env-logo-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  max-width: 40px;
+}
+
+.env-logo-cluster-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+.env-logo-cluster-item:hover {
+  transform: scale(1.15);
+}
+
+.env-shared-tools-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.env-shared-tools-label {
+  font-size: 0.6875rem;
+  color: var(--color-muted);
+  font-weight: 550;
+}
+
+.env-shared-tools-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.env-shared-tool-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6875rem;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--color-ink);
+  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .env-title-meta {
   display: flex;
   flex-direction: column;

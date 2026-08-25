@@ -33,6 +33,12 @@ export interface Workflow {
 
 export type AIToolCategory = 'all' | 'ide' | 'cli' | 'extension' | 'standard'
 
+export interface AssociatedAITool {
+  id: string
+  name: string
+  logoId: string
+}
+
 export interface AIToolTarget {
   id: string
   name: string
@@ -43,80 +49,113 @@ export interface AIToolTarget {
   detectedPath?: string
   iconName: string
   description?: string
+  compatibleTools?: AssociatedAITool[]
 }
 
 export const DEFAULT_AI_TOOLS: AIToolTarget[] = [
   {
-    id: 'claude-code',
-    name: 'Claude Code',
-    category: 'cli',
-    defaultDir: '.claude/skills',
-    iconName: 'Zap',
-    description: 'Anthropic Claude Code CLI 终端编程 Agent',
-  },
-  {
-    id: 'antigravity',
-    name: 'Antigravity',
-    category: 'cli',
-    defaultDir: '.gemini/config/skills',
-    iconName: 'Sparkles',
-    description: 'Google Antigravity / Gemini CLI 高级编码助手',
-  },
-  {
-    id: 'cursor',
-    name: 'Cursor',
-    category: 'ide',
-    defaultDir: '.cursor/skills',
-    iconName: 'Terminal',
-    description: 'Cursor AI 智能编程编辑器',
-  },
-  {
-    id: 'windsurf',
-    name: 'Windsurf',
-    category: 'ide',
-    defaultDir: '.windsurf/skills',
-    iconName: 'Monitor',
-    description: 'Codeium Windsurf AI 原生 IDE',
-  },
-  {
-    id: 'trae',
-    name: 'Trae',
-    category: 'ide',
-    defaultDir: '.trae/skills',
-    iconName: 'Monitor',
-    description: 'ByteDance Trae AI 自适应集成开发环境',
-  },
-  {
-    id: 'cline',
-    name: 'Cline',
-    category: 'extension',
-    defaultDir: '.cline/skills',
-    iconName: 'Boxes',
-    description: 'VS Code 自主编码 Agent 插件',
-  },
-  {
-    id: 'roo',
-    name: 'Roo Code',
-    category: 'extension',
-    defaultDir: '.roo/skills',
-    iconName: 'Boxes',
-    description: 'Roo Code 多模式 AI 架构与任务插件',
-  },
-  {
-    id: 'codex',
-    name: 'Codex CLI',
-    category: 'cli',
-    defaultDir: '.codex/skills',
-    iconName: 'Zap',
-    description: 'OpenAI Codex 命令行代码生成工具',
-  },
-  {
     id: 'agents-std',
-    name: '.agents 标准',
+    name: '.agents 通用目录环境',
     category: 'standard',
     defaultDir: '.agents/skills',
     iconName: 'FolderTree',
-    description: 'skills.sh 跨工具通用开放规范',
+    description: 'skills.sh 跨工具通用开放规范，多个主流 AI Agent 原生共用此目录',
+    compatibleTools: [
+      { id: 'antigravity', name: 'Google Antigravity', logoId: 'antigravity' },
+      { id: 'gemini', name: 'Gemini CLI', logoId: 'gemini' },
+      { id: 'opencode', name: 'OpenCode', logoId: 'opencode' },
+      { id: 'lobehub', name: 'LobeHub', logoId: 'lobehub' },
+    ],
+  },
+  {
+    id: 'claude-code',
+    name: '.claude 技能目录环境',
+    category: 'cli',
+    defaultDir: '.claude/skills',
+    iconName: 'Zap',
+    description: 'Anthropic Claude Code CLI 终端编程 Agent 专用技能目录',
+    compatibleTools: [
+      { id: 'claude-code', name: 'Claude Code', logoId: 'claude' },
+      { id: 'claude-cli', name: 'Claude CLI', logoId: 'claude' },
+    ],
+  },
+  {
+    id: 'cursor',
+    name: '.cursor 技能目录环境',
+    category: 'ide',
+    defaultDir: '.cursor/skills',
+    iconName: 'Terminal',
+    description: 'Cursor AI 智能编程编辑器技能与规则配置目录',
+    compatibleTools: [
+      { id: 'cursor', name: 'Cursor IDE', logoId: 'cursor' },
+    ],
+  },
+  {
+    id: 'windsurf',
+    name: '.windsurf 技能目录环境',
+    category: 'ide',
+    defaultDir: '.windsurf/skills',
+    iconName: 'Monitor',
+    description: 'Codeium Windsurf AI 原生 IDE 技能配置目录',
+    compatibleTools: [
+      { id: 'windsurf', name: 'Windsurf IDE', logoId: 'windsurf' },
+    ],
+  },
+  {
+    id: 'trae',
+    name: '.trae 技能目录环境',
+    category: 'ide',
+    defaultDir: '.trae/skills',
+    iconName: 'Monitor',
+    description: 'ByteDance Trae AI 自适应集成开发环境技能目录',
+    compatibleTools: [
+      { id: 'trae', name: 'Trae IDE', logoId: 'trae' },
+    ],
+  },
+  {
+    id: 'cline',
+    name: '.cline 技能目录环境',
+    category: 'extension',
+    defaultDir: '.cline/skills',
+    iconName: 'Boxes',
+    description: 'Cline VS Code 自主编码 Agent 插件技能目录',
+    compatibleTools: [
+      { id: 'cline', name: 'Cline Extension', logoId: 'cline' },
+    ],
+  },
+  {
+    id: 'roo',
+    name: '.roo 技能目录环境',
+    category: 'extension',
+    defaultDir: '.roo/skills',
+    iconName: 'Boxes',
+    description: 'Roo Code 多模式 AI 架构与任务插件技能目录',
+    compatibleTools: [
+      { id: 'roo', name: 'Roo Code', logoId: 'roo' },
+    ],
+  },
+  {
+    id: 'codex',
+    name: '.codex 技能目录环境',
+    category: 'cli',
+    defaultDir: '.codex/skills',
+    iconName: 'Zap',
+    description: 'OpenAI Codex 命令行代码生成工具技能目录',
+    compatibleTools: [
+      { id: 'codex', name: 'Codex CLI', logoId: 'codex' },
+      { id: 'openai', name: 'OpenAI Agent', logoId: 'openai' },
+    ],
+  },
+  {
+    id: 'copilot',
+    name: '.github 技能目录环境',
+    category: 'extension',
+    defaultDir: '.github/skills',
+    iconName: 'FolderTree',
+    description: 'GitHub Copilot 扩展技能配置目录',
+    compatibleTools: [
+      { id: 'github-copilot', name: 'GitHub Copilot', logoId: 'copilot' },
+    ],
   },
 ]
 

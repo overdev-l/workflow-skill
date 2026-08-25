@@ -1427,10 +1427,20 @@ function AIEnvironmentsPage({
               className={`env-card ${tool.installed ? 'is-installed' : ''}`}
               style={{ animationDelay: `${idx * 25}ms` }}
             >
-              {/* Card Header: LobeHub Official Logo + Titles + Badges */}
+              {/* Card Header: LobeHub Official Logo Cluster + Titles + Badges */}
               <div className="env-card-header">
                 <div className="env-logo-wrap">
-                  <AIToolLogo toolId={tool.id} size={36} color />
+                  {tool.compatibleTools && tool.compatibleTools.length > 1 ? (
+                    <div className="env-logo-cluster">
+                      {tool.compatibleTools.slice(0, 4).map((ct) => (
+                        <div key={ct.id} className="env-logo-cluster-item" title={ct.name}>
+                          <AIToolLogo toolId={ct.logoId} size={16} color />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <AIToolLogo toolId={tool.id} size={36} color />
+                  )}
                 </div>
                 <div className="env-title-meta">
                   <div className="env-title-row">
@@ -1443,6 +1453,21 @@ function AIEnvironmentsPage({
                   </span>
                 </div>
               </div>
+
+              {/* Shared AI Tools Badges */}
+              {tool.compatibleTools && tool.compatibleTools.length > 0 ? (
+                <div className="env-shared-tools-row">
+                  <span className="env-shared-tools-label">{t.environments.sharedToolsLabel}</span>
+                  <div className="env-shared-tools-badges">
+                    {tool.compatibleTools.map((ct) => (
+                      <span key={ct.id} className="env-shared-tool-badge">
+                        <AIToolLogo toolId={ct.logoId} size={13} color />
+                        <span>{ct.name}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {/* Description */}
               <p className="env-desc">{tool.description}</p>
