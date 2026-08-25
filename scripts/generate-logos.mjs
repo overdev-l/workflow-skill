@@ -1,4 +1,8 @@
-import React from 'react'
+import fs from 'fs';
+import path from 'path';
+
+// Let's create clean, robust, zero-dependency SVG React components for AIToolLogo.tsx
+const code = `import React from 'react'
 
 export function AIToolLogo({
   toolId,
@@ -149,3 +153,7 @@ export function AIToolLogo({
     </svg>
   )
 }
+`
+
+fs.writeFileSync('apps/desktop/src/AIToolLogo.tsx', code, 'utf8');
+console.log("Successfully wrote clean AIToolLogo.tsx!");

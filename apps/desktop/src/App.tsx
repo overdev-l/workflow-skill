@@ -71,7 +71,7 @@ import { WorkflowGraph } from './components/WorkflowGraph'
 import { AIToolLogo } from './AIToolLogo'
 import { useI18n, type Locale, type TranslationKeys } from './i18n'
 
-export type View = 'skills' | 'workflows' | 'environments'
+export type View = 'skills' | 'workflows'
 type SettingsTab = 'general' | 'shortcuts' | 'permissions' | 'about'
 export type ThemeMode = 'dark' | 'light' | 'system'
 
@@ -124,12 +124,7 @@ function AppSidebar({
             <span>{t.nav.backToApp}</span>
           </button>
 
-          {/* Settings Section Brand */}
-          <div className="sidebar-brand">
-            <span className="brand-name">{t.nav.settings}</span>
-          </div>
-
-          {/* Settings Category Tabs */}
+          {/* Settings Section Navigation Pills */}
           <nav className="sidebar-nav-list">
             <button
               type="button"
@@ -211,20 +206,6 @@ function AppSidebar({
               <div className="nav-pill-btn__left">
                 <WorkflowIcon size={15} className="nav-icon" />
                 <span>{t.nav.workflow}</span>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              className={`nav-pill-btn ${view === 'environments' ? 'is-active' : ''}`}
-              onClick={() => {
-                setView('environments')
-                onBackToOverview()
-              }}
-            >
-              <div className="nav-pill-btn__left">
-                <Cpu size={15} className="nav-icon" />
-                <span>{t.nav.environments}</span>
               </div>
             </button>
           </nav>
@@ -364,13 +345,14 @@ function SkillSegmentedTabs({
   value,
   onChange,
 }: {
-  value: 'local' | 'remote'
-  onChange: (val: 'local' | 'remote') => void
+  value: 'local' | 'environments' | 'remote'
+  onChange: (val: 'local' | 'environments' | 'remote') => void
 }) {
   const { t } = useI18n()
   const options = useMemo(
     () => [
       { key: 'local' as const, label: t.skills.tabLocal, icon: Folder },
+      { key: 'environments' as const, label: t.environments.tabEnvironments, icon: Cpu },
       { key: 'remote' as const, label: t.skills.tabRemote, icon: Globe },
     ],
     [t],
@@ -755,6 +737,8 @@ function SkillsOverviewPage({
   onToggleLinkTarget,
   onDeleteSkill,
   onDetectTools,
+  onBulkLink,
+  onBulkUnlink,
   notify,
 }: {
   skills: Skill[]
@@ -762,12 +746,14 @@ function SkillsOverviewPage({
   onOpenDetail: (skill: Skill) => void
   onNewSkill: () => void
   onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
-  onDeleteSkill: (skill: Skill) => void
+  onDeleteSkill: (skill: Skill) => Promise<void>
   onDetectTools: () => void
+  onBulkLink: (targetId: string) => Promise<void>
+  onBulkUnlink: (targetId: string) => Promise<void>
   notify?: (msg: string) => void
 }) {
   const { t } = useI18n()
-  const [skillTab, setSkillTab] = useState<'local' | 'remote'>('local')
+  const [skillTab, setSkillTab] = useState<'local' | 'environments' | 'remote'>('local')
   const [query, setQuery] = useState('')
   const [filterMode, setFilterMode] = useState<'all' | 'pinned'>('all')
   const [categoryFilter, setCategoryFilter] = useState<AIToolCategory>('all')
@@ -830,15 +816,38 @@ function SkillsOverviewPage({
     }
   }
 
+  const handleOpenCentralStore = () => {
+    if (window.workflowSkill?.getStoragePath && window.workflowSkill?.openPathInFinder) {
+      window.workflowSkill
+        .getStoragePath()
+        .then((root) => {
+          void window.workflowSkill?.openPathInFinder?.(`${root}/skills`)
+        })
+        .catch(() => {})
+    }
+  }
+
   return (
     <div className="clean-page view-enter">
       <header className="page-header stagger-item">
         <div className="page-header__left">
-          <h1 className="page-title">{skillTab === 'local' ? t.skills.title : t.skills.remoteLibraryTitle}</h1>
-          <span className="page-subtitle">{skillTab === 'local' ? t.skills.subtitle : t.skills.remoteLibrarySub}</span>
+          <h1 className="page-title">
+            {skillTab === 'local'
+              ? t.skills.title
+              : skillTab === 'environments'
+              ? t.environments.title
+              : t.skills.remoteLibraryTitle}
+          </h1>
+          <span className="page-subtitle">
+            {skillTab === 'local'
+              ? t.skills.subtitle
+              : skillTab === 'environments'
+              ? t.environments.subtitle
+              : t.skills.remoteLibrarySub}
+          </span>
         </div>
 
-        {/* Centered Segmented Tab Switcher (Local vs Remote with Spring Slider) */}
+        {/* Centered Segmented Tab Switcher (Local vs Environments vs Remote with Spring Slider) */}
         <div className="page-header__center">
           <SkillSegmentedTabs
             value={skillTab}
@@ -864,6 +873,26 @@ function SkillsOverviewPage({
               <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
                 <Plus size={13} />
                 <span>{t.skills.newSkill}</span>
+              </button>
+            </>
+          ) : skillTab === 'environments' ? (
+            <>
+              <button
+                type="button"
+                className="btn btn--secondary btn--capsule"
+                onClick={onDetectTools}
+                title={t.environments.rescanBtn}
+              >
+                <Sparkles size={13} className="sparkle-active-icon" />
+                <span>{t.environments.rescanBtn}</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn--capsule-ghost btn--capsule"
+                onClick={handleOpenCentralStore}
+              >
+                <FolderOpen size={13} />
+                <span>中央仓库</span>
               </button>
             </>
           ) : (
@@ -1158,6 +1187,17 @@ function SkillsOverviewPage({
             </div>
           )}
         </div>
+      ) : skillTab === 'environments' ? (
+        <div key="environments-tab" className="tab-content-pane">
+          <AIEnvironmentsContent
+            aiTools={aiTools}
+            skills={skills}
+            onToggleLinkTarget={onToggleLinkTarget}
+            onBulkLink={onBulkLink}
+            onBulkUnlink={onBulkUnlink}
+            notify={notify}
+          />
+        </div>
       ) : (
         <div key="remote-tab" className="tab-content-pane">
           {/* Zero-Card Clean Empty Remote Skills State */}
@@ -1216,12 +1256,11 @@ function SkillsOverviewPage({
 }
 
 /* =========================================================================
-   AI Environments Hub & Tool Distribution Management Page
+   AI Environments Hub Content (Rendered within Skills Overview Page)
    ========================================================================= */
-function AIEnvironmentsPage({
+function AIEnvironmentsContent({
   aiTools,
   skills,
-  onDetectTools,
   onToggleLinkTarget,
   onBulkLink,
   onBulkUnlink,
@@ -1229,7 +1268,6 @@ function AIEnvironmentsPage({
 }: {
   aiTools: AIToolTarget[]
   skills: Skill[]
-  onDetectTools: () => void
   onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
   onBulkLink: (targetId: string) => Promise<void>
   onBulkUnlink: (targetId: string) => Promise<void>
@@ -1262,46 +1300,8 @@ function AIEnvironmentsPage({
     }
   }
 
-  const handleOpenCentralStore = () => {
-    if (window.workflowSkill?.getStoragePath && window.workflowSkill?.openPathInFinder) {
-      window.workflowSkill
-        .getStoragePath()
-        .then((root) => {
-          void window.workflowSkill?.openPathInFinder?.(`${root}/skills`)
-        })
-        .catch(() => {})
-    }
-  }
-
   return (
-    <div className="clean-page view-enter">
-      {/* Header */}
-      <header className="page-header stagger-item">
-        <div className="page-header__left">
-          <h1 className="page-title">{t.environments.title}</h1>
-          <span className="page-subtitle">{t.environments.subtitle}</span>
-        </div>
-
-        <div className="page-header__right">
-          <button
-            type="button"
-            className="btn btn--secondary btn--capsule"
-            onClick={onDetectTools}
-            title={t.environments.rescanBtn}
-          >
-            <Sparkles size={13} className="sparkle-active-icon" />
-            <span>{t.environments.rescanBtn}</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn--capsule-ghost btn--capsule"
-            onClick={handleOpenCentralStore}
-          >
-            <FolderOpen size={13} />
-            <span>中央仓库</span>
-          </button>
-        </div>
-      </header>
+    <div className="tab-content-pane view-enter">
 
       {/* Hero Metric Cards */}
       <div className="env-hero-metrics-grid stagger-item">
@@ -2531,12 +2531,6 @@ function AppCommandPalette({
         run: () => onSelectView('workflows'),
       },
       {
-        id: 'view-environments',
-        label: '切换至 AI 环境生态',
-        hint: 'G E',
-        run: () => onSelectView('environments'),
-      },
-      {
         id: 'new-skill',
         label: t.command.newSkill,
         hint: t.command.newSkillHint,
@@ -3417,6 +3411,8 @@ export function App() {
                 onToggleLinkTarget={handleToggleLinkTarget}
                 onDeleteSkill={handleDeleteSkillCompletely}
                 onDetectTools={handleDetectTools}
+                onBulkLink={handleBulkLinkToTarget}
+                onBulkUnlink={handleBulkUnlinkFromTarget}
                 notify={setToast}
               />
             ) : null}
@@ -3432,18 +3428,6 @@ export function App() {
                   setToast(t.workflows.dismissedToast)
                 }}
                 observing={observing}
-              />
-            ) : null}
-
-            {view === 'environments' ? (
-              <AIEnvironmentsPage
-                aiTools={aiTools}
-                skills={skills}
-                onDetectTools={handleDetectTools}
-                onToggleLinkTarget={handleToggleLinkTarget}
-                onBulkLink={handleBulkLinkToTarget}
-                onBulkUnlink={handleBulkUnlinkFromTarget}
-                notify={setToast}
               />
             ) : null}
           </>
