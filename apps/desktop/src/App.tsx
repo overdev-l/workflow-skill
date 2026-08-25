@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Activity,
+  AlertTriangle,
   Archive,
   ArrowLeft,
   ArrowRight,
@@ -8,6 +9,7 @@ import {
   BookOpen,
   Boxes,
   Check,
+  CheckCircle2,
   ChevronRight,
   Clock3,
   Code,
@@ -27,6 +29,7 @@ import {
   Grid,
   Info,
   Languages,
+  Link2,
   Mail,
   Monitor,
   Moon,
@@ -35,6 +38,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RefreshCw,
   RotateCcw,
   Search,
   Settings,
@@ -44,14 +48,19 @@ import {
   Sun,
   Terminal,
   Trash2,
+  Unlink,
   Workflow as WorkflowIcon,
   X,
   Zap,
 } from 'lucide-react'
-import type {
-  Skill,
-  Workflow,
-  WorkflowNode,
+import {
+  DEFAULT_AI_TOOLS,
+  demoSkills,
+  type AIToolCategory,
+  type AIToolTarget,
+  type Skill,
+  type Workflow,
+  type WorkflowNode,
 } from '@workflow-skill/workflow-model'
 import type {
   CaptureEvent,
@@ -424,34 +433,379 @@ function SkillSegmentedTabs({
   )
 }
 
+function ToolIcon({ name, size = 12, className }: { name: string; size?: number; className?: string }) {
+  switch (name) {
+    case 'Zap':
+      return <Zap size={size} className={className} />
+    case 'Sparkles':
+      return <Sparkles size={size} className={className} />
+    case 'Terminal':
+      return <Terminal size={size} className={className} />
+    case 'Monitor':
+      return <Monitor size={size} className={className} />
+    case 'Boxes':
+      return <Boxes size={size} className={className} />
+    case 'FolderTree':
+      return <FolderTree size={size} className={className} />
+    default:
+      return <Code size={size} className={className} />
+  }
+}
+
+function AIToolTargetPill({
+  tool,
+  isLinked,
+  isBroken,
+  onClick,
+  title,
+}: {
+  tool: AIToolTarget
+  isLinked: boolean
+  isBroken?: boolean
+  onClick: (e: React.MouseEvent) => void
+  title?: string
+}) {
+  return (
+    <button
+      type="button"
+      className={`target-capsule-pill ${isLinked ? 'is-linked' : 'is-unlinked'} ${isBroken ? 'is-broken' : ''}`}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick(e)
+      }}
+      title={title}
+    >
+      <span className="target-pill-icon">
+        <ToolIcon name={tool.iconName} size={11} />
+      </span>
+      <span className="target-pill-name">{tool.name}</span>
+      {isLinked ? (
+        <Link2 size={10} className="target-pill-status-icon is-active" />
+      ) : (
+        <span className="target-pill-dot" />
+      )}
+    </button>
+  )
+}
+
+function SafeDeleteSkillModal({
+  skill,
+  aiTools,
+  open,
+  onClose,
+  onConfirm,
+}: {
+  skill: Skill | null
+  aiTools: AIToolTarget[]
+  open: boolean
+  onClose: () => void
+  onConfirm: (skill: Skill) => void
+}) {
+  const { t } = useI18n()
+  if (!open || !skill) return null
+
+  const linkedTools = aiTools.filter((tool) => skill.targetTools?.includes(tool.id))
+
+  return (
+    <div className="glass-modal-overlay view-enter" onClick={onClose}>
+      <div className="glass-dialog-box safe-delete-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="safe-delete-header">
+          <div className="danger-icon-badge">
+            <AlertTriangle size={20} />
+          </div>
+          <div>
+            <h3 className="glass-dialog-title">{t.skills.safeDeleteConfirmTitle}</h3>
+            <p className="glass-dialog-desc">{t.skills.safeDeleteConfirmDesc(skill.name, linkedTools.length)}</p>
+          </div>
+        </div>
+
+        {linkedTools.length > 0 ? (
+          <div className="safe-delete-targets-list">
+            <span className="safe-delete-targets-label">{t.skills.safeDeleteLinkedNotice}</span>
+            <div className="safe-delete-targets-grid">
+              {linkedTools.map((tool) => (
+                <div key={tool.id} className="safe-delete-target-row font-mono">
+                  <ToolIcon name={tool.iconName} size={13} />
+                  <span className="target-name">{tool.name}</span>
+                  <span className="target-path">({tool.detectedPath || tool.defaultDir}/{skill.id})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="glass-dialog-actions">
+          <button type="button" className="btn btn--secondary btn--capsule" onClick={onClose}>
+            {t.skills.cancelBtn}
+          </button>
+          <button
+            type="button"
+            className="btn btn--danger btn--capsule"
+            onClick={() => {
+              onConfirm(skill)
+              onClose()
+            }}
+          >
+            <Trash2 size={13} />
+            <span>{t.skills.confirmDeleteBtn}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SkillDetailDrawer({
+  skill,
+  aiTools,
+  open,
+  onClose,
+  onToggleLink,
+  onDeleteRequest,
+  notify,
+}: {
+  skill: Skill | null
+  aiTools: AIToolTarget[]
+  open: boolean
+  onClose: () => void
+  onToggleLink: (skill: Skill, toolId: string) => Promise<void>
+  onDeleteRequest: (skill: Skill) => void
+  notify?: (msg: string) => void
+}) {
+  const { t } = useI18n()
+  const [editingMd, setEditingMd] = useState('')
+  const [savingMd, setSavingMd] = useState(false)
+
+  useEffect(() => {
+    if (skill) {
+      setEditingMd(skill.skillMarkdown || '')
+      if (window.workflowSkill?.readSkillMarkdown) {
+        window.workflowSkill.readSkillMarkdown(skill.id).then((content) => {
+          if (content) setEditingMd(content)
+        }).catch(() => {})
+      }
+    }
+  }, [skill])
+
+  if (!open || !skill) return null
+
+  const handleOpenSourceDir = () => {
+    if (window.workflowSkill?.getStoragePath && window.workflowSkill?.openPathInFinder) {
+      window.workflowSkill.getStoragePath().then((root) => {
+        void window.workflowSkill?.openPathInFinder?.(`${root}/skills/${skill.id}`)
+      }).catch(() => {})
+    }
+  }
+
+  const handleSaveMarkdown = async () => {
+    setSavingMd(true)
+    try {
+      if (window.workflowSkill?.saveSkillMarkdown) {
+        await window.workflowSkill.saveSkillMarkdown(skill.id, editingMd)
+      }
+      notify?.(t.skills.savedSkillMdToast)
+    } finally {
+      setSavingMd(false)
+    }
+  }
+
+  return (
+    <div className="skill-drawer-overlay view-enter" onClick={onClose}>
+      <aside className="skill-drawer-panel" onClick={(e) => e.stopPropagation()}>
+        {/* Drawer Header */}
+        <div className="skill-drawer-header">
+          <div className="skill-drawer-title-wrap">
+            <div className="skill-drawer-title-row">
+              <h2 className="skill-drawer-title">{skill.name}</h2>
+              <span className="pinned-ver-pill font-mono">{t.skills.versionPrefix}{skill.versions}.0</span>
+            </div>
+            <p className="skill-drawer-desc">{skill.description}</p>
+          </div>
+          <button type="button" className="drawer-close-btn" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="skill-drawer-body">
+          {/* Central Store Info */}
+          <div className="skill-central-store-card">
+            <div className="central-store-info">
+              <Folder size={14} className="central-folder-icon" />
+              <div className="central-store-paths">
+                <span className="central-store-label">{t.skills.openSourceDirBtn}</span>
+                <span className="central-store-path font-mono">~/.trace/skills/{skill.id}/SKILL.md</span>
+              </div>
+            </div>
+            <button type="button" className="btn btn--secondary btn--capsule" onClick={handleOpenSourceDir}>
+              <FolderOpen size={12} />
+              <span>{t.skills.openSourceDirBtn}</span>
+            </button>
+          </div>
+
+          {/* AI Tools Distribution Matrix */}
+          <div className="skill-drawer-section">
+            <div className="drawer-section-header">
+              <h3 className="drawer-section-title">{t.skills.distributionMatrixTitle}</h3>
+              <span className="drawer-section-sub">（支持 NTFS Junction 与 Symlink 跨平台无缝挂载）</span>
+            </div>
+
+            <div className="drawer-tool-list">
+              {aiTools.map((tool) => {
+                const isLinked = Boolean(skill.targetTools?.includes(tool.id))
+                return (
+                  <div key={tool.id} className={`drawer-tool-row ${isLinked ? 'is-linked' : ''}`}>
+                    <div className="drawer-tool-left">
+                      <div className="drawer-tool-icon-wrap">
+                        <ToolIcon name={tool.iconName} size={15} />
+                      </div>
+                      <div className="drawer-tool-meta">
+                        <div className="drawer-tool-name-row">
+                          <strong className="drawer-tool-name">{tool.name}</strong>
+                          <span className="tool-category-badge">{tool.category.toUpperCase()}</span>
+                          <span className={`tool-installed-badge ${tool.installed ? 'is-installed' : ''}`}>
+                            {tool.installed ? t.skills.installedBadge : t.skills.notInstalledBadge}
+                          </span>
+                        </div>
+                        <span className="drawer-tool-path font-mono">
+                          {tool.detectedPath || tool.defaultDir}/{skill.id}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className={`btn btn--capsule ${isLinked ? 'btn--primary' : 'btn--secondary'}`}
+                      onClick={() => onToggleLink(skill, tool.id)}
+                    >
+                      {isLinked ? <Link2 size={12} /> : <Unlink size={12} />}
+                      <span>{isLinked ? t.skills.healthyStatus : t.skills.unlinkedStatus}</span>
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Live SKILL.md Editor */}
+          <div className="skill-drawer-section">
+            <div className="drawer-section-header">
+              <h3 className="drawer-section-title">{t.skills.editSkillMdTitle}</h3>
+              <button
+                type="button"
+                className="btn btn--secondary btn--capsule"
+                onClick={handleSaveMarkdown}
+                disabled={savingMd}
+              >
+                <Check size={12} />
+                <span>{t.skills.saveSkillMdBtn}</span>
+              </button>
+            </div>
+            <textarea
+              className="skill-md-editor font-mono"
+              value={editingMd}
+              onChange={(e) => setEditingMd(e.target.value)}
+              placeholder="# SKILL.md Instructions..."
+              rows={12}
+            />
+          </div>
+
+          {/* Danger Zone */}
+          <div className="skill-drawer-section danger-zone-section">
+            <div className="danger-zone-card">
+              <div className="danger-zone-info">
+                <strong>{t.skills.safeDeleteConfirmTitle}</strong>
+                <span>删除此 Skill 将自动解除全部已挂载工具目录的软链接，并移除中央源文件。</span>
+              </div>
+              <button
+                type="button"
+                className="btn btn--danger btn--capsule"
+                onClick={() => onDeleteRequest(skill)}
+              >
+                <Trash2 size={13} />
+                <span>{t.skills.confirmDeleteBtn}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  )
+}
+
 function SkillsOverviewPage({
   skills,
+  aiTools,
   onOpenDetail,
   onNewSkill,
+  onToggleLinkTarget,
+  onDeleteSkill,
+  onDetectTools,
   notify,
 }: {
   skills: Skill[]
+  aiTools: AIToolTarget[]
   onOpenDetail: (skill: Skill) => void
   onNewSkill: () => void
+  onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
+  onDeleteSkill: (skill: Skill) => void
+  onDetectTools: () => void
   notify?: (msg: string) => void
 }) {
   const { t } = useI18n()
   const [skillTab, setSkillTab] = useState<'local' | 'remote'>('local')
   const [query, setQuery] = useState('')
   const [filterMode, setFilterMode] = useState<'all' | 'pinned'>('all')
-  const [remoteCategory, setRemoteCategory] = useState<'all' | 'dev' | 'office'>('all')
+  const [categoryFilter, setCategoryFilter] = useState<AIToolCategory>('all')
+  const [selectedToolFilter, setSelectedToolFilter] = useState<string>('all')
 
+  // Drawer and Delete Modal States
+  const [drawerSkill, setDrawerSkill] = useState<Skill | null>(null)
+  const [deleteModalSkill, setDeleteModalSkill] = useState<Skill | null>(null)
+
+  // Filter skills by search query, pin status, AI tool category, and specific target tool
   const filteredSkills = useMemo(() => {
     const q = query.trim().toLowerCase()
     return skills.filter((sk) => {
       if (filterMode === 'pinned' && !sk.pinned) return false
+
+      if (categoryFilter !== 'all') {
+        const targetToolObjects = (sk.targetTools || []).map((tid) => aiTools.find((t) => t.id === tid)).filter(Boolean)
+        const matchesCategory = targetToolObjects.some((t) => t?.category === categoryFilter)
+        if (!matchesCategory) return false
+      }
+
+      if (selectedToolFilter !== 'all') {
+        if (!sk.targetTools?.includes(selectedToolFilter)) return false
+      }
+
       if (!q) return true
-      const searchStr = `${sk.name} ${sk.description} ${sk.apps.join(' ')}`.toLowerCase()
+      const searchStr = `${sk.name} ${sk.description} ${(sk.apps || []).join(' ')} ${(sk.tags || []).join(' ')} ${(sk.triggers || []).join(' ')} ${(sk.targetTools || []).join(' ')}`.toLowerCase()
       return searchStr.includes(q)
     })
-  }, [skills, query, filterMode])
+  }, [skills, query, filterMode, categoryFilter, selectedToolFilter, aiTools])
 
   const pinnedCount = useMemo(() => skills.filter((s) => s.pinned).length, [skills])
+
+  // Category counts
+  const categoryCounts = useMemo(() => {
+    const counts: Record<AIToolCategory, number> = {
+      all: skills.length,
+      ide: 0,
+      cli: 0,
+      extension: 0,
+      standard: 0,
+    }
+    for (const sk of skills) {
+      const categories = new Set(
+        (sk.targetTools || []).map((tid) => aiTools.find((t) => t.id === tid)?.category).filter(Boolean)
+      )
+      if (categories.has('ide')) counts.ide += 1
+      if (categories.has('cli')) counts.cli += 1
+      if (categories.has('extension')) counts.extension += 1
+      if (categories.has('standard')) counts.standard += 1
+    }
+    return counts
+  }, [skills, aiTools])
 
   const handleOpenLocalDir = () => {
     if (window.workflowSkill?.getStoragePath && window.workflowSkill?.openPathInFinder) {
@@ -481,7 +835,23 @@ function SkillsOverviewPage({
         </div>
 
         <div className="page-header__right">
-          {skillTab === 'remote' ? (
+          {skillTab === 'local' ? (
+            <>
+              <button
+                type="button"
+                className="btn btn--secondary btn--capsule"
+                onClick={onDetectTools}
+                title={t.skills.detectToolsBtn}
+              >
+                <Sparkles size={13} className="sparkle-active-icon" />
+                <span>{t.skills.detectToolsBtn}</span>
+              </button>
+              <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
+                <Plus size={13} />
+                <span>{t.skills.newSkill}</span>
+              </button>
+            </>
+          ) : (
             <button
               type="button"
               className="btn btn--secondary btn--capsule"
@@ -490,7 +860,7 @@ function SkillsOverviewPage({
               <Sliders size={13} />
               <span>{t.skills.remoteConfigureBtn}</span>
             </button>
-          ) : null}
+          )}
         </div>
       </header>
 
@@ -498,7 +868,7 @@ function SkillsOverviewPage({
         <div key="local-tab" className="tab-content-pane">
           {skills.length > 0 ? (
             <>
-              {/* Filter Toolbar */}
+              {/* Filter Toolbar: Search, Pins, and AI Tool Category Segmented Filter */}
               <div className="filter-toolbar-row stagger-item">
                 <label className="search-capsule-box">
                   <Search size={14} />
@@ -536,6 +906,96 @@ function SkillsOverviewPage({
                 </div>
               </div>
 
+              {/* AI Tool Category Rail & Quick Tool Filter Pills */}
+              <div className="ai-tool-filter-rail stagger-item">
+                <div className="category-capsule-tabs">
+                  <button
+                    type="button"
+                    className={`cat-pill-btn ${categoryFilter === 'all' ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setCategoryFilter('all')
+                      setSelectedToolFilter('all')
+                    }}
+                  >
+                    <span>{t.skills.categoryAll}</span>
+                    <span className="cat-count-badge font-mono">{categoryCounts.all}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`cat-pill-btn ${categoryFilter === 'ide' ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setCategoryFilter('ide')
+                      setSelectedToolFilter('all')
+                    }}
+                  >
+                    <span>{t.skills.categoryIde}</span>
+                    <span className="cat-count-badge font-mono">{categoryCounts.ide}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`cat-pill-btn ${categoryFilter === 'cli' ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setCategoryFilter('cli')
+                      setSelectedToolFilter('all')
+                    }}
+                  >
+                    <span>{t.skills.categoryCli}</span>
+                    <span className="cat-count-badge font-mono">{categoryCounts.cli}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`cat-pill-btn ${categoryFilter === 'extension' ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setCategoryFilter('extension')
+                      setSelectedToolFilter('all')
+                    }}
+                  >
+                    <span>{t.skills.categoryExtension}</span>
+                    <span className="cat-count-badge font-mono">{categoryCounts.extension}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`cat-pill-btn ${categoryFilter === 'standard' ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setCategoryFilter('standard')
+                      setSelectedToolFilter('all')
+                    }}
+                  >
+                    <span>{t.skills.categoryStandard}</span>
+                    <span className="cat-count-badge font-mono">{categoryCounts.standard}</span>
+                  </button>
+                </div>
+
+                {/* Secondary Quick Filter: Specific AI Tools Chips */}
+                <div className="tool-quick-filter-chips">
+                  <button
+                    type="button"
+                    className={`tool-filter-chip ${selectedToolFilter === 'all' ? 'is-active' : ''}`}
+                    onClick={() => setSelectedToolFilter('all')}
+                  >
+                    <span>{t.skills.allToolsFilter}</span>
+                  </button>
+                  {aiTools
+                    .filter((tool) => categoryFilter === 'all' || tool.category === categoryFilter)
+                    .map((tool) => {
+                      const count = skills.filter((s) => s.targetTools?.includes(tool.id)).length
+                      const isSelected = selectedToolFilter === tool.id
+                      return (
+                        <button
+                          key={tool.id}
+                          type="button"
+                          className={`tool-filter-chip ${isSelected ? 'is-active' : ''} ${tool.installed ? 'is-installed' : ''}`}
+                          onClick={() => setSelectedToolFilter(isSelected ? 'all' : tool.id)}
+                        >
+                          <ToolIcon name={tool.iconName} size={11} />
+                          <span>{tool.name}</span>
+                          <span className="tool-chip-count font-mono">{count}</span>
+                        </button>
+                      )
+                    })}
+                </div>
+              </div>
+
               {/* Local Skills List Container */}
               {filteredSkills.length > 0 ? (
                 <div className="flat-table-wrap stagger-item">
@@ -543,34 +1003,88 @@ function SkillsOverviewPage({
                     {filteredSkills.map((sk, idx) => (
                       <div
                         key={sk.id}
-                        className="flat-row"
+                        className="flat-row skill-distribution-row"
                         style={{ animationDelay: `${idx * 20}ms` }}
-                        onClick={() => onOpenDetail(sk)}
+                        onClick={() => setDrawerSkill(sk)}
                         role="button"
                         tabIndex={0}
                       >
+                        {/* Left: Metadata */}
                         <div className="flat-row__left">
                           <div className="flat-title-row">
                             {sk.pinned ? <Bookmark size={13} className="flat-pinned-icon" /> : null}
                             <strong className="flat-row-title">{sk.name}</strong>
-                          </div>
-                          <span className="flat-row-desc">{sk.description}</span>
-                        </div>
-
-                        <div className="flat-row__middle">
-                          <div className="app-chips-row">
-                            {sk.apps.map((a) => (
-                              <span key={a} className="app-capsule-chip font-mono">
-                                {a}
+                            {sk.tags?.slice(0, 2).map((tag) => (
+                              <span key={tag} className="skill-tag-pill font-mono">
+                                #{tag}
                               </span>
                             ))}
+                          </div>
+                          <span className="flat-row-desc">{sk.description}</span>
+                          {sk.triggers && sk.triggers.length > 0 ? (
+                            <div className="skill-triggers-row">
+                              {sk.triggers.map((trig) => (
+                                <span key={trig} className="skill-trigger-chip font-mono">
+                                  {trig}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+
+                        {/* Middle: Live Distribution Capsule Pills Matrix */}
+                        <div className="flat-row__middle">
+                          <div className="target-capsules-group">
+                            {aiTools
+                              .filter((tool) => categoryFilter === 'all' || tool.category === categoryFilter)
+                              .slice(0, 5)
+                              .map((tool) => {
+                                const isLinked = Boolean(sk.targetTools?.includes(tool.id))
+                                return (
+                                  <AIToolTargetPill
+                                    key={tool.id}
+                                    tool={tool}
+                                    isLinked={isLinked}
+                                    title={
+                                      isLinked
+                                        ? t.skills.linkedTooltip(tool.name, tool.detectedPath || tool.defaultDir)
+                                        : t.skills.unlinkedTooltip(tool.name)
+                                    }
+                                    onClick={() => void onToggleLinkTarget(sk, tool.id)}
+                                  />
+                                )
+                              })}
+                            {aiTools.length > 5 && categoryFilter === 'all' ? (
+                              <button
+                                type="button"
+                                className="target-capsule-more font-mono"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDrawerSkill(sk)
+                                }}
+                              >
+                                +{aiTools.length - 5}
+                              </button>
+                            ) : null}
                           </div>
                           <WorkflowGraph workflow={sk.workflow} compact />
                         </div>
 
+                        {/* Right: Meta, Actions, and Chevron */}
                         <div className="flat-row__right">
                           <span className="flat-row-meta font-mono">{sk.updatedLabel}</span>
                           <span className="pinned-ver-pill font-mono">{t.skills.versionPrefix}{sk.versions}.0</span>
+                          <button
+                            type="button"
+                            className="row-action-icon-btn"
+                            title="配置分发与规则"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setDrawerSkill(sk)
+                            }}
+                          >
+                            <MoreHorizontal size={15} />
+                          </button>
                           <div className="row-chevron-indicator">
                             <ChevronRight size={14} />
                           </div>
@@ -591,7 +1105,11 @@ function SkillsOverviewPage({
                     <button
                       type="button"
                       className="btn btn--secondary btn--capsule"
-                      onClick={() => setQuery('')}
+                      onClick={() => {
+                        setQuery('')
+                        setCategoryFilter('all')
+                        setSelectedToolFilter('all')
+                      }}
                     >
                       <X size={13} />
                       <span>{t.skills.clearSearchBtn}</span>
@@ -655,6 +1173,29 @@ function SkillsOverviewPage({
           </div>
         </div>
       )}
+
+      {/* Slide-over Skill Detail & Distribution Matrix Drawer */}
+      <SkillDetailDrawer
+        skill={drawerSkill}
+        aiTools={aiTools}
+        open={Boolean(drawerSkill)}
+        onClose={() => setDrawerSkill(null)}
+        onToggleLink={onToggleLinkTarget}
+        onDeleteRequest={(sk) => {
+          setDrawerSkill(null)
+          setDeleteModalSkill(sk)
+        }}
+        notify={notify}
+      />
+
+      {/* Safe Delete Modal with Explicit Downstream Links List */}
+      <SafeDeleteSkillModal
+        skill={deleteModalSkill}
+        aiTools={aiTools}
+        open={Boolean(deleteModalSkill)}
+        onClose={() => setDeleteModalSkill(null)}
+        onConfirm={onDeleteSkill}
+      />
     </div>
   )
 }
@@ -2065,15 +2606,51 @@ export function App() {
   // Real Dynamic Skills & Discoveries in State (Zero Fake Data)
   const [skills, setSkills] = useState<Skill[]>([])
   const [discoveries, setDiscoveries] = useState<Workflow[]>([])
+  const [aiTools, setAiTools] = useState<AIToolTarget[]>(DEFAULT_AI_TOOLS)
+
+  const handleDetectTools = () => {
+    if (window.workflowSkill?.getAITools) {
+      window.workflowSkill
+        .getAITools()
+        .then((detected) => {
+          if (Array.isArray(detected) && detected.length > 0) {
+            setAiTools(detected)
+            const installedCount = detected.filter((t) => t.installed).length
+            setToast(t.skills.detectToolsToast(installedCount))
+          }
+        })
+        .catch(() => {})
+    } else {
+      setToast(t.skills.detectToolsToast(DEFAULT_AI_TOOLS.length))
+    }
+  }
 
   useEffect(() => {
     let active = true
+    if (window.workflowSkill?.getAITools) {
+      window.workflowSkill
+        .getAITools()
+        .then((detected) => {
+          if (active && Array.isArray(detected) && detected.length > 0) {
+            setAiTools(detected)
+          }
+        })
+        .catch(() => {})
+    }
     if (window.workflowSkill?.loadLocalSkills) {
       window.workflowSkill
         .loadLocalSkills()
         .then((loaded) => {
           if (active && Array.isArray(loaded)) {
-            setSkills(loaded)
+            if (loaded.length > 0) {
+              setSkills(loaded)
+            } else {
+              // Seed demo skills with rich target tools data
+              setSkills(demoSkills)
+              for (const ds of demoSkills) {
+                void window.workflowSkill?.saveLocalSkill?.(ds)
+              }
+            }
           }
         })
         .catch(() => {})
@@ -2082,6 +2659,51 @@ export function App() {
       active = false
     }
   }, [])
+
+  const handleToggleLinkTarget = async (skill: Skill, targetId: string) => {
+    const isCurrentlyLinked = Boolean(skill.targetTools?.includes(targetId))
+    const tool = aiTools.find((t) => t.id === targetId) || DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
+    const toolName = tool?.name || targetId
+
+    if (isCurrentlyLinked) {
+      if (window.workflowSkill?.unlinkSkillTarget) {
+        await window.workflowSkill.unlinkSkillTarget(skill.id, targetId)
+      }
+      setSkills((prev) =>
+        prev.map((s) =>
+          s.id === skill.id
+            ? { ...s, targetTools: (s.targetTools || []).filter((id) => id !== targetId) }
+            : s,
+        ),
+      )
+      setToast(t.skills.unlinkedSuccessToast(skill.name, toolName))
+    } else {
+      if (window.workflowSkill?.linkSkillTarget) {
+        await window.workflowSkill.linkSkillTarget(skill.id, targetId)
+      }
+      setSkills((prev) =>
+        prev.map((s) =>
+          s.id === skill.id
+            ? { ...s, targetTools: Array.from(new Set([...(s.targetTools || []), targetId])) }
+            : s,
+        ),
+      )
+      setToast(t.skills.linkedSuccessToast(skill.name, toolName))
+    }
+  }
+
+  const handleDeleteSkillCompletely = async (skill: Skill) => {
+    if (window.workflowSkill?.deleteSkillCompletely) {
+      await window.workflowSkill.deleteSkillCompletely(skill.id)
+    } else if (window.workflowSkill?.deleteLocalSkill) {
+      await window.workflowSkill.deleteLocalSkill(skill.id)
+    }
+    setSkills((prev) => prev.filter((s) => s.id !== skill.id))
+    if (activeDetail?.skill?.id === skill.id) {
+      setActiveDetail(null)
+    }
+    setToast(`已彻底删除 “${skill.name}”`)
+  }
 
   // Active Level-2 Workflow Detail State
   const [activeDetail, setActiveDetail] = useState<ActiveDetailState | null>(null)
@@ -2409,10 +3031,14 @@ export function App() {
             {view === 'skills' ? (
               <SkillsOverviewPage
                 skills={skills}
+                aiTools={aiTools}
                 onOpenDetail={(skill) =>
                   setActiveDetail({ workflow: skill.workflow, source: 'skill', skill })
                 }
                 onNewSkill={() => setNewSkillOpen(true)}
+                onToggleLinkTarget={handleToggleLinkTarget}
+                onDeleteSkill={handleDeleteSkillCompletely}
+                onDetectTools={handleDetectTools}
                 notify={setToast}
               />
             ) : null}

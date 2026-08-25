@@ -19,6 +19,19 @@ contextBridge.exposeInMainWorld('workflowSkill', {
   loadLocalSkills: () => ipcRenderer.invoke('system:load-local-skills') as Promise<any[]>,
   saveLocalSkill: (skill: any) => ipcRenderer.invoke('system:save-local-skill', skill) as Promise<boolean>,
   deleteLocalSkill: (skillId: string) => ipcRenderer.invoke('system:delete-local-skill', skillId) as Promise<boolean>,
+  getAITools: () => ipcRenderer.invoke('system:get-ai-tools') as Promise<any[]>,
+  linkSkillTarget: (skillId: string, targetId: string) =>
+    ipcRenderer.invoke('system:link-skill-target', skillId, targetId) as Promise<{ success: boolean; linkPath?: string }>,
+  unlinkSkillTarget: (skillId: string, targetId: string) =>
+    ipcRenderer.invoke('system:unlink-skill-target', skillId, targetId) as Promise<{ success: boolean }>,
+  getSkillLinkHealth: (skillId: string) =>
+    ipcRenderer.invoke('system:get-skill-link-health', skillId) as Promise<Record<string, 'healthy' | 'broken' | 'unlinked'>>,
+  deleteSkillCompletely: (skillId: string) =>
+    ipcRenderer.invoke('system:delete-skill-completely', skillId) as Promise<boolean>,
+  readSkillMarkdown: (skillId: string) =>
+    ipcRenderer.invoke('system:read-skill-markdown', skillId) as Promise<string>,
+  saveSkillMarkdown: (skillId: string, markdown: string) =>
+    ipcRenderer.invoke('system:save-skill-markdown', skillId, markdown) as Promise<boolean>,
   onRecorderMessage: (listener: (message: RecorderEnvelope) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, message: RecorderEnvelope) => listener(message)
     ipcRenderer.on('recorder:message', handler)

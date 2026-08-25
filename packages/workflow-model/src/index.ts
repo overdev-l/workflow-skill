@@ -31,6 +31,95 @@ export interface Workflow {
   edges: WorkflowEdge[]
 }
 
+export type AIToolCategory = 'all' | 'ide' | 'cli' | 'extension' | 'standard'
+
+export interface AIToolTarget {
+  id: string
+  name: string
+  category: 'ide' | 'cli' | 'extension' | 'standard'
+  defaultDir: string
+  customDir?: string
+  installed?: boolean
+  detectedPath?: string
+  iconName: string
+  description?: string
+}
+
+export const DEFAULT_AI_TOOLS: AIToolTarget[] = [
+  {
+    id: 'claude-code',
+    name: 'Claude Code',
+    category: 'cli',
+    defaultDir: '.claude/skills',
+    iconName: 'Zap',
+    description: 'Anthropic Claude Code CLI 终端编程 Agent',
+  },
+  {
+    id: 'antigravity',
+    name: 'Antigravity',
+    category: 'cli',
+    defaultDir: '.gemini/config/skills',
+    iconName: 'Sparkles',
+    description: 'Google Antigravity / Gemini CLI 高级编码助手',
+  },
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    category: 'ide',
+    defaultDir: '.cursor/skills',
+    iconName: 'Terminal',
+    description: 'Cursor AI 智能编程编辑器',
+  },
+  {
+    id: 'windsurf',
+    name: 'Windsurf',
+    category: 'ide',
+    defaultDir: '.windsurf/skills',
+    iconName: 'Monitor',
+    description: 'Codeium Windsurf AI 原生 IDE',
+  },
+  {
+    id: 'trae',
+    name: 'Trae',
+    category: 'ide',
+    defaultDir: '.trae/skills',
+    iconName: 'Monitor',
+    description: 'ByteDance Trae AI 自适应集成开发环境',
+  },
+  {
+    id: 'cline',
+    name: 'Cline',
+    category: 'extension',
+    defaultDir: '.cline/skills',
+    iconName: 'Boxes',
+    description: 'VS Code 自主编码 Agent 插件',
+  },
+  {
+    id: 'roo',
+    name: 'Roo Code',
+    category: 'extension',
+    defaultDir: '.roo/skills',
+    iconName: 'Boxes',
+    description: 'Roo Code 多模式 AI 架构与任务插件',
+  },
+  {
+    id: 'codex',
+    name: 'Codex CLI',
+    category: 'cli',
+    defaultDir: '.codex/skills',
+    iconName: 'Zap',
+    description: 'OpenAI Codex 命令行代码生成工具',
+  },
+  {
+    id: 'agents-std',
+    name: '.agents 标准',
+    category: 'standard',
+    defaultDir: '.agents/skills',
+    iconName: 'FolderTree',
+    description: 'skills.sh 跨工具通用开放规范',
+  },
+]
+
 export interface Skill {
   id: string
   name: string
@@ -41,6 +130,11 @@ export interface Skill {
   sourceRuns: number
   versions: number
   workflow: Workflow
+  targetTools?: string[]
+  tags?: string[]
+  triggers?: string[]
+  skillMarkdown?: string
+  skillPath?: string
 }
 
 export const reportWorkflow: Workflow = {
@@ -89,58 +183,144 @@ export const feedbackWorkflow: Workflow = {
 export const demoSkills: Skill[] = [
   {
     id: 'weekly-report-skill',
-    name: '导出周报',
-    description: '汇总关键指标并发送给相关成员。',
+    name: '导出周报与指标汇总',
+    description: '自动提取表格关键指标，生成周报文件并联动邮件客户端准备发送。',
     apps: ['Excel', 'Mail'],
     updatedLabel: '今天更新',
     pinned: true,
     sourceRuns: 5,
     versions: 3,
     workflow: reportWorkflow,
+    targetTools: ['claude-code', 'antigravity', 'cursor'],
+    tags: ['report', 'excel', 'workflow'],
+    triggers: ['/report', 'export weekly report'],
+    skillMarkdown: `---
+name: weekly-report-skill
+description: 自动汇总本周关键数据与进展报告，导出为 summary.xlsx 并准备发送
+tools: [Excel, Mail]
+version: 3.0.0
+---
+
+# Weekly Report Skill
+
+## Instructions
+1. 打开报表根目录并检查源数据。
+2. 读取关键统计指标并写入 summary.xlsx。
+3. 导出 details.pdf 附录。
+4. 调用邮件客户端生成草稿并附加报告附件。
+`,
   },
   {
     id: 'feedback-skill',
-    name: '整理客户反馈',
-    description: '收集、标记并按主题整理客户反馈。',
+    name: '整理客户反馈与主题归类',
+    description: '收集多渠道客户反馈消息，按分类标签打标并自动同步到共享在线表格。',
     apps: ['Slack', 'Sheets'],
     updatedLabel: '今天更新',
     pinned: true,
     sourceRuns: 5,
     versions: 3,
     workflow: feedbackWorkflow,
+    targetTools: ['claude-code', 'antigravity', 'windsurf'],
+    tags: ['feedback', 'slack', 'sheets'],
+    triggers: ['/feedback', 'classify feedback'],
+    skillMarkdown: `---
+name: feedback-skill
+description: 提取多渠道反馈并聚类整理为结构化表格
+tools: [Slack, Sheets]
+version: 3.0.0
+---
+
+# Customer Feedback Distillation Skill
+
+## Instructions
+1. 抓取反馈通道未读消息。
+2. 进行语义理解与分类标签提取。
+3. 写入 Google Sheets / Excel 汇总行。
+`,
   },
   {
     id: 'design-handoff',
-    name: '准备设计交付',
-    description: '整理资源和说明，交付给研发团队。',
+    name: '准备设计规范与资产交付',
+    description: '提取设计稿切图与尺寸规范，生成前端组件交付说明并创建任务单。',
     apps: ['Figma', 'Linear'],
     updatedLabel: '昨天更新',
     pinned: true,
     sourceRuns: 4,
     versions: 2,
     workflow: feedbackWorkflow,
+    targetTools: ['cursor', 'trae', 'agents-std'],
+    tags: ['design', 'figma', 'linear'],
+    triggers: ['/handoff', 'design handoff'],
+    skillMarkdown: `---
+name: design-handoff
+description: 设计切图与组件规范导出并创建 Linear 交付任务
+tools: [Figma, Linear]
+version: 2.0.0
+---
+
+# Design Handoff Skill
+
+## Instructions
+1. 检查 Figma 选中组件的图层属性与 token。
+2. 导出 svg/png 资源。
+3. 生成 Linear Issue 描述与附件链接。
+`,
   },
   {
     id: 'release-notes',
-    name: '发布版本说明',
-    description: '整理变更并发布到团队频道。',
+    name: '发布版本更新说明 (Release Notes)',
+    description: '根据代码提交日志梳理功能清单，排版后发布到知识库与团队通知频道。',
     apps: ['Notion', 'Slack'],
     updatedLabel: '2 天前更新',
     pinned: false,
     sourceRuns: 3,
     versions: 2,
     workflow: feedbackWorkflow,
+    targetTools: ['claude-code', 'cline'],
+    tags: ['release', 'notion', 'git'],
+    triggers: ['/release', 'generate release notes'],
+    skillMarkdown: `---
+name: release-notes
+description: 自动从 Git 变更提取 Release Notes 并发布
+tools: [Notion, Slack]
+version: 2.0.0
+---
+
+# Release Notes Generator
+
+## Instructions
+1. 扫描当前版本 tag 间的 commit 日志。
+2. 提炼 Feature、Fix 与 Breaking Changes。
+3. 格式化并推送到团队频道。
+`,
   },
   {
     id: 'review-invoices',
-    name: '检查发票',
-    description: '提取金额并标记异常项目。',
+    name: '发票报销数据检查与核验',
+    description: '批量读取发票 PDF 并进行金额与税号提取，比对报销明细并标记异常。',
     apps: ['Preview', 'Sheets'],
     updatedLabel: '5 天前更新',
     pinned: false,
     sourceRuns: 6,
     versions: 4,
     workflow: reportWorkflow,
+    targetTools: ['antigravity', 'roo'],
+    tags: ['finance', 'pdf', 'invoice'],
+    triggers: ['/invoice', 'audit invoices'],
+    skillMarkdown: `---
+name: review-invoices
+description: 自动校验发票 PDF 金额与报销明细
+tools: [Preview, Sheets]
+version: 4.0.0
+---
+
+# Invoice Review Skill
+
+## Instructions
+1. 遍历待报销的发票 PDF 目录。
+2. 提取发票代码、金额与开票日期。
+3. 校验总和并在表格中标记合规状态。
+`,
   },
 ]
 

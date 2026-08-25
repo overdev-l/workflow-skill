@@ -1,9 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron'
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { RecorderCommand, RecorderEnvelope } from '@workflow-skill/capture-protocol'
+import { DEFAULT_AI_TOOLS, type AIToolTarget, type Skill } from '@workflow-skill/workflow-model'
 import { NativeRecorderManager } from './recorder-manager'
 
 const defaultTraceHome = path.join(os.homedir(), '.trace')
@@ -362,11 +363,73 @@ app.whenReady().then(() => {
     }
   })
 
+  function getAIToolDirectory(tool: AIToolTarget): string {
+    const rel = tool.customDir || tool.defaultDir
+    if (path.isAbsolute(rel)) return rel
+    return path.join(os.homedir(), rel)
+  }
+
+  function detectInstalledAITools(): AIToolTarget[] {
+    return DEFAULT_AI_TOOLS.map((tool) => {
+      const dir = getAIToolDirectory(tool)
+      const baseDir = path.dirname(dir)
+      const installed = existsSync(dir) || existsSync(baseDir)
+      return {
+        ...tool,
+        installed,
+        detectedPath: dir,
+      }
+    })
+  }
+
+  function ensureSkillCentralDirectory(skill: Skill): string {
+    const root = getStoredTraceHome()
+    const skillFolder = path.join(root, 'skills', skill.id)
+    if (!existsSync(skillFolder)) {
+      mkdirSync(skillFolder, { recursive: true })
+    }
+    const mdPath = path.join(skillFolder, 'SKILL.md')
+    if (!existsSync(mdPath)) {
+      const mdContent = skill.skillMarkdown || `---
+name: ${skill.id}
+description: ${skill.description || skill.name}
+tools: [${skill.apps?.join(', ') || 'System'}]
+version: ${skill.versions || 1}.0.0
+---
+
+# ${skill.name}
+
+${skill.description || ''}
+`
+      writeFileSync(mdPath, mdContent, 'utf8')
+    }
+    return skillFolder
+  }
+
+  function safeRemoveLink(targetLinkPath: string) {
+    try {
+      const lstat = lstatSync(targetLinkPath)
+      if (lstat.isSymbolicLink()) {
+        unlinkSync(targetLinkPath)
+      } else if (process.platform === 'win32' && lstat.isDirectory()) {
+        rmdirSync(targetLinkPath)
+      }
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') {
+        try {
+          unlinkSync(targetLinkPath)
+        } catch {}
+      }
+    }
+  }
+
+  ipcMain.handle('system:get-ai-tools', () => detectInstalledAITools())
+
   ipcMain.handle('system:load-local-skills', () => {
     const root = getStoredTraceHome()
     const skillsDir = path.join(root, 'skills')
     ensureTraceDirectories(root)
-    const skills: any[] = []
+    const skills: Skill[] = []
     try {
       if (existsSync(skillsDir)) {
         const files = readdirSync(skillsDir)
@@ -374,7 +437,16 @@ app.whenReady().then(() => {
           if (file.endsWith('.json')) {
             try {
               const content = readFileSync(path.join(skillsDir, file), 'utf8')
-              skills.push(JSON.parse(content))
+              const parsed = JSON.parse(content)
+              if (parsed && parsed.id) {
+                const skillFolder = path.join(skillsDir, parsed.id)
+                const mdPath = path.join(skillFolder, 'SKILL.md')
+                if (existsSync(mdPath)) {
+                  parsed.skillMarkdown = readFileSync(mdPath, 'utf8')
+                }
+                parsed.skillPath = skillFolder
+                skills.push(parsed)
+              }
             } catch {}
           }
         }
@@ -383,14 +455,19 @@ app.whenReady().then(() => {
     return skills
   })
 
-  ipcMain.handle('system:save-local-skill', (_event, skill: any) => {
+  ipcMain.handle('system:save-local-skill', (_event, skill: Skill) => {
     if (!skill || !skill.id) return false
     const root = getStoredTraceHome()
     const skillsDir = path.join(root, 'skills')
     ensureTraceDirectories(root)
     try {
+      ensureSkillCentralDirectory(skill)
       const filePath = path.join(skillsDir, `${skill.id}.json`)
       writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
+      if (skill.skillMarkdown) {
+        const mdPath = path.join(skillsDir, skill.id, 'SKILL.md')
+        writeFileSync(mdPath, skill.skillMarkdown, 'utf8')
+      }
       return true
     } catch {
       return false
@@ -402,6 +479,19 @@ app.whenReady().then(() => {
     const root = getStoredTraceHome()
     const skillsDir = path.join(root, 'skills')
     try {
+      // Safely unlink from all AI tools
+      const allTools = detectInstalledAITools()
+      for (const tool of allTools) {
+        const toolDir = getAIToolDirectory(tool)
+        const linkPath = path.join(toolDir, skillId)
+        safeRemoveLink(linkPath)
+      }
+
+      // Remove central folder
+      const skillFolder = path.join(skillsDir, skillId)
+      if (existsSync(skillFolder)) {
+        rmSync(skillFolder, { recursive: true, force: true })
+      }
       const filePath = path.join(skillsDir, `${skillId}.json`)
       if (existsSync(filePath)) {
         unlinkSync(filePath)
@@ -410,6 +500,139 @@ app.whenReady().then(() => {
     } catch {
       return false
     }
+  })
+
+  ipcMain.handle('system:link-skill-target', (_event, skillId: string, targetId: string) => {
+    if (!skillId || !targetId) return { success: false }
+    const root = getStoredTraceHome()
+    const skillsDir = path.join(root, 'skills')
+    const filePath = path.join(skillsDir, `${skillId}.json`)
+    if (!existsSync(filePath)) return { success: false }
+
+    try {
+      const skill: Skill = JSON.parse(readFileSync(filePath, 'utf8'))
+      const centralFolder = ensureSkillCentralDirectory(skill)
+
+      const tool = DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
+      if (!tool) return { success: false }
+
+      const toolDir = getAIToolDirectory(tool)
+      if (!existsSync(toolDir)) {
+        mkdirSync(toolDir, { recursive: true })
+      }
+
+      const targetLink = path.join(toolDir, skillId)
+      safeRemoveLink(targetLink)
+
+      const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
+      symlinkSync(path.resolve(centralFolder), path.resolve(targetLink), symlinkType)
+
+      const updatedTools = Array.from(new Set([...(skill.targetTools || []), targetId]))
+      skill.targetTools = updatedTools
+      writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
+
+      return { success: true, linkPath: targetLink }
+    } catch (err: any) {
+      console.error(`Failed to link skill ${skillId} to ${targetId}:`, err)
+      return { success: false }
+    }
+  })
+
+  ipcMain.handle('system:unlink-skill-target', (_event, skillId: string, targetId: string) => {
+    if (!skillId || !targetId) return { success: false }
+    const root = getStoredTraceHome()
+    const skillsDir = path.join(root, 'skills')
+    const filePath = path.join(skillsDir, `${skillId}.json`)
+
+    try {
+      const tool = DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
+      if (tool) {
+        const toolDir = getAIToolDirectory(tool)
+        const targetLink = path.join(toolDir, skillId)
+        safeRemoveLink(targetLink)
+      }
+
+      if (existsSync(filePath)) {
+        const skill: Skill = JSON.parse(readFileSync(filePath, 'utf8'))
+        skill.targetTools = (skill.targetTools || []).filter((id) => id !== targetId)
+        writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
+      }
+
+      return { success: true }
+    } catch {
+      return { success: false }
+    }
+  })
+
+  ipcMain.handle('system:get-skill-link-health', (_event, skillId: string) => {
+    const healthMap: Record<string, 'healthy' | 'broken' | 'unlinked'> = {}
+    const allTools = detectInstalledAITools()
+
+    for (const tool of allTools) {
+      const toolDir = getAIToolDirectory(tool)
+      const linkPath = path.join(toolDir, skillId)
+      try {
+        if (existsSync(linkPath)) {
+          const lstat = lstatSync(linkPath)
+          if (lstat.isSymbolicLink() || (process.platform === 'win32' && lstat.isDirectory())) {
+            healthMap[tool.id] = 'healthy'
+          } else {
+            healthMap[tool.id] = 'broken'
+          }
+        } else {
+          healthMap[tool.id] = 'unlinked'
+        }
+      } catch {
+        healthMap[tool.id] = 'broken'
+      }
+    }
+    return healthMap
+  })
+
+  ipcMain.handle('system:delete-skill-completely', async (_event, skillId: string) => {
+    if (!skillId) return false
+    const root = getStoredTraceHome()
+    const skillsDir = path.join(root, 'skills')
+    try {
+      const allTools = detectInstalledAITools()
+      for (const tool of allTools) {
+        const toolDir = getAIToolDirectory(tool)
+        const linkPath = path.join(toolDir, skillId)
+        safeRemoveLink(linkPath)
+      }
+
+      const skillFolder = path.join(skillsDir, skillId)
+      if (existsSync(skillFolder)) {
+        rmSync(skillFolder, { recursive: true, force: true })
+      }
+      const filePath = path.join(skillsDir, `${skillId}.json`)
+      if (existsSync(filePath)) {
+        unlinkSync(filePath)
+      }
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  ipcMain.handle('system:read-skill-markdown', (_event, skillId: string) => {
+    const root = getStoredTraceHome()
+    const mdPath = path.join(root, 'skills', skillId, 'SKILL.md')
+    if (existsSync(mdPath)) {
+      return readFileSync(mdPath, 'utf8')
+    }
+    return ''
+  })
+
+  ipcMain.handle('system:save-skill-markdown', (_event, skillId: string, markdown: string) => {
+    const root = getStoredTraceHome()
+    const skillFolder = path.join(root, 'skills', skillId)
+    if (!existsSync(skillFolder)) {
+      mkdirSync(skillFolder, { recursive: true })
+    }
+    const mdPath = path.join(skillFolder, 'SKILL.md')
+    writeFileSync(mdPath, markdown, 'utf8')
+    return true
   })
 
   createWindow()
