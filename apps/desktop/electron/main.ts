@@ -425,35 +425,200 @@ ${skill.description || ''}
 
   ipcMain.handle('system:get-ai-tools', () => detectInstalledAITools())
 
-  ipcMain.handle('system:load-local-skills', () => {
+  function parseSkillMetadata(content: string) {
+    let name = ''
+    let description = ''
+    let tags: string[] = []
+    let triggers: string[] = []
+
+    const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+    if (fmMatch) {
+      const lines = fmMatch[1].split('\n')
+      for (const line of lines) {
+        const nameMatch = line.match(/^name:\s*(.+)$/i)
+        if (nameMatch) name = nameMatch[1].trim()
+        const descMatch = line.match(/^description:\s*(.+)$/i)
+        if (descMatch) description = descMatch[1].trim()
+        const tagsMatch = line.match(/^tags:\s*\[(.*)\]/i)
+        if (tagsMatch) {
+          tags = tagsMatch[1]
+            .split(',')
+            .map((s) => s.trim().replace(/["']/g, ''))
+            .filter(Boolean)
+        }
+        const triggersMatch = line.match(/^triggers:\s*\[(.*)\]/i)
+        if (triggersMatch) {
+          triggers = triggersMatch[1]
+            .split(',')
+            .map((s) => s.trim().replace(/["']/g, ''))
+            .filter(Boolean)
+        }
+      }
+    }
+
+    if (!name) {
+      const h1Match = content.match(/^#\s+(.+)$/m)
+      if (h1Match) name = h1Match[1].trim()
+    }
+
+    if (!description) {
+      const lines = content.replace(/^---\r?\n[\s\S]*?\r?\n---/, '').trim().split('\n')
+      const p = lines.find((l) => l.trim() && !l.startsWith('#'))
+      if (p) description = p.trim().slice(0, 160)
+    }
+
+    return { name, description, tags, triggers }
+  }
+
+  function discoverAllGlobalSkills(): Skill[] {
     const root = getStoredTraceHome()
-    const skillsDir = path.join(root, 'skills')
+    const centralSkillsDir = path.join(root, 'skills')
     ensureTraceDirectories(root)
-    const skills: Skill[] = []
+
+    const skillsMap = new Map<string, Skill>()
+
+    // 1. Load existing central skills from ~/.trace/skills
     try {
-      if (existsSync(skillsDir)) {
-        const files = readdirSync(skillsDir)
+      if (existsSync(centralSkillsDir)) {
+        const files = readdirSync(centralSkillsDir)
         for (const file of files) {
           if (file.endsWith('.json')) {
             try {
-              const content = readFileSync(path.join(skillsDir, file), 'utf8')
+              const content = readFileSync(path.join(centralSkillsDir, file), 'utf8')
               const parsed = JSON.parse(content)
               if (parsed && parsed.id) {
-                const skillFolder = path.join(skillsDir, parsed.id)
+                const skillFolder = path.join(centralSkillsDir, parsed.id)
                 const mdPath = path.join(skillFolder, 'SKILL.md')
                 if (existsSync(mdPath)) {
                   parsed.skillMarkdown = readFileSync(mdPath, 'utf8')
                 }
                 parsed.skillPath = skillFolder
-                skills.push(parsed)
+                skillsMap.set(parsed.id, parsed)
               }
             } catch {}
           }
         }
       }
     } catch {}
-    return skills
-  })
+
+    // 2. Discover skills from all installed AI tool directories
+    const installedTools = detectInstalledAITools().filter((t) => t.installed)
+    for (const tool of installedTools) {
+      const toolDir = getAIToolDirectory(tool)
+      if (!existsSync(toolDir)) continue
+
+      try {
+        const items = readdirSync(toolDir)
+        for (const item of items) {
+          if (item.startsWith('.')) continue
+          const itemPath = path.join(toolDir, item)
+          let stat
+          try {
+            stat = lstatSync(itemPath)
+          } catch {
+            continue
+          }
+
+          let realPath = itemPath
+          if (stat.isSymbolicLink()) {
+            try {
+              realPath = realpathSync(itemPath)
+            } catch {
+              continue
+            }
+          }
+
+          let isDir = false
+          try {
+            isDir = statSync(realPath).isDirectory()
+          } catch {
+            continue
+          }
+          if (!isDir) continue
+
+          const skillId = item
+          const skillMdPath = path.join(realPath, 'SKILL.md')
+          let skillMd = ''
+          if (existsSync(skillMdPath)) {
+            try {
+              skillMd = readFileSync(skillMdPath, 'utf8')
+            } catch {}
+          }
+
+          const parsed = parseSkillMetadata(skillMd)
+          const name = parsed.name || skillId
+          const description = parsed.description || `从 ${tool.name} 目录发现的全局技能`
+
+          if (!skillsMap.has(skillId)) {
+            const skillObj: Skill = {
+              id: skillId,
+              name,
+              description,
+              apps: ['AI Agent Runtime'],
+              updatedLabel: '刚刚同步',
+              pinned: false,
+              sourceRuns: 1,
+              versions: 1,
+              workflow: {
+                id: `wf-${skillId}`,
+                name: name || skillId,
+                description: description || `Global skill workflow for ${skillId}`,
+                trigger: parsed.triggers?.[0] || `@${skillId}`,
+                confidence: 98,
+                frequency: '常驻技能',
+                steps: [
+                  {
+                    id: 'step-1',
+                    action: 'Load Skill Protocol',
+                    app: 'AI Agent Runtime',
+                    target: 'SKILL.md',
+                    confidence: 100,
+                  },
+                  {
+                    id: 'step-2',
+                    action: 'Execute Instructions',
+                    app: 'System',
+                    target: name || skillId,
+                    confidence: 96,
+                  },
+                ],
+                category: 'workflow',
+              },
+              targetTools: [tool.id],
+              tags: parsed.tags.length > 0 ? parsed.tags : [tool.id.replace('-code', '').replace('-std', '')],
+              triggers: parsed.triggers,
+              skillPath: realPath,
+              skillMarkdown: skillMd,
+            }
+
+            // Also persist to central repository ~/.trace/skills/<id>.json & SKILL.md
+            try {
+              ensureSkillCentralDirectory(skillObj)
+              const jsonPath = path.join(centralSkillsDir, `${skillId}.json`)
+              writeFileSync(jsonPath, JSON.stringify(skillObj, null, 2), 'utf8')
+            } catch {}
+
+            skillsMap.set(skillId, skillObj)
+          } else {
+            const existing = skillsMap.get(skillId)!
+            if (!existing.targetTools?.includes(tool.id)) {
+              existing.targetTools = Array.from(new Set([...(existing.targetTools || []), tool.id]))
+              try {
+                const jsonPath = path.join(centralSkillsDir, `${skillId}.json`)
+                writeFileSync(jsonPath, JSON.stringify(existing, null, 2), 'utf8')
+              } catch {}
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn(`[Trace] Error scanning ${toolDir}:`, e?.message)
+      }
+    }
+
+    return Array.from(skillsMap.values())
+  }
+
+  ipcMain.handle('system:load-local-skills', () => discoverAllGlobalSkills())
 
   ipcMain.handle('system:save-local-skill', (_event, skill: Skill) => {
     if (!skill || !skill.id) return false

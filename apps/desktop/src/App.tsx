@@ -3005,21 +3005,28 @@ export function App() {
   const [discoveries, setDiscoveries] = useState<Workflow[]>([])
   const [aiTools, setAiTools] = useState<AIToolTarget[]>(DEFAULT_AI_TOOLS)
 
-  const handleDetectTools = () => {
+  const handleDetectTools = async () => {
+    let toolCount = 0
     if (window.workflowSkill?.getAITools) {
-      window.workflowSkill
-        .getAITools()
-        .then((detected) => {
-          if (Array.isArray(detected) && detected.length > 0) {
-            setAiTools(detected)
-            const installedCount = detected.filter((t) => t.installed).length
-            setToast(t.skills.detectToolsToast(installedCount))
-          }
-        })
-        .catch(() => {})
-    } else {
-      setToast(t.skills.detectToolsToast(DEFAULT_AI_TOOLS.length))
+      try {
+        const detected = await window.workflowSkill.getAITools()
+        if (Array.isArray(detected) && detected.length > 0) {
+          setAiTools(detected)
+          toolCount = detected.filter((t) => t.installed).length
+        }
+      } catch {}
     }
+    if (window.workflowSkill?.loadLocalSkills) {
+      try {
+        const loaded = await window.workflowSkill.loadLocalSkills()
+        if (Array.isArray(loaded)) {
+          setSkills(loaded)
+          setToast(`已成功扫描并同步本机 ${loaded.length} 个全局 Skill 资产 (${toolCount} 个就绪环境)`)
+          return
+        }
+      } catch {}
+    }
+    setToast(t.skills.detectToolsToast(toolCount))
   }
 
   useEffect(() => {
