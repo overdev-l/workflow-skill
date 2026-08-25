@@ -405,12 +405,7 @@ function SkillsOverviewPage({
         </div>
 
         <div className="page-header__right">
-          {skillTab === 'local' ? (
-            <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
-              <Plus size={13} />
-              <span>{t.skills.newSkill}</span>
-            </button>
-          ) : (
+          {skillTab === 'remote' ? (
             <button
               type="button"
               className="btn btn--secondary btn--capsule"
@@ -419,7 +414,7 @@ function SkillsOverviewPage({
               <Sliders size={13} />
               <span>{t.skills.remoteConfigureBtn}</span>
             </button>
-          )}
+          ) : null}
         </div>
       </header>
 
