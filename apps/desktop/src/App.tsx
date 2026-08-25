@@ -1239,7 +1239,9 @@ function SettingsMainPage({
               <div className="flat-setting-info">
                 <strong className="flat-setting-title">{t.settings.skillStoragePathTitle}</strong>
                 <p className="flat-setting-desc font-mono" title={skillStoragePath}>
-                  {skillStoragePath ? skillStoragePath.replace(/^\/Users\/[^/]+/, '~') : t.settings.skillStoragePathPlaceholder}
+                  {skillStoragePath
+                    ? skillStoragePath.replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~').replace(/^\/Users\/[^/]+/, '~')
+                    : t.settings.skillStoragePathPlaceholder}
                 </p>
               </div>
               <div className="flat-setting-control">
@@ -1261,7 +1263,9 @@ function SettingsMainPage({
                   >
                     <ExternalLink size={12} />
                   </button>
-                  {skillStoragePath && !skillStoragePath.includes('Documents/Trace/Skills') ? (
+                  {skillStoragePath &&
+                  !skillStoragePath.includes('Trace/Skills') &&
+                  !skillStoragePath.toLowerCase().includes('trace\\skills') ? (
                     <button
                       type="button"
                       className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
