@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, screen, shell, Tray } from 'electron'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -201,11 +201,19 @@ function windowsOwnerHandle() {
 
 function createWindow() {
   const isDarwin = process.platform === 'darwin'
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
+
+  // Comfortable, sleek, compact default window dimensions (1020 x 680)
+  const defaultWidth = Math.min(1020, Math.max(820, Math.round(screenWidth * 0.72)))
+  const defaultHeight = Math.min(680, Math.max(540, Math.round(screenHeight * 0.72)))
+
   const window = new BrowserWindow({
-    width: 1480,
-    height: 940,
-    minWidth: 920,
-    minHeight: 680,
+    width: defaultWidth,
+    height: defaultHeight,
+    minWidth: 780,
+    minHeight: 500,
+    center: true,
     titleBarStyle: isDarwin ? 'hiddenInset' : 'default',
     trafficLightPosition: isDarwin ? { x: 16, y: 16 } : undefined,
     transparent: isDarwin,
