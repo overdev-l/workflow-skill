@@ -474,8 +474,9 @@ pre {
 
 /* Page Header */
 .page-header {
+  position: relative;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   min-height: 48px;
@@ -491,6 +492,24 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-width: 0;
+}
+
+.page-header__center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  pointer-events: auto;
+  z-index: 5;
+}
+
+.page-header__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .page-title {
@@ -511,6 +530,107 @@ pre {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Centered Segmented Pill Tabs */
+.segmented-pill-track {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: 1px solid var(--glass-border);
+  gap: 2px;
+}
+
+.segmented-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 160ms var(--ease-snappy);
+  user-select: none;
+}
+
+.segmented-pill-btn:hover {
+  color: var(--color-ink);
+  background: var(--glass-surface);
+}
+
+.segmented-pill-btn.is-active {
+  color: var(--color-ink);
+  font-weight: 600;
+  background: var(--color-raised-surface);
+  border-color: var(--glass-border-specular);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Remote Hub Announcement Banner */
+.remote-hub-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  border: 1px solid var(--glass-border);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.remote-hub-banner__left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.remote-hub-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.remote-hub-headline {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-ink);
+  margin-bottom: 2px;
+}
+
+.remote-hub-desc {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+.remote-author-tag {
+  font-size: 0.6875rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.flat-row--remote {
+  cursor: default;
+}
+
+.flat-row--remote:hover {
+  background: var(--glass-surface);
 }
 
 /* =========================================================================

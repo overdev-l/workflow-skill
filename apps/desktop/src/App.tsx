@@ -332,18 +332,72 @@ function WorkflowsOverviewPage({
 /* =========================================================================
    Level 1: Skills Overview (Clean Flat Table & Segmented Filter)
    ========================================================================= */
+interface RemoteSkillItem {
+  id: string
+  name: string
+  description: string
+  apps: string[]
+  author: string
+  version: string
+  category: 'dev' | 'office'
+}
+
+const demoRemoteSkills: RemoteSkillItem[] = [
+  {
+    id: 'remote_git_flow',
+    name: 'Git 变更分析与 PR 自动化工作流',
+    description: '监听本地代码提交，提取关键差异并自动生成规范化 Commit 与 PR 摘要',
+    apps: ['Terminal', 'VS Code', 'GitHub'],
+    author: '@trace/devtools',
+    version: '1.2.0',
+    category: 'dev',
+  },
+  {
+    id: 'remote_figma_react',
+    name: 'Figma 设计稿转 React & Tailwind 组件',
+    description: '捕获 Figma 选区图层与设计变量，在本地 IDE 自动生成标准化前端组件',
+    apps: ['Figma', 'VS Code', 'Chrome'],
+    author: '@trace/design',
+    version: '2.0.0',
+    category: 'dev',
+  },
+  {
+    id: 'remote_daily_meeting',
+    name: '团队每日站会纪要与任务派发',
+    description: '录制站会重点，自动提取待办事项并同步至 Jira / 飞书项目看板',
+    apps: ['Lark', 'Notion', 'Linear'],
+    author: '@trace/productivity',
+    version: '1.0.4',
+    category: 'office',
+  },
+  {
+    id: 'remote_pdf_extractor',
+    name: '财务发票与 PDF 表格智能清洗提取',
+    description: '识别多页 PDF 票据中的表格与金额明细，清洗后结构化导入电子表格',
+    apps: ['Preview', 'Excel', 'Browser'],
+    author: '@trace/finance',
+    version: '1.1.0',
+    category: 'office',
+  },
+]
+
 function SkillsOverviewPage({
   skills,
   onOpenDetail,
   onNewSkill,
+  notify,
 }: {
   skills: Skill[]
   onOpenDetail: (skill: Skill) => void
   onNewSkill: () => void
+  notify?: (msg: string) => void
 }) {
   const { t } = useI18n()
+  const [skillTab, setSkillTab] = useState<'local' | 'remote'>('local')
   const [query, setQuery] = useState('')
   const [filterMode, setFilterMode] = useState<'all' | 'pinned'>('all')
+  const [remoteCategory, setRemoteCategory] = useState<'all' | 'dev' | 'office'>('all')
+  const [installedRemoteIds, setInstalledRemoteIds] = useState<Record<string, boolean>>({})
 
   const filteredSkills = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -355,108 +409,301 @@ function SkillsOverviewPage({
     })
   }, [skills, query, filterMode])
 
+  const filteredRemoteSkills = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return demoRemoteSkills.filter((item) => {
+      if (remoteCategory !== 'all' && item.category !== remoteCategory) return false
+      if (!q) return true
+      const searchStr = `${item.name} ${item.description} ${item.apps.join(' ')} ${item.author}`.toLowerCase()
+      return searchStr.includes(q)
+    })
+  }, [query, remoteCategory])
+
   const pinnedCount = useMemo(() => skills.filter((s) => s.pinned).length, [skills])
+
+  const handleInstallRemote = (item: RemoteSkillItem) => {
+    setInstalledRemoteIds((prev) => ({ ...prev, [item.id]: true }))
+    notify?.(`${item.name} · ${t.skills.remoteInstalled}`)
+  }
 
   return (
     <div className="clean-page view-enter">
       <header className="page-header stagger-item">
         <div className="page-header__left">
-          <h1 className="page-title">{t.skills.title}</h1>
-          <span className="page-subtitle">{t.skills.subtitle}</span>
+          <h1 className="page-title">{skillTab === 'local' ? t.skills.title : t.skills.remoteLibraryTitle}</h1>
+          <span className="page-subtitle">{skillTab === 'local' ? t.skills.subtitle : t.skills.remoteLibrarySub}</span>
         </div>
-        <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
-          <Plus size={13} />
-          <span>{t.skills.newSkill}</span>
-        </button>
+
+        {/* Centered Segmented Tab Switcher (Local vs Remote) */}
+        <div className="page-header__center">
+          <div className="segmented-pill-track" role="tablist" aria-label={t.skills.title}>
+            <button
+              type="button"
+              className={`segmented-pill-btn ${skillTab === 'local' ? 'is-active' : ''}`}
+              onClick={() => {
+                setSkillTab('local')
+                setQuery('')
+              }}
+              role="tab"
+              aria-selected={skillTab === 'local'}
+            >
+              <Folder size={13} />
+              <span>{t.skills.tabLocal}</span>
+            </button>
+            <button
+              type="button"
+              className={`segmented-pill-btn ${skillTab === 'remote' ? 'is-active' : ''}`}
+              onClick={() => {
+                setSkillTab('remote')
+                setQuery('')
+              }}
+              role="tab"
+              aria-selected={skillTab === 'remote'}
+            >
+              <Globe size={13} />
+              <span>{t.skills.tabRemote}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="page-header__right">
+          {skillTab === 'local' ? (
+            <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
+              <Plus size={13} />
+              <span>{t.skills.newSkill}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn--secondary btn--capsule"
+              onClick={() => notify?.(t.skills.remoteComingSoonToast)}
+            >
+              <Sliders size={13} />
+              <span>{t.skills.remoteConfigureBtn}</span>
+            </button>
+          )}
+        </div>
       </header>
 
-      {/* Filter Row: Floating Capsule Search Box & Flat Segmented Tab */}
-      <div className="filter-toolbar-row stagger-item">
-        <label className="search-capsule-box">
-          <Search size={14} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t.skills.searchPlaceholder}
-          />
-          {query ? (
-            <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
-              <X size={13} />
-            </button>
-          ) : null}
-        </label>
+      {skillTab === 'local' ? (
+        <>
+          {/* Local Tab: Filter Row: Floating Capsule Search Box & Flat Segmented Tab */}
+          <div className="filter-toolbar-row stagger-item">
+            <label className="search-capsule-box">
+              <Search size={14} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t.skills.searchPlaceholder}
+              />
+              {query ? (
+                <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
+                  <X size={13} />
+                </button>
+              ) : null}
+            </label>
 
-        {/* Flat Category Switcher */}
-        <div className="flat-segmented-filter">
-          <button
-            type="button"
-            className={`filter-pill-tab ${filterMode === 'all' ? 'is-active' : ''}`}
-            onClick={() => setFilterMode('all')}
-          >
-            <span>{t.skills.allSection}</span>
-            <span className="filter-count-badge font-mono">{skills.length}</span>
-          </button>
-          <button
-            type="button"
-            className={`filter-pill-tab ${filterMode === 'pinned' ? 'is-active' : ''}`}
-            onClick={() => setFilterMode('pinned')}
-          >
-            <Bookmark size={12} className="filter-pin-icon" />
-            <span>{t.skills.pinnedSection}</span>
-            <span className="filter-count-badge font-mono">{pinnedCount}</span>
-          </button>
-        </div>
-      </div>
+            {/* Flat Category Switcher */}
+            <div className="flat-segmented-filter">
+              <button
+                type="button"
+                className={`filter-pill-tab ${filterMode === 'all' ? 'is-active' : ''}`}
+                onClick={() => setFilterMode('all')}
+              >
+                <span>{t.skills.allSection}</span>
+                <span className="filter-count-badge font-mono">{skills.length}</span>
+              </button>
+              <button
+                type="button"
+                className={`filter-pill-tab ${filterMode === 'pinned' ? 'is-active' : ''}`}
+                onClick={() => setFilterMode('pinned')}
+              >
+                <Bookmark size={12} className="filter-pin-icon" />
+                <span>{t.skills.pinnedSection}</span>
+                <span className="filter-count-badge font-mono">{pinnedCount}</span>
+              </button>
+            </div>
+          </div>
 
-      {/* Unified Flat Table Container (Zero Card Nesting) */}
-      <div className="flat-table-wrap stagger-item">
-        <div className="flat-rows-list">
-          {filteredSkills.map((sk, idx) => (
-            <div
-              key={sk.id}
-              className="flat-row"
-              style={{ animationDelay: `${idx * 20}ms` }}
-              onClick={() => onOpenDetail(sk)}
-              role="button"
-              tabIndex={0}
+          {/* Local Skills List Container */}
+          <div className="flat-table-wrap stagger-item">
+            <div className="flat-rows-list">
+              {filteredSkills.map((sk, idx) => (
+                <div
+                  key={sk.id}
+                  className="flat-row"
+                  style={{ animationDelay: `${idx * 20}ms` }}
+                  onClick={() => onOpenDetail(sk)}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="flat-row__left">
+                    <div className="flat-title-row">
+                      {sk.pinned ? <Bookmark size={13} className="flat-pinned-icon" /> : null}
+                      <strong className="flat-row-title">{sk.name}</strong>
+                    </div>
+                    <span className="flat-row-desc">{sk.description}</span>
+                  </div>
+
+                  <div className="flat-row__middle">
+                    <div className="app-chips-row">
+                      {sk.apps.map((a) => (
+                        <span key={a} className="app-capsule-chip font-mono">
+                          {a}
+                        </span>
+                      ))}
+                    </div>
+                    <WorkflowGraph workflow={sk.workflow} compact />
+                  </div>
+
+                  <div className="flat-row__right">
+                    <span className="flat-row-meta font-mono">{sk.updatedLabel}</span>
+                    <span className="pinned-ver-pill font-mono">{t.skills.versionPrefix}{sk.versions}.0</span>
+                    <div className="row-chevron-indicator">
+                      <ChevronRight size={14} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {filteredSkills.length === 0 ? (
+                <div className="clean-empty-state">
+                  <Search size={24} className="empty-icon" />
+                  <p>{t.skills.emptySearch}</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Remote Tab: Remote Hub Announcement Banner */}
+          <div className="remote-hub-banner stagger-item">
+            <div className="remote-hub-banner__left">
+              <div className="remote-hub-icon-wrap">
+                <Globe size={18} />
+              </div>
+              <div>
+                <strong className="remote-hub-headline">{t.skills.remoteLibraryNoticeTitle}</strong>
+                <p className="remote-hub-desc">{t.skills.remoteLibraryNoticeDesc}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn--capsule btn--secondary btn--sm"
+              onClick={() => notify?.(t.skills.remoteComingSoonToast)}
             >
-              <div className="flat-row__left">
-                <div className="flat-title-row">
-                  {sk.pinned ? <Bookmark size={13} className="flat-pinned-icon" /> : null}
-                  <strong className="flat-row-title">{sk.name}</strong>
-                </div>
-                <span className="flat-row-desc">{sk.description}</span>
-              </div>
+              <ExternalLink size={12} />
+              <span>{t.skills.remoteDocsBtn}</span>
+            </button>
+          </div>
 
-              <div className="flat-row__middle">
-                <div className="app-chips-row">
-                  {sk.apps.map((a) => (
-                    <span key={a} className="app-capsule-chip font-mono">
-                      {a}
-                    </span>
-                  ))}
-                </div>
-                <WorkflowGraph workflow={sk.workflow} compact />
-              </div>
+          {/* Remote Filter Toolbar */}
+          <div className="filter-toolbar-row stagger-item">
+            <label className="search-capsule-box">
+              <Search size={14} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t.skills.remoteSearchPlaceholder}
+              />
+              {query ? (
+                <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
+                  <X size={13} />
+                </button>
+              ) : null}
+            </label>
 
-              <div className="flat-row__right">
-                <span className="flat-row-meta font-mono">{sk.updatedLabel}</span>
-                <span className="pinned-ver-pill font-mono">{t.skills.versionPrefix}{sk.versions}.0</span>
-                <div className="row-chevron-indicator">
-                  <ChevronRight size={14} />
-                </div>
-              </div>
+            {/* Remote Category Switcher */}
+            <div className="flat-segmented-filter">
+              <button
+                type="button"
+                className={`filter-pill-tab ${remoteCategory === 'all' ? 'is-active' : ''}`}
+                onClick={() => setRemoteCategory('all')}
+              >
+                <span>{t.skills.remoteTagAll}</span>
+                <span className="filter-count-badge font-mono">{demoRemoteSkills.length}</span>
+              </button>
+              <button
+                type="button"
+                className={`filter-pill-tab ${remoteCategory === 'dev' ? 'is-active' : ''}`}
+                onClick={() => setRemoteCategory('dev')}
+              >
+                <span>{t.skills.remoteTagDev}</span>
+              </button>
+              <button
+                type="button"
+                className={`filter-pill-tab ${remoteCategory === 'office' ? 'is-active' : ''}`}
+                onClick={() => setRemoteCategory('office')}
+              >
+                <span>{t.skills.remoteTagOffice}</span>
+              </button>
             </div>
-          ))}
+          </div>
 
-          {filteredSkills.length === 0 ? (
-            <div className="clean-empty-state">
-              <Search size={24} className="empty-icon" />
-              <p>{t.skills.emptySearch}</p>
+          {/* Remote Skills List Container */}
+          <div className="flat-table-wrap stagger-item">
+            <div className="flat-rows-list">
+              {filteredRemoteSkills.map((item, idx) => {
+                const isInstalled = Boolean(installedRemoteIds[item.id])
+                return (
+                  <div
+                    key={item.id}
+                    className="flat-row flat-row--remote"
+                    style={{ animationDelay: `${idx * 20}ms` }}
+                  >
+                    <div className="flat-row__left">
+                      <div className="flat-title-row">
+                        <strong className="flat-row-title">{item.name}</strong>
+                      </div>
+                      <span className="flat-row-desc">{item.description}</span>
+                    </div>
+
+                    <div className="flat-row__middle">
+                      <div className="app-chips-row">
+                        {item.apps.map((a) => (
+                          <span key={a} className="app-capsule-chip font-mono">
+                            {a}
+                          </span>
+                        ))}
+                      </div>
+                      <span className="remote-author-tag font-mono">{item.author}</span>
+                    </div>
+
+                    <div className="flat-row__right">
+                      <span className="pinned-ver-pill font-mono">{t.skills.remoteVersion(item.version)}</span>
+                      <button
+                        type="button"
+                        className={`btn btn--capsule btn--sm ${isInstalled ? 'btn--secondary' : 'btn--primary'}`}
+                        onClick={() => handleInstallRemote(item)}
+                      >
+                        {isInstalled ? (
+                          <>
+                            <Check size={12} />
+                            <span>{t.skills.remoteInstalled}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Download size={12} />
+                            <span>{t.skills.remoteInstallBtn}</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {filteredRemoteSkills.length === 0 ? (
+                <div className="clean-empty-state">
+                  <Search size={24} className="empty-icon" />
+                  <p>{t.skills.emptySearch}</p>
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -2190,6 +2437,7 @@ export function App() {
                   setActiveDetail({ workflow: skill.workflow, source: 'skill', skill })
                 }
                 onNewSkill={() => setNewSkillOpen(true)}
+                notify={setToast}
               />
             ) : null}
 
