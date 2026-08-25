@@ -385,7 +385,7 @@ function SkillsOverviewPage({
               role="tab"
               aria-selected={skillTab === 'local'}
             >
-              <Folder size={13} />
+              <Folder size={15} className="pill-icon" />
               <span>{t.skills.tabLocal}</span>
             </button>
             <button
@@ -398,7 +398,7 @@ function SkillsOverviewPage({
               role="tab"
               aria-selected={skillTab === 'remote'}
             >
-              <Globe size={13} />
+              <Globe size={15} className="pill-icon" />
               <span>{t.skills.tabRemote}</span>
             </button>
           </div>
