@@ -532,42 +532,60 @@ pre {
   text-overflow: ellipsis;
 }
 
-/* Centered Segmented Pill Tabs (Spacious & Spring Animated) */
+/* Centered Segmented Pill Tabs (Physical Sliding Spring Indicator) */
 .segmented-pill-track {
+  position: relative;
   display: inline-flex;
   align-items: center;
   padding: 4px;
   border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  border: 1px solid var(--glass-border);
-  gap: 4px;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+  background: var(--glass-surface);
+  box-shadow: inset 0 0 0 1px var(--glass-border);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  gap: 0;
+  user-select: none;
+}
+
+.segmented-pill-indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-raised-surface);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08), inset 0 1px 0 var(--glass-border-specular), inset 0 0 0 1px var(--glass-border);
+  transition: transform 0.28s var(--motion-spring), width 0.28s var(--motion-spring);
+  pointer-events: none;
+  z-index: 1;
 }
 
 .segmented-pill-btn {
+  position: relative;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
+  min-width: 96px;
   height: 34px;
   padding: 0 18px;
+  border: 0;
   border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-muted);
   font-size: 0.875rem;
   font-weight: 500;
   letter-spacing: -0.015em;
-  color: var(--color-muted);
-  background: transparent;
-  border: 1px solid transparent;
+  font-family: var(--font-sans);
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--motion-smooth),
-              color var(--motion-fast) var(--motion-smooth),
-              transform 0.22s var(--motion-spring),
-              box-shadow var(--motion-fast) var(--motion-smooth);
+  white-space: nowrap;
+  transition: color 0.2s var(--motion-smooth), transform 0.18s var(--motion-spring);
   user-select: none;
 }
 
 .segmented-pill-btn:hover {
   color: var(--color-ink);
-  background: var(--glass-surface);
 }
 
 .segmented-pill-btn:hover .pill-icon {
@@ -575,24 +593,38 @@ pre {
 }
 
 .segmented-pill-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.96);
 }
 
 .segmented-pill-btn.is-active {
   color: var(--color-ink);
   font-weight: 650;
-  background: var(--color-raised-surface);
-  border-color: var(--glass-border-specular);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), inset 0 1px 0 var(--glass-border-specular), inset 0 0 0 1px var(--glass-border);
 }
 
 .segmented-pill-btn.is-active .pill-icon {
   color: var(--color-primary);
+  transform: scale(1.05);
 }
 
 .pill-icon {
   flex-shrink: 0;
-  transition: transform 0.24s var(--motion-spring), color var(--motion-fast) var(--motion-smooth);
+  transition: transform 0.24s var(--motion-spring), color 0.2s var(--motion-smooth);
+}
+
+/* Tab Content Smooth Cross-fade Transition */
+@keyframes tabContentEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tab-content-pane {
+  animation: tabContentEnter 0.24s var(--motion-smooth) both;
 }
 
 /* Remote Hub Announcement Banner */

@@ -327,6 +327,94 @@ function WorkflowsOverviewPage({
 /* =========================================================================
    Level 1: Skills Overview (Clean Flat Table & Segmented Filter)
    ========================================================================= */
+function SkillSegmentedTabs({
+  value,
+  onChange,
+}: {
+  value: 'local' | 'remote'
+  onChange: (val: 'local' | 'remote') => void
+}) {
+  const { t } = useI18n()
+  const options = useMemo(
+    () => [
+      { key: 'local' as const, label: t.skills.tabLocal, icon: Folder },
+      { key: 'remote' as const, label: t.skills.tabRemote, icon: Globe },
+    ],
+    [t],
+  )
+
+  const [indicator, setIndicator] = useState<{ left: number; width: number; ready: boolean }>({
+    left: 0,
+    width: 0,
+    ready: false,
+  })
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const trackRef = useRef<HTMLDivElement>(null)
+
+  const updatePosition = () => {
+    const activeIndex = options.findIndex((opt) => opt.key === value)
+    const activeBtn = tabRefs.current[activeIndex]
+    if (activeBtn) {
+      setIndicator({
+        left: activeBtn.offsetLeft,
+        width: activeBtn.offsetWidth,
+        ready: true,
+      })
+    }
+  }
+
+  useEffect(() => {
+    updatePosition()
+    const timer = setTimeout(updatePosition, 30)
+    return () => clearTimeout(timer)
+  }, [value, t])
+
+  useEffect(() => {
+    const track = trackRef.current
+    if (!track || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      updatePosition()
+    })
+    ro.observe(track)
+    return () => ro.disconnect()
+  }, [])
+
+  return (
+    <div className="segmented-pill-track" ref={trackRef} role="tablist" aria-label={t.skills.title}>
+      {indicator.ready && indicator.width > 0 ? (
+        <div
+          className="segmented-pill-indicator"
+          style={{
+            transform: `translate3d(${indicator.left}px, 0, 0)`,
+            width: `${indicator.width}px`,
+          }}
+        />
+      ) : null}
+
+      {options.map((opt, idx) => {
+        const Icon = opt.icon
+        const isActive = opt.key === value
+        return (
+          <button
+            key={opt.key}
+            ref={(el) => {
+              tabRefs.current[idx] = el
+            }}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            className={`segmented-pill-btn ${isActive ? 'is-active' : ''}`}
+            onClick={() => onChange(opt.key)}
+          >
+            <Icon size={15} className="pill-icon" />
+            <span>{opt.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function SkillsOverviewPage({
   skills,
   onOpenDetail,
@@ -372,36 +460,15 @@ function SkillsOverviewPage({
           <span className="page-subtitle">{skillTab === 'local' ? t.skills.subtitle : t.skills.remoteLibrarySub}</span>
         </div>
 
-        {/* Centered Segmented Tab Switcher (Local vs Remote) */}
+        {/* Centered Segmented Tab Switcher (Local vs Remote with Spring Slider) */}
         <div className="page-header__center">
-          <div className="segmented-pill-track" role="tablist" aria-label={t.skills.title}>
-            <button
-              type="button"
-              className={`segmented-pill-btn ${skillTab === 'local' ? 'is-active' : ''}`}
-              onClick={() => {
-                setSkillTab('local')
-                setQuery('')
-              }}
-              role="tab"
-              aria-selected={skillTab === 'local'}
-            >
-              <Folder size={15} className="pill-icon" />
-              <span>{t.skills.tabLocal}</span>
-            </button>
-            <button
-              type="button"
-              className={`segmented-pill-btn ${skillTab === 'remote' ? 'is-active' : ''}`}
-              onClick={() => {
-                setSkillTab('remote')
-                setQuery('')
-              }}
-              role="tab"
-              aria-selected={skillTab === 'remote'}
-            >
-              <Globe size={15} className="pill-icon" />
-              <span>{t.skills.tabRemote}</span>
-            </button>
-          </div>
+          <SkillSegmentedTabs
+            value={skillTab}
+            onChange={(next) => {
+              setSkillTab(next)
+              setQuery('')
+            }}
+          />
         </div>
 
         <div className="page-header__right">
@@ -419,7 +486,7 @@ function SkillsOverviewPage({
       </header>
 
       {skillTab === 'local' ? (
-        <>
+        <div key="local-tab" className="tab-content-pane">
           {/* Local Tab: Filter Row: Floating Capsule Search Box & Flat Segmented Tab */}
           {skills.length > 0 ? (
             <div className="filter-toolbar-row stagger-item">
@@ -531,9 +598,9 @@ function SkillsOverviewPage({
               ) : null}
             </div>
           </div>
-        </>
+        </div>
       ) : (
-        <>
+        <div key="remote-tab" className="tab-content-pane">
           {/* Remote Tab: Remote Hub Announcement Banner */}
           <div className="remote-hub-banner stagger-item">
             <div className="remote-hub-banner__left">
@@ -575,7 +642,7 @@ function SkillsOverviewPage({
               </div>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   )
