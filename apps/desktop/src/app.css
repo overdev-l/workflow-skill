@@ -1882,41 +1882,123 @@ pre {
   min-width: 28px;
 }
 
-/* Empty State */
+/* =========================================================================
+   Zero-Card Clean Empty State Design System
+   ========================================================================= */
 .clean-empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48px 20px;
+  padding: 68px 24px 80px;
   text-align: center;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  width: 100%;
 }
 
-.empty-icon {
-  color: var(--color-muted);
-  margin-bottom: 8px;
+.empty-icon-halo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 1px solid var(--glass-border);
+  color: var(--color-primary);
+  margin-bottom: 20px;
+  transition: transform var(--motion-fast) var(--motion-smooth);
 }
 
+.empty-icon-halo::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--color-primary-subtle) 0%, transparent 70%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.empty-icon-glow {
+  color: var(--color-primary);
+  opacity: 0.9;
+}
+
+[data-theme='light'] .empty-icon-halo {
+  background: var(--color-surface);
+  border-color: var(--glass-border);
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.08);
+}
+
+.clean-empty-state .empty-title,
 .clean-empty-state h3 {
-  margin: 0 0 4px;
-  font-size: 0.875rem;
+  margin: 0 0 8px;
+  font-size: 1.0625rem;
   font-weight: 600;
+  letter-spacing: -0.02em;
   color: var(--color-ink);
 }
 
+.clean-empty-state .empty-desc,
 .clean-empty-state p {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--color-muted);
-  max-width: 380px;
-  line-height: 1.45;
+  max-width: 440px;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
 }
 
 .empty-state-actions {
   display: flex;
   align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.empty-status-pill {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  margin-top: 16px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: 1px solid var(--glass-border);
+  color: var(--color-muted);
+  font-size: 0.6875rem;
+  margin-top: 24px;
+  letter-spacing: -0.01em;
+}
+
+.live-pulsing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 8px var(--color-success);
+  animation: liveDotPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.live-pulsing-dot.is-paused {
+  background: var(--color-waiting);
+  box-shadow: 0 0 6px var(--color-waiting);
+  animation: none;
+}
+
+@keyframes liveDotPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
 }
 
 /* Floating Capsule Toast */

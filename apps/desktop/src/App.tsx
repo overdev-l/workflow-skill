@@ -233,12 +233,14 @@ function WorkflowsOverviewPage({
   onOpenDetail,
   onSaveSkill,
   onDismiss,
+  observing = true,
 }: {
   items: Workflow[]
   savedMap: Record<string, boolean>
   onOpenDetail: (wf: Workflow) => void
   onSaveSkill: (wf: Workflow) => void
   onDismiss: (wfId: string) => void
+  observing?: boolean
 }) {
   const { t } = useI18n()
 
@@ -251,75 +253,82 @@ function WorkflowsOverviewPage({
         </div>
       </header>
 
-      {/* Unified Flat Table Container */}
-      <div className="flat-table-wrap stagger-item">
-        <div className="flat-rows-list">
-          {items.map((wf, idx) => {
-            const apps = Array.from(new Set(wf.nodes.map((n) => n.app).filter(Boolean)))
-            const isSaved = Boolean(savedMap[wf.id])
+      {items.length > 0 ? (
+        /* Unified Flat Table Container */
+        <div className="flat-table-wrap stagger-item">
+          <div className="flat-rows-list">
+            {items.map((wf, idx) => {
+              const apps = Array.from(new Set(wf.nodes.map((n) => n.app).filter(Boolean)))
+              const isSaved = Boolean(savedMap[wf.id])
 
-            return (
-              <div
-                key={wf.id}
-                className="flat-row stagger-item"
-                style={{ animationDelay: `${idx * 25}ms` }}
-                onClick={() => onOpenDetail(wf)}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="flat-row__left">
-                  <div className="flat-title-row">
-                    <strong className="flat-row-title">{wf.name}</strong>
-                    <span className="conf-pill font-mono">{t.workflows.confidenceBadge(wf.confidence)}</span>
+              return (
+                <div
+                  key={wf.id}
+                  className="flat-row stagger-item"
+                  style={{ animationDelay: `${idx * 25}ms` }}
+                  onClick={() => onOpenDetail(wf)}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="flat-row__left">
+                    <div className="flat-title-row">
+                      <strong className="flat-row-title">{wf.name}</strong>
+                      <span className="conf-pill font-mono">{t.workflows.confidenceBadge(wf.confidence)}</span>
+                    </div>
+                    <p className="flat-row-desc">{wf.summary}</p>
                   </div>
-                  <p className="flat-row-desc">{wf.summary}</p>
-                </div>
 
-                <div className="flat-row__middle">
-                  <div className="app-chips-row">
-                    {apps.map((a) => (
-                      <span key={a} className="app-capsule-chip font-mono">
-                        {a}
-                      </span>
-                    ))}
+                  <div className="flat-row__middle">
+                    <div className="app-chips-row">
+                      {apps.map((a) => (
+                        <span key={a} className="app-capsule-chip font-mono">
+                          {a}
+                        </span>
+                      ))}
+                    </div>
+                    <WorkflowGraph workflow={wf} compact />
                   </div>
-                  <WorkflowGraph workflow={wf} compact />
-                </div>
 
-                <div className="flat-row__right" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className={`btn btn--capsule ${isSaved ? 'btn--saved' : 'btn--primary'}`}
-                    onClick={() => onSaveSkill(wf)}
-                  >
-                    <Check size={13} className={`btn-check-icon ${isSaved ? 'is-animating' : ''}`} />
-                    <span>{isSaved ? t.workflows.savedAsSkill : t.workflows.saveAsSkill}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--capsule-ghost icon-only"
-                    onClick={() => onDismiss(wf.id)}
-                    title={t.workflows.dismissAction}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                  <div className="row-chevron-indicator" onClick={() => onOpenDetail(wf)}>
-                    <ChevronRight size={14} />
+                  <div className="flat-row__right" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className={`btn btn--capsule ${isSaved ? 'btn--saved' : 'btn--primary'}`}
+                      onClick={() => onSaveSkill(wf)}
+                    >
+                      <Check size={13} className={`btn-check-icon ${isSaved ? 'is-animating' : ''}`} />
+                      <span>{isSaved ? t.workflows.savedAsSkill : t.workflows.saveAsSkill}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--capsule-ghost icon-only"
+                      onClick={() => onDismiss(wf.id)}
+                      title={t.workflows.dismissAction}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                    <div className="row-chevron-indicator" onClick={() => onOpenDetail(wf)}>
+                      <ChevronRight size={14} />
+                    </div>
                   </div>
                 </div>
-              </div>
-            )
-          })}
-
-          {items.length === 0 ? (
-            <div className="clean-empty-state">
-              <Check size={28} className="empty-icon" />
-              <h3>{t.workflows.emptyTitle}</h3>
-              <p>{t.workflows.emptyDesc}</p>
-            </div>
-          ) : null}
+              )
+            })}
+          </div>
         </div>
-      </div>
+      ) : (
+        /* Zero-Card Clean Empty State */
+        <div className="clean-empty-state stagger-item">
+          <div className="empty-icon-halo">
+            <Sparkles size={28} className="empty-icon-glow" />
+          </div>
+          <h3 className="empty-title">{t.workflows.emptyTitle}</h3>
+          <p className="empty-desc">{t.workflows.emptyDesc}</p>
+          <div className="empty-status-pill font-mono">
+            <span className={`live-pulsing-dot ${observing ? 'is-observing' : 'is-paused'}`} />
+            <span>{observing ? t.workflows.observingLiveHint : t.workflows.observingPausedHint}</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -487,159 +496,161 @@ function SkillsOverviewPage({
 
       {skillTab === 'local' ? (
         <div key="local-tab" className="tab-content-pane">
-          {/* Local Tab: Filter Row: Floating Capsule Search Box & Flat Segmented Tab */}
           {skills.length > 0 ? (
-            <div className="filter-toolbar-row stagger-item">
-              <label className="search-capsule-box">
-                <Search size={14} />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder={t.skills.searchPlaceholder}
-                />
-                {query ? (
-                  <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
-                    <X size={13} />
-                  </button>
-                ) : null}
-              </label>
-
-              {/* Flat Category Switcher */}
-              <div className="flat-segmented-filter">
-                <button
-                  type="button"
-                  className={`filter-pill-tab ${filterMode === 'all' ? 'is-active' : ''}`}
-                  onClick={() => setFilterMode('all')}
-                >
-                  <span>{t.skills.allSection}</span>
-                  <span className="filter-count-badge font-mono">{skills.length}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`filter-pill-tab ${filterMode === 'pinned' ? 'is-active' : ''}`}
-                  onClick={() => setFilterMode('pinned')}
-                >
-                  <Bookmark size={12} className="filter-pin-icon" />
-                  <span>{t.skills.pinnedSection}</span>
-                  <span className="filter-count-badge font-mono">{pinnedCount}</span>
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Local Skills List Container */}
-          <div className="flat-table-wrap stagger-item">
-            <div className="flat-rows-list">
-              {filteredSkills.map((sk, idx) => (
-                <div
-                  key={sk.id}
-                  className="flat-row"
-                  style={{ animationDelay: `${idx * 20}ms` }}
-                  onClick={() => onOpenDetail(sk)}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div className="flat-row__left">
-                    <div className="flat-title-row">
-                      {sk.pinned ? <Bookmark size={13} className="flat-pinned-icon" /> : null}
-                      <strong className="flat-row-title">{sk.name}</strong>
-                    </div>
-                    <span className="flat-row-desc">{sk.description}</span>
-                  </div>
-
-                  <div className="flat-row__middle">
-                    <div className="app-chips-row">
-                      {sk.apps.map((a) => (
-                        <span key={a} className="app-capsule-chip font-mono">
-                          {a}
-                        </span>
-                      ))}
-                    </div>
-                    <WorkflowGraph workflow={sk.workflow} compact />
-                  </div>
-
-                  <div className="flat-row__right">
-                    <span className="flat-row-meta font-mono">{sk.updatedLabel}</span>
-                    <span className="pinned-ver-pill font-mono">{t.skills.versionPrefix}{sk.versions}.0</span>
-                    <div className="row-chevron-indicator">
-                      <ChevronRight size={14} />
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {skills.length > 0 && filteredSkills.length === 0 ? (
-                <div className="clean-empty-state">
-                  <Search size={24} className="empty-icon" />
-                  <p>{t.skills.emptySearch}</p>
-                </div>
-              ) : null}
-
-              {skills.length === 0 ? (
-                <div className="clean-empty-state">
-                  <Boxes size={32} className="empty-icon" />
-                  <h3>{t.skills.emptyLocalTitle}</h3>
-                  <p>{t.skills.emptyLocalDesc}</p>
-                  <div className="empty-state-actions">
-                    <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
-                      <Plus size={13} />
-                      <span>{t.skills.newSkill}</span>
+            <>
+              {/* Filter Toolbar */}
+              <div className="filter-toolbar-row stagger-item">
+                <label className="search-capsule-box">
+                  <Search size={14} />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={t.skills.searchPlaceholder}
+                  />
+                  {query ? (
+                    <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
+                      <X size={13} />
                     </button>
+                  ) : null}
+                </label>
+
+                {/* Flat Category Switcher */}
+                <div className="flat-segmented-filter">
+                  <button
+                    type="button"
+                    className={`filter-pill-tab ${filterMode === 'all' ? 'is-active' : ''}`}
+                    onClick={() => setFilterMode('all')}
+                  >
+                    <span>{t.skills.allSection}</span>
+                    <span className="filter-count-badge font-mono">{skills.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`filter-pill-tab ${filterMode === 'pinned' ? 'is-active' : ''}`}
+                    onClick={() => setFilterMode('pinned')}
+                  >
+                    <Bookmark size={12} className="filter-pin-icon" />
+                    <span>{t.skills.pinnedSection}</span>
+                    <span className="filter-count-badge font-mono">{pinnedCount}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Local Skills List Container */}
+              {filteredSkills.length > 0 ? (
+                <div className="flat-table-wrap stagger-item">
+                  <div className="flat-rows-list">
+                    {filteredSkills.map((sk, idx) => (
+                      <div
+                        key={sk.id}
+                        className="flat-row"
+                        style={{ animationDelay: `${idx * 20}ms` }}
+                        onClick={() => onOpenDetail(sk)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="flat-row__left">
+                          <div className="flat-title-row">
+                            {sk.pinned ? <Bookmark size={13} className="flat-pinned-icon" /> : null}
+                            <strong className="flat-row-title">{sk.name}</strong>
+                          </div>
+                          <span className="flat-row-desc">{sk.description}</span>
+                        </div>
+
+                        <div className="flat-row__middle">
+                          <div className="app-chips-row">
+                            {sk.apps.map((a) => (
+                              <span key={a} className="app-capsule-chip font-mono">
+                                {a}
+                              </span>
+                            ))}
+                          </div>
+                          <WorkflowGraph workflow={sk.workflow} compact />
+                        </div>
+
+                        <div className="flat-row__right">
+                          <span className="flat-row-meta font-mono">{sk.updatedLabel}</span>
+                          <span className="pinned-ver-pill font-mono">{t.skills.versionPrefix}{sk.versions}.0</span>
+                          <div className="row-chevron-indicator">
+                            <ChevronRight size={14} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                /* Zero-Card Clean Empty Search State */
+                <div className="clean-empty-state stagger-item">
+                  <div className="empty-icon-halo">
+                    <Search size={26} className="empty-icon-glow" />
+                  </div>
+                  <h3 className="empty-title">{t.skills.emptySearch}</h3>
+                  <p className="empty-desc">{t.skills.emptySearchDesc(query)}</p>
+                  <div className="empty-state-actions">
                     <button
                       type="button"
                       className="btn btn--secondary btn--capsule"
-                      onClick={handleOpenLocalDir}
+                      onClick={() => setQuery('')}
                     >
-                      <FolderOpen size={13} />
-                      <span>{t.skills.openLocalDirBtn}</span>
+                      <X size={13} />
+                      <span>{t.skills.clearSearchBtn}</span>
                     </button>
                   </div>
                 </div>
-              ) : null}
+              )}
+            </>
+          ) : (
+            /* Zero-Card Clean Empty Local Skills State */
+            <div className="clean-empty-state stagger-item">
+              <div className="empty-icon-halo">
+                <Boxes size={30} className="empty-icon-glow" />
+              </div>
+              <h3 className="empty-title">{t.skills.emptyLocalTitle}</h3>
+              <p className="empty-desc">{t.skills.emptyLocalDesc}</p>
+              <div className="empty-state-actions">
+                <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
+                  <Plus size={13} />
+                  <span>{t.skills.newSkill}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--capsule"
+                  onClick={handleOpenLocalDir}
+                >
+                  <FolderOpen size={13} />
+                  <span>{t.skills.openLocalDirBtn}</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       ) : (
         <div key="remote-tab" className="tab-content-pane">
-          {/* Remote Tab: Remote Hub Announcement Banner */}
-          <div className="remote-hub-banner stagger-item">
-            <div className="remote-hub-banner__left">
-              <div className="remote-hub-icon-wrap">
-                <Globe size={18} />
-              </div>
-              <div>
-                <strong className="remote-hub-headline">{t.skills.remoteLibraryNoticeTitle}</strong>
-                <p className="remote-hub-desc">{t.skills.remoteLibraryNoticeDesc}</p>
-              </div>
+          {/* Zero-Card Clean Empty Remote Skills State */}
+          <div className="clean-empty-state stagger-item">
+            <div className="empty-icon-halo">
+              <Globe size={30} className="empty-icon-glow" />
             </div>
-            <button
-              type="button"
-              className="btn btn--capsule btn--secondary btn--sm"
-              onClick={() => notify?.(t.skills.remoteComingSoonToast)}
-            >
-              <ExternalLink size={12} />
-              <span>{t.skills.remoteDocsBtn}</span>
-            </button>
-          </div>
-
-          {/* Remote Skills Clean Empty State */}
-          <div className="flat-table-wrap stagger-item">
-            <div className="flat-rows-list">
-              <div className="clean-empty-state">
-                <Globe size={32} className="empty-icon" />
-                <h3>{t.skills.emptyRemoteTitle}</h3>
-                <p>{t.skills.emptyRemoteDesc}</p>
-                <div className="empty-state-actions">
-                  <button
-                    type="button"
-                    className="btn btn--secondary btn--capsule"
-                    onClick={() => notify?.(t.skills.remoteComingSoonToast)}
-                  >
-                    <Sliders size={13} />
-                    <span>{t.skills.remoteConfigureBtn}</span>
-                  </button>
-                </div>
-              </div>
+            <h3 className="empty-title">{t.skills.emptyRemoteTitle}</h3>
+            <p className="empty-desc">{t.skills.emptyRemoteDesc}</p>
+            <div className="empty-state-actions">
+              <button
+                type="button"
+                className="btn btn--secondary btn--capsule"
+                onClick={() => notify?.(t.skills.remoteComingSoonToast)}
+              >
+                <Sliders size={13} />
+                <span>{t.skills.remoteConfigureBtn}</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn--capsule-ghost btn--capsule"
+                onClick={() => notify?.(t.skills.remoteComingSoonToast)}
+              >
+                <ExternalLink size={13} />
+                <span>{t.skills.remoteDocsBtn}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -2416,6 +2427,7 @@ export function App() {
                   setDiscoveries((prev) => prev.filter((i) => i.id !== wfId))
                   setToast(t.workflows.dismissedToast)
                 }}
+                observing={observing}
               />
             ) : null}
           </>
