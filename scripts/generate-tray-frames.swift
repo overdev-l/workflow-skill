@@ -11,14 +11,14 @@ let projectRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let resources = projectRoot.appendingPathComponent("apps/desktop/resources")
 let sourceURL = resources.appendingPathComponent("trace-tray-spirit.png")
 let frames = [
-    MotionFrame(offsetX: 0, offsetY: 0, rotation: 0),
-    MotionFrame(offsetX: -0.4, offsetY: 1.4, rotation: -2.2),
-    MotionFrame(offsetX: -0.7, offsetY: 2.7, rotation: -3.8),
-    MotionFrame(offsetX: -0.3, offsetY: 3.4, rotation: -2.0),
-    MotionFrame(offsetX: 0.4, offsetY: 2.7, rotation: 1.8),
-    MotionFrame(offsetX: 0.7, offsetY: 1.4, rotation: 3.7),
-    MotionFrame(offsetX: 0.4, offsetY: 0, rotation: 2.0),
-    MotionFrame(offsetX: 0, offsetY: -0.7, rotation: 0),
+    MotionFrame(offsetX: 0.0, offsetY: -2.8, rotation: 0.0),
+    MotionFrame(offsetX: -1.8, offsetY: 0.8, rotation: -5.2),
+    MotionFrame(offsetX: -2.8, offsetY: 4.6, rotation: -8.5),
+    MotionFrame(offsetX: -1.4, offsetY: 6.5, rotation: -4.8),
+    MotionFrame(offsetX: 0.6, offsetY: 5.2, rotation: 1.8),
+    MotionFrame(offsetX: 2.6, offsetY: 2.5, rotation: 7.8),
+    MotionFrame(offsetX: 2.5, offsetY: -0.4, rotation: 6.2),
+    MotionFrame(offsetX: 1.0, offsetY: -2.2, rotation: 2.0),
 ]
 
 guard let source = NSImage(contentsOf: sourceURL) else {
@@ -57,7 +57,7 @@ for (index, frame) in frames.enumerated() {
     source.draw(
         in: NSRect(x: -27, y: -27, width: 54, height: 54),
         from: NSRect(origin: .zero, size: source.size),
-        operation: .sourceOver,
+        operation: NSCompositingOperation.sourceOver,
         fraction: 1
     )
     NSGraphicsContext.restoreGraphicsState()

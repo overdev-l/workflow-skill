@@ -187,7 +187,7 @@ function createStatusTray() {
   }
   statusTray = new Tray(cachedStoppedTrayFrame)
   statusTray.on('click', showMainWindow)
-  setTrayMoving(false)
+  setTrayMoving(true)
 }
 
 function windowsOwnerHandle() {
@@ -208,16 +208,14 @@ function createWindow() {
     titleBarStyle: isDarwin ? 'hiddenInset' : 'default',
     trafficLightPosition: isDarwin ? { x: 16, y: 16 } : undefined,
     transparent: isDarwin,
+    vibrancy: isDarwin ? 'under-window' : undefined,
     backgroundColor: '#00000000',
-    vibrancy: isDarwin ? 'sidebar' : undefined,
-    visualEffectState: isDarwin ? 'active' : undefined,
+    hasShadow: true,
     icon: iconPath,
     show: false,
     webPreferences: {
       preload: path.join(currentDirectory, 'preload.mjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
     },
   })
 
@@ -230,8 +228,8 @@ function createWindow() {
   }
 }
 
-function getAppBundlePath() {
-  if (process.platform === 'darwin') {
+function getAppBundlePath(): string {
+  if (app.isPackaged) {
     const execPath = process.execPath
     const appIndex = execPath.indexOf('.app')
     if (appIndex !== -1) {
@@ -272,6 +270,11 @@ app.whenReady().then(() => {
   ipcMain.handle('recorder:command', (_event, command: RecorderCommand) => {
     const allowed = new Set(['start', 'pause', 'resume', 'stop', 'status', 'permissions', 'policy'])
     if (!allowed.has(command.type)) throw new Error('Unsupported recorder command')
+    if (command.type === 'pause' || command.type === 'stop') {
+      setTrayMoving(false)
+    } else if (command.type === 'resume' || command.type === 'start') {
+      setTrayMoving(true)
+    }
     return recorder.command({ ...command, ownerWindowHandle: windowsOwnerHandle() })
   })
 
