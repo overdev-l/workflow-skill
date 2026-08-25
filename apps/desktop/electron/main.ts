@@ -37,15 +37,24 @@ function ensureTraceDirectories(rootPath = getStoredTraceHome()) {
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const recorder = new NativeRecorderManager()
-const iconPath = app.isPackaged
-  ? path.join(process.resourcesPath, 'trace-spirit-icon.png')
-  : path.resolve(currentDirectory, '../resources/trace-spirit-icon.png')
-const trayIconPath = app.isPackaged
-  ? path.join(process.resourcesPath, 'trace-tray-spirit.png')
-  : path.resolve(currentDirectory, '../resources/trace-tray-spirit.png')
-const trayIconDataUrl = existsSync(trayIconPath)
-  ? `data:image/png;base64,${readFileSync(trayIconPath).toString('base64')}`
-  : undefined
+function resolveResourcePath(filename: string): string {
+  const packagedPath = path.join(process.resourcesPath, filename)
+  if (app.isPackaged && existsSync(packagedPath)) return packagedPath
+
+  const candidates = [
+    path.resolve(currentDirectory, '../resources', filename),
+    path.resolve(currentDirectory, '../../resources', filename),
+    path.resolve(process.cwd(), 'apps/desktop/resources', filename),
+    path.resolve(process.cwd(), 'resources', filename),
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+  return path.resolve(currentDirectory, '../resources', filename)
+}
+
+const iconPath = resolveResourcePath('trace-spirit-icon.png')
 
 app.setName('Trace')
 
@@ -67,48 +76,58 @@ const movingTrayFrames = [
   { y: 0.2, rotation: 0, wave: 0 },
 ]
 
-function createTrayFrame(frameIndex = 0, moving = false) {
+function loadTrayFrame(frameIndex = 0, moving = false): Electron.NativeImage {
+  const filename = moving ? `trace-tray-frame-${frameIndex % 8}.png` : 'trace-tray-spirit.png'
+  const filePath = resolveResourcePath(filename)
+  if (existsSync(filePath)) {
+    const img = nativeImage.createFromPath(filePath)
+    if (!img.isEmpty()) {
+      const resized = img.resize({ width: 18, height: 18, quality: 'best' })
+      if (process.platform === 'darwin') {
+        resized.setTemplateImage(true)
+      }
+      return resized
+    }
+  }
+
+  // Fallback: Pure monochrome SVG path without nested raster tags
   const motion = moving
     ? movingTrayFrames[frameIndex % movingTrayFrames.length]
     : movingTrayFrames[0]
   const leftTailY = 17.2 + motion.wave
   const centerTailY = 18 - motion.wave * 0.45
   const rightTailY = 17.3 + motion.wave * 0.7
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 20 20">
-      <defs>
-        <mask id="eyes">
-          <rect width="20" height="20" fill="white"/>
-          <ellipse cx="8" cy="8.3" rx="0.65" ry="1.1" fill="black"/>
-          <ellipse cx="12" cy="8.3" rx="0.65" ry="1.1" fill="black"/>
-        </mask>
-      </defs>
-      <g transform="translate(10 10) rotate(${motion.rotation}) translate(-10 -10) translate(0 ${motion.y})">
-        ${trayIconDataUrl
-          ? `<image href="${trayIconDataUrl}" x="1" y="1" width="18" height="18" preserveAspectRatio="xMidYMid meet"/>`
-          : `<path mask="url(#eyes)" fill="black" d="
-          M10 1.8
-          C6.55 1.8 4.2 4.55 4.2 8.2
-          L4.2 10.45
-          C4.2 11.2 3.85 11.75 3.2 12.15
-          L2.05 12.85
-          C1.35 13.28 1.55 14.28 2.3 14.52
-          C3.02 14.75 3.78 14.4 4.42 13.78
-          L4.42 15.55
-          C4.42 16.75 5.3 18 6.28 ${leftTailY}
-          C7.18 16.38 7.62 18.08 8.8 ${centerTailY}
-          C9.85 17.92 10.35 16.4 11.32 17.18
-          C12.4 18.08 13.38 18.25 14.18 ${rightTailY}
-          C15.05 16.25 15.58 15.05 15.58 13.78
-          C16.22 14.4 16.98 14.75 17.7 14.52
-          C18.45 14.28 18.65 13.28 17.95 12.85
-          L16.8 12.15
-          C16.15 11.75 15.8 11.2 15.8 10.45
-          L15.8 8.2
-          C15.8 4.55 13.45 1.8 10 1.8 Z"/>
-          `}
-      </g>
-    </svg>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 20 20">
+    <defs>
+      <mask id="eyes-${frameIndex}">
+        <rect width="20" height="20" fill="white"/>
+        <ellipse cx="8" cy="8.3" rx="0.65" ry="1.1" fill="black"/>
+        <ellipse cx="12" cy="8.3" rx="0.65" ry="1.1" fill="black"/>
+      </mask>
+    </defs>
+    <g transform="translate(10 10) rotate(${motion.rotation}) translate(-10 -10) translate(0 ${motion.y})">
+      <path mask="url(#eyes-${frameIndex})" fill="black" d="
+        M10 1.8
+        C6.55 1.8 4.2 4.55 4.2 8.2
+        L4.2 10.45
+        C4.2 11.2 3.85 11.75 3.2 12.15
+        L2.05 12.85
+        C1.35 13.28 1.55 14.28 2.3 14.52
+        C3.02 14.75 3.78 14.4 4.42 13.78
+        L4.42 15.55
+        C4.42 16.75 5.3 18 6.28 ${leftTailY}
+        C7.18 16.38 7.62 18.08 8.8 ${centerTailY}
+        C9.85 17.92 10.35 16.4 11.32 17.18
+        C12.4 18.08 13.38 18.25 14.18 ${rightTailY}
+        C15.05 16.25 15.58 15.05 15.58 13.78
+        C16.22 14.4 16.98 14.75 17.7 14.52
+        C18.45 14.28 18.65 13.28 17.95 12.85
+        L16.8 12.15
+        C16.15 11.75 15.8 11.2 15.8 10.45
+        L15.8 8.2
+        C15.8 4.55 13.45 1.8 10 1.8 Z"/>
+    </g>
+  </svg>`
   const image = nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`)
   if (process.platform === 'darwin') image.setTemplateImage(true)
   return image
@@ -142,22 +161,31 @@ function setTrayMoving(moving: boolean) {
   if (trayAnimationTimer) clearInterval(trayAnimationTimer)
   trayAnimationTimer = undefined
   trayFrame = 0
-  cachedStoppedTrayFrame ??= createTrayFrame()
-  if (cachedMovingTrayFrames.length === 0) {
-    cachedMovingTrayFrames = movingTrayFrames.map((_, index) => createTrayFrame(index, true))
+
+  if (!cachedStoppedTrayFrame) {
+    cachedStoppedTrayFrame = loadTrayFrame(0, false)
   }
+  if (cachedMovingTrayFrames.length === 0) {
+    cachedMovingTrayFrames = Array.from({ length: 8 }, (_, i) => loadTrayFrame(i, true))
+  }
+
   statusTray.setImage(moving ? cachedMovingTrayFrames[0] : cachedStoppedTrayFrame)
   updateTrayMenu()
   if (!moving) return
+
   trayAnimationTimer = setInterval(() => {
-    trayFrame = (trayFrame + 1) % movingTrayFrames.length
-    statusTray?.setImage(cachedMovingTrayFrames[trayFrame])
+    if (!statusTray || !cachedMovingTrayFrames.length) return
+    trayFrame = (trayFrame + 1) % cachedMovingTrayFrames.length
+    statusTray.setImage(cachedMovingTrayFrames[trayFrame])
   }, 120)
 }
 
 function createStatusTray() {
   if (process.platform !== 'darwin' || statusTray) return
-  statusTray = new Tray(createTrayFrame())
+  if (!cachedStoppedTrayFrame) {
+    cachedStoppedTrayFrame = loadTrayFrame(0, false)
+  }
+  statusTray = new Tray(cachedStoppedTrayFrame)
   statusTray.on('click', showMainWindow)
   setTrayMoving(false)
 }
