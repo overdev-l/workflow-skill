@@ -19,6 +19,7 @@ import {
   FileCode,
   FileSpreadsheet,
   FileText,
+  Folder,
   FolderOpen,
   FolderTree,
   GitBranch,
@@ -1162,6 +1163,41 @@ function SettingsMainPage({
   onShowToast?: (msg: string) => void
 }) {
   const { t, locale, setLocale, resolvedLocale } = useI18n()
+  const [skillStoragePath, setSkillStoragePath] = useState<string>('')
+
+  useEffect(() => {
+    let active = true
+    if (window.workflowSkill?.getSkillStoragePath) {
+      window.workflowSkill.getSkillStoragePath().then((p) => {
+        if (active) setSkillStoragePath(p)
+      }).catch(() => {})
+    }
+    return () => { active = false }
+  }, [])
+
+  const handleSelectSkillPath = async () => {
+    if (window.workflowSkill?.selectSkillStoragePath) {
+      const selected = await window.workflowSkill.selectSkillStoragePath()
+      if (selected) {
+        setSkillStoragePath(selected)
+        onShowToast?.(t.settings.skillStoragePathChangedToast)
+      }
+    }
+  }
+
+  const handleRevealSkillPath = () => {
+    if (skillStoragePath && window.workflowSkill?.openPathInFinder) {
+      void window.workflowSkill.openPathInFinder(skillStoragePath)
+    }
+  }
+
+  const handleResetSkillPath = async () => {
+    if (window.workflowSkill?.resetSkillStoragePath) {
+      const def = await window.workflowSkill.resetSkillStoragePath()
+      setSkillStoragePath(def)
+      onShowToast?.(t.settings.skillStoragePathChangedToast)
+    }
+  }
 
   return (
     <div className="clean-page view-enter">
@@ -1195,6 +1231,50 @@ function SettingsMainPage({
               </div>
               <div className="flat-setting-control">
                 <LanguageSegmentedTabs value={locale} onChange={setLocale} />
+              </div>
+            </div>
+
+            {/* Row 3: Local Skill Storage Path */}
+            <div className="flat-setting-row flat-setting-row--stack">
+              <div className="flat-setting-info">
+                <strong className="flat-setting-title">{t.settings.skillStoragePathTitle}</strong>
+                <p className="flat-setting-desc">{t.settings.skillStoragePathDesc}</p>
+              </div>
+              <div className="skill-path-card-body">
+                <div className="skill-path-field font-mono" title={skillStoragePath}>
+                  <Folder size={15} className="skill-path-field__icon" />
+                  <span className="skill-path-field__text">
+                    {skillStoragePath || t.settings.skillStoragePathPlaceholder}
+                  </span>
+                </div>
+                <div className="skill-path-actions">
+                  <button
+                    type="button"
+                    className="ghost-action-btn"
+                    onClick={handleSelectSkillPath}
+                  >
+                    <FolderOpen size={14} />
+                    <span>{t.settings.skillStoragePathSelectBtn}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-action-btn"
+                    onClick={handleRevealSkillPath}
+                    title={t.settings.skillStoragePathRevealBtn}
+                  >
+                    <ExternalLink size={14} />
+                    <span>{t.settings.skillStoragePathRevealBtn}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-action-btn"
+                    onClick={handleResetSkillPath}
+                    title={t.settings.skillStoragePathResetBtn}
+                  >
+                    <RotateCcw size={14} />
+                    <span>{t.settings.skillStoragePathResetBtn}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

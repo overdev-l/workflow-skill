@@ -91,6 +91,14 @@ export const translations = {
       langSystem: '跟随系统',
       langStatusSystem: (resolved: string) => `跟随系统 (${resolved})`,
 
+      skillStoragePathTitle: 'Skill 本地存储路径',
+      skillStoragePathDesc: '存放沉淀后的本地 Skill 资产文件与元数据目录',
+      skillStoragePathPlaceholder: '未设置存储路径',
+      skillStoragePathSelectBtn: '更改目录…',
+      skillStoragePathRevealBtn: '在访达中打开',
+      skillStoragePathResetBtn: '恢复默认',
+      skillStoragePathChangedToast: 'Skill 存储路径已更新',
+
       shortcutsTab: '键盘快捷键',
       shortcutsSub: '自定义全局操作与应用内高效交互快捷键',
       resetShortcutsBtn: '恢复默认',
@@ -315,6 +323,14 @@ export const translations = {
       langZhTW: '繁體中文',
       langSystem: 'System',
       langStatusSystem: (resolved: string) => `System (${resolved})`,
+
+      skillStoragePathTitle: 'Skill Storage Path',
+      skillStoragePathDesc: 'Directory where local structured Skill assets and metadata are stored',
+      skillStoragePathPlaceholder: 'No storage path configured',
+      skillStoragePathSelectBtn: 'Change Directory…',
+      skillStoragePathRevealBtn: 'Reveal in Finder',
+      skillStoragePathResetBtn: 'Reset to Default',
+      skillStoragePathChangedToast: 'Skill storage path updated',
 
       shortcutsTab: 'Keyboard Shortcuts',
       shortcutsSub: 'Customize global hotkeys and rapid in-app workflows',

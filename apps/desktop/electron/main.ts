@@ -1,5 +1,5 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron'
-import { existsSync, readFileSync } from 'node:fs'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } from 'electron'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { RecorderCommand, RecorderEnvelope } from '@workflow-skill/capture-protocol'
@@ -238,6 +238,87 @@ app.whenReady().then(() => {
     if (process.platform === 'darwin') {
       const appPath = getAppBundlePath()
       shell.showItemInFolder(appPath)
+    }
+  })
+
+  ipcMain.handle('system:get-skill-storage-path', () => {
+    const configPath = path.join(app.getPath('userData'), 'config.json')
+    const defaultPath = path.join(app.getPath('documents'), 'Trace', 'Skills')
+    let skillPath = defaultPath
+    try {
+      if (existsSync(configPath)) {
+        const data = JSON.parse(readFileSync(configPath, 'utf8'))
+        if (data.skillStoragePath) skillPath = data.skillStoragePath
+      }
+    } catch {}
+    if (!existsSync(skillPath)) {
+      try {
+        mkdirSync(skillPath, { recursive: true })
+      } catch {}
+    }
+    return skillPath
+  })
+
+  ipcMain.handle('system:select-skill-storage-path', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? undefined
+    const configPath = path.join(app.getPath('userData'), 'config.json')
+    const defaultPath = path.join(app.getPath('documents'), 'Trace', 'Skills')
+    let currentPath = defaultPath
+    try {
+      if (existsSync(configPath)) {
+        const data = JSON.parse(readFileSync(configPath, 'utf8'))
+        if (data.skillStoragePath) currentPath = data.skillStoragePath
+      }
+    } catch {}
+
+    const result = await dialog.showOpenDialog(win!, {
+      title: 'Select Skill Storage Folder',
+      defaultPath: existsSync(currentPath) ? currentPath : app.getPath('documents'),
+      properties: ['openDirectory', 'createDirectory'],
+    })
+
+    if (!result.canceled && result.filePaths.length > 0) {
+      const selectedPath = result.filePaths[0]
+      try {
+        let data: Record<string, any> = {}
+        if (existsSync(configPath)) {
+          data = JSON.parse(readFileSync(configPath, 'utf8'))
+        }
+        data.skillStoragePath = selectedPath
+        writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf8')
+      } catch {}
+      return selectedPath
+    }
+    return null
+  })
+
+  ipcMain.handle('system:reset-skill-storage-path', () => {
+    const configPath = path.join(app.getPath('userData'), 'config.json')
+    const defaultPath = path.join(app.getPath('documents'), 'Trace', 'Skills')
+    try {
+      let data: Record<string, any> = {}
+      if (existsSync(configPath)) {
+        data = JSON.parse(readFileSync(configPath, 'utf8'))
+      }
+      data.skillStoragePath = defaultPath
+      writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf8')
+    } catch {}
+    if (!existsSync(defaultPath)) {
+      try {
+        mkdirSync(defaultPath, { recursive: true })
+      } catch {}
+    }
+    return defaultPath
+  })
+
+  ipcMain.handle('system:open-path', async (_event, targetPath: string) => {
+    if (existsSync(targetPath)) {
+      await shell.openPath(targetPath)
+    } else {
+      try {
+        mkdirSync(targetPath, { recursive: true })
+        await shell.openPath(targetPath)
+      } catch {}
     }
   })
 

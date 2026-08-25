@@ -14,6 +14,10 @@ declare global {
       centerWindow?: () => Promise<void>
       closePermisoOverlay?: () => Promise<void>
       startDragApp?: () => void
+      getSkillStoragePath?: () => Promise<string>
+      selectSkillStoragePath?: () => Promise<string | null>
+      resetSkillStoragePath?: () => Promise<string>
+      openPathInFinder?: (targetPath: string) => Promise<void>
       onRecorderMessage: (listener: (message: RecorderEnvelope) => void) => () => void
     }
   }
