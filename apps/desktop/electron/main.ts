@@ -7,12 +7,26 @@ import type { RecorderCommand, RecorderEnvelope } from '@workflow-skill/capture-
 import { NativeRecorderManager } from './recorder-manager'
 
 const defaultTraceHome = path.join(os.homedir(), '.trace')
-const defaultSkillStoragePath = path.join(defaultTraceHome, 'skills')
-const defaultWorkflowStoragePath = path.join(defaultTraceHome, 'workflows')
-const defaultCapturesStoragePath = path.join(defaultTraceHome, 'captures')
 
-function ensureTraceDirectories() {
-  for (const dir of [defaultTraceHome, defaultSkillStoragePath, defaultWorkflowStoragePath, defaultCapturesStoragePath]) {
+function getStoredTraceHome(): string {
+  const configPath = path.join(defaultTraceHome, 'config.json')
+  try {
+    if (existsSync(configPath)) {
+      const data = JSON.parse(readFileSync(configPath, 'utf8'))
+      if (data.storagePath) return data.storagePath
+    }
+  } catch {}
+  return defaultTraceHome
+}
+
+function ensureTraceDirectories(rootPath = getStoredTraceHome()) {
+  const subdirs = [
+    rootPath,
+    path.join(rootPath, 'skills'),
+    path.join(rootPath, 'workflows'),
+    path.join(rootPath, 'captures'),
+  ]
+  for (const dir of subdirs) {
     if (!existsSync(dir)) {
       try {
         mkdirSync(dir, { recursive: true })
@@ -258,69 +272,52 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('system:get-skill-storage-path', () => {
-    ensureTraceDirectories()
-    const configPath = path.join(defaultTraceHome, 'config.json')
-    let skillPath = defaultSkillStoragePath
-    try {
-      if (existsSync(configPath)) {
-        const data = JSON.parse(readFileSync(configPath, 'utf8'))
-        if (data.skillStoragePath) skillPath = data.skillStoragePath
-      }
-    } catch {}
-    if (!existsSync(skillPath)) {
-      try {
-        mkdirSync(skillPath, { recursive: true })
-      } catch {}
-    }
-    return skillPath
+  ipcMain.handle('system:get-storage-path', () => {
+    const root = getStoredTraceHome()
+    ensureTraceDirectories(root)
+    return root
   })
 
-  ipcMain.handle('system:select-skill-storage-path', async (event) => {
-    ensureTraceDirectories()
+  ipcMain.handle('system:select-storage-path', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender) ?? undefined
-    const configPath = path.join(defaultTraceHome, 'config.json')
-    let currentPath = defaultSkillStoragePath
-    try {
-      if (existsSync(configPath)) {
-        const data = JSON.parse(readFileSync(configPath, 'utf8'))
-        if (data.skillStoragePath) currentPath = data.skillStoragePath
-      }
-    } catch {}
+    const currentRoot = getStoredTraceHome()
+    ensureTraceDirectories(currentRoot)
 
     const result = await dialog.showOpenDialog(win!, {
-      title: 'Select Skill Storage Folder',
-      defaultPath: existsSync(currentPath) ? currentPath : defaultTraceHome,
+      title: 'Select Data Storage Folder',
+      defaultPath: existsSync(currentRoot) ? currentRoot : os.homedir(),
       properties: ['openDirectory', 'createDirectory'],
     })
 
     if (!result.canceled && result.filePaths.length > 0) {
-      const selectedPath = result.filePaths[0]
+      const selectedRoot = result.filePaths[0]
+      ensureTraceDirectories(selectedRoot)
       try {
+        const configPath = path.join(defaultTraceHome, 'config.json')
         let data: Record<string, any> = {}
         if (existsSync(configPath)) {
           data = JSON.parse(readFileSync(configPath, 'utf8'))
         }
-        data.skillStoragePath = selectedPath
+        data.storagePath = selectedRoot
         writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf8')
       } catch {}
-      return selectedPath
+      return selectedRoot
     }
     return null
   })
 
-  ipcMain.handle('system:reset-skill-storage-path', () => {
-    ensureTraceDirectories()
-    const configPath = path.join(defaultTraceHome, 'config.json')
+  ipcMain.handle('system:reset-storage-path', () => {
+    ensureTraceDirectories(defaultTraceHome)
     try {
+      const configPath = path.join(defaultTraceHome, 'config.json')
       let data: Record<string, any> = {}
       if (existsSync(configPath)) {
         data = JSON.parse(readFileSync(configPath, 'utf8'))
       }
-      data.skillStoragePath = defaultSkillStoragePath
+      delete data.storagePath
       writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf8')
     } catch {}
-    return defaultSkillStoragePath
+    return defaultTraceHome
   })
 
   ipcMain.handle('system:open-path', async (_event, targetPath: string) => {

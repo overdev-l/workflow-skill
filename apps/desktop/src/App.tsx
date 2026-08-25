@@ -1163,39 +1163,39 @@ function SettingsMainPage({
   onShowToast?: (msg: string) => void
 }) {
   const { t, locale, setLocale, resolvedLocale } = useI18n()
-  const [skillStoragePath, setSkillStoragePath] = useState<string>('')
+  const [storagePath, setStoragePath] = useState<string>('')
 
   useEffect(() => {
     let active = true
-    if (window.workflowSkill?.getSkillStoragePath) {
-      window.workflowSkill.getSkillStoragePath().then((p) => {
-        if (active) setSkillStoragePath(p)
+    if (window.workflowSkill?.getStoragePath) {
+      window.workflowSkill.getStoragePath().then((p) => {
+        if (active) setStoragePath(p)
       }).catch(() => {})
     }
     return () => { active = false }
   }, [])
 
-  const handleSelectSkillPath = async () => {
-    if (window.workflowSkill?.selectSkillStoragePath) {
-      const selected = await window.workflowSkill.selectSkillStoragePath()
+  const handleSelectStoragePath = async () => {
+    if (window.workflowSkill?.selectStoragePath) {
+      const selected = await window.workflowSkill.selectStoragePath()
       if (selected) {
-        setSkillStoragePath(selected)
-        onShowToast?.(t.settings.skillStoragePathChangedToast)
+        setStoragePath(selected)
+        onShowToast?.(t.settings.dataStoragePathChangedToast)
       }
     }
   }
 
-  const handleRevealSkillPath = () => {
-    if (skillStoragePath && window.workflowSkill?.openPathInFinder) {
-      void window.workflowSkill.openPathInFinder(skillStoragePath)
+  const handleRevealStoragePath = () => {
+    if (storagePath && window.workflowSkill?.openPathInFinder) {
+      void window.workflowSkill.openPathInFinder(storagePath)
     }
   }
 
-  const handleResetSkillPath = async () => {
-    if (window.workflowSkill?.resetSkillStoragePath) {
-      const def = await window.workflowSkill.resetSkillStoragePath()
-      setSkillStoragePath(def)
-      onShowToast?.(t.settings.skillStoragePathChangedToast)
+  const handleResetStoragePath = async () => {
+    if (window.workflowSkill?.resetStoragePath) {
+      const def = await window.workflowSkill.resetStoragePath()
+      setStoragePath(def)
+      onShowToast?.(t.settings.dataStoragePathChangedToast)
     }
   }
 
@@ -1234,14 +1234,14 @@ function SettingsMainPage({
               </div>
             </div>
 
-            {/* Row 3: Local Skill Storage Path */}
+            {/* Row 3: Local Data Storage Path */}
             <div className="flat-setting-row">
               <div className="flat-setting-info">
-                <strong className="flat-setting-title">{t.settings.skillStoragePathTitle}</strong>
-                <p className="flat-setting-desc font-mono" title={skillStoragePath}>
-                  {skillStoragePath
-                    ? skillStoragePath.replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~').replace(/^\/Users\/[^/]+/, '~')
-                    : t.settings.skillStoragePathPlaceholder}
+                <strong className="flat-setting-title">{t.settings.dataStoragePathTitle}</strong>
+                <p className="flat-setting-desc font-mono" title={storagePath}>
+                  {storagePath
+                    ? storagePath.replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~').replace(/^\/Users\/[^/]+/, '~')
+                    : t.settings.dataStoragePathPlaceholder}
                 </p>
               </div>
               <div className="flat-setting-control">
@@ -1249,29 +1249,30 @@ function SettingsMainPage({
                   <button
                     type="button"
                     className="btn btn--capsule btn--secondary btn--sm"
-                    onClick={handleSelectSkillPath}
+                    onClick={handleSelectStoragePath}
                   >
                     <FolderOpen size={12} />
-                    <span>{t.settings.skillStoragePathSelectBtn}</span>
+                    <span>{t.settings.dataStoragePathSelectBtn}</span>
                   </button>
                   <button
                     type="button"
                     className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
-                    onClick={handleRevealSkillPath}
-                    title={t.settings.skillStoragePathRevealBtn}
-                    aria-label={t.settings.skillStoragePathRevealBtn}
+                    onClick={handleRevealStoragePath}
+                    title={t.settings.dataStoragePathRevealBtn}
+                    aria-label={t.settings.dataStoragePathRevealBtn}
                   >
                     <ExternalLink size={12} />
                   </button>
-                  {skillStoragePath &&
-                  !skillStoragePath.endsWith('.trace/skills') &&
-                  !skillStoragePath.endsWith('.trace\\skills') ? (
+                  {storagePath &&
+                  !storagePath.endsWith('.trace') &&
+                  !storagePath.endsWith('.trace\\') &&
+                  !storagePath.endsWith('.trace/') ? (
                     <button
                       type="button"
                       className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
-                      onClick={handleResetSkillPath}
-                      title={t.settings.skillStoragePathResetBtn}
-                      aria-label={t.settings.skillStoragePathResetBtn}
+                      onClick={handleResetStoragePath}
+                      title={t.settings.dataStoragePathResetBtn}
+                      aria-label={t.settings.dataStoragePathResetBtn}
                     >
                       <RotateCcw size={12} />
                     </button>

@@ -12,9 +12,9 @@ contextBridge.exposeInMainWorld('workflowSkill', {
   centerWindow: () => ipcRenderer.invoke('system:center-window') as Promise<void>,
   closePermisoOverlay: () => ipcRenderer.invoke('system:close-permiso-overlay') as Promise<void>,
   startDragApp: () => ipcRenderer.send('system:start-drag-app'),
-  getSkillStoragePath: () => ipcRenderer.invoke('system:get-skill-storage-path') as Promise<string>,
-  selectSkillStoragePath: () => ipcRenderer.invoke('system:select-skill-storage-path') as Promise<string | null>,
-  resetSkillStoragePath: () => ipcRenderer.invoke('system:reset-skill-storage-path') as Promise<string>,
+  getStoragePath: () => ipcRenderer.invoke('system:get-storage-path') as Promise<string>,
+  selectStoragePath: () => ipcRenderer.invoke('system:select-storage-path') as Promise<string | null>,
+  resetStoragePath: () => ipcRenderer.invoke('system:reset-storage-path') as Promise<string>,
   openPathInFinder: (targetPath: string) => ipcRenderer.invoke('system:open-path', targetPath) as Promise<void>,
   onRecorderMessage: (listener: (message: RecorderEnvelope) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, message: RecorderEnvelope) => listener(message)
