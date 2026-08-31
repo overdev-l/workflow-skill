@@ -17,7 +17,11 @@
     "build:recorder:release": "node scripts/build-recorder.mjs --release",
     "build:recorder:macos": "swift build --package-path recorders/macos",
     "build:recorder:windows": "dotnet build recorders/windows/WorkflowRecorder/WorkflowRecorder.csproj",
-    "verify:recorder": "node scripts/verify-recorder.mjs"
+    "verify:recorder": "node scripts/verify-recorder.mjs",
+    "verify:capture": "node --experimental-strip-types scripts/verify-capture-pipeline.mjs",
+    "verify:browser-capture": "node --experimental-strip-types scripts/verify-browser-capture.mjs",
+    "verify:skill-search": "node --experimental-strip-types scripts/verify-skill-repository-search.mjs",
+    "verify:skill-deletion": "node --experimental-strip-types scripts/verify-skill-deletion.mjs"
   },
   "devDependencies": {
     "turbo": "2.10.11",

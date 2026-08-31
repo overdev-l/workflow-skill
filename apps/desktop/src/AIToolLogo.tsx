@@ -13,6 +13,24 @@ export function AIToolLogo({
 }) {
   const normalized = (toolId || '').toLowerCase()
 
+  // 1. .agents Universal Skills Standard (skills.sh)
+  if (normalized.includes('agent')) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+        <defs>
+          <linearGradient id="agentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#38BDF8" />
+            <stop offset="100%" stopColor="#0284C7" />
+          </linearGradient>
+        </defs>
+        <rect x="2" y="3" width="20" height="18" rx="5" fill={color ? "url(#agentGrad)" : "currentColor"} />
+        <path d="M7 8.5h10M7 12h10M7 15.5h6" stroke="#FFFFFF" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="16.5" cy="15.5" r="1.5" fill="#FFFFFF" />
+      </svg>
+    )
+  }
+
+  // 2. Anthropic Claude Code (Official Anthropic Coral/Terracotta)
   if (normalized.includes('claude')) {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -24,80 +42,81 @@ export function AIToolLogo({
     )
   }
 
+  // 3. Cursor IDE (Official Monochrome 3D Faceted Block - cursor.com brand)
   if (normalized.includes('cursor')) {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
         <path
-          d="M21.572 6.84L12.44 1.57a.89.89 0 0 0-.88 0L2.428 6.84a.885.885 0 0 0-.443.766v10.537c0 .316.168.608.443.766l9.132 5.271a.89.89 0 0 0 .88 0l9.132-5.271a.885.885 0 0 0 .443-.766V7.606a.885.885 0 0 0-.443-.766zM12 3.109l7.747 4.472-7.747 4.473-7.747-4.473L12 3.109zm-8.253 6.01L11.25 13.36v8.281L3.747 17.4V9.119zm9.75 12.522v-8.281l7.503-4.241v8.281l-7.503 4.241z"
-          fill={color ? "#000000" : "currentColor"}
-          style={color ? { filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.4))' } : undefined}
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M22.106 5.68L12.5.135a.998.998 0 00-.998 0L1.893 5.68a.84.84 0 00-.419.726v11.186c0 .3.16.577.42.727l9.607 5.547a.999.999 0 00.998 0l9.608-5.547a.84.84 0 00.42-.727V6.407a.84.84 0 00-.42-.726zm-.603 1.176L12.228 22.92c-.063.108-.228.064-.228-.061V12.34a.59.59 0 00-.295-.51l-9.11-5.26c-.107-.062-.063-.228.062-.228h18.55c.264 0 .428.286.296.514z"
+          fill={color ? "var(--color-ink, #FFFFFF)" : "currentColor"}
+        />
+      </svg>
+    )
+  }
+
+  // 4. Google Antigravity & Gemini (Official 4-Point Multi-Color Sparkle)
+  if (normalized.includes('antigravity') || normalized.includes('gemini')) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+        <path
+          d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z"
+          fill={color ? "#3186FF" : "currentColor"}
         />
         {color ? (
-          <path
-            d="M12 3.109l7.747 4.472-7.747 4.473-7.747-4.473L12 3.109z"
-            fill="#5E5CE6"
-            opacity="0.85"
-          />
+          <>
+            <path
+              d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z"
+              fill="url(#geminiGrad0)"
+            />
+            <path
+              d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z"
+              fill="url(#geminiGrad1)"
+            />
+            <defs>
+              <linearGradient id="geminiGrad0" x1="7" y1="15.5" x2="11" y2="12" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#08B962" />
+                <stop offset="1" stopColor="#08B962" stopOpacity="0" />
+              </linearGradient>
+              <linearGradient id="geminiGrad1" x1="8" y1="5.5" x2="11.5" y2="11" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#F94543" />
+                <stop offset="1" stopColor="#F94543" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+          </>
         ) : null}
       </svg>
     )
   }
 
+  // 5. ByteDance Trae IDE (Official Neon Mint/Green - #32F08C)
+  if (normalized.includes('trae')) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+        <path
+          d="M24 20.541H3.428v-3.426H0V3.4h24V20.54zM3.428 17.115h17.144V6.827H3.428v10.288zm8.573-5.196l-2.425 2.424-2.424-2.424 2.424-2.424 2.425 2.424zm6.857-.001l-2.424 2.423-2.425-2.423 2.425-2.425 2.424 2.425z"
+          fill={color ? "#32F08C" : "currentColor"}
+        />
+      </svg>
+    )
+  }
+
+  // 6. Codeium Windsurf IDE (Official Teal Stream)
   if (normalized.includes('windsurf')) {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
         <path
-          d="M19.74 3.75C17.65 2.12 14.88 1.5 12 1.5c-4.2 0-7.9 1.7-10.5 4.5-.4.44-.35 1.12.1 1.5.45.4 1.13.35 1.53-.1C5.4 4.85 8.5 3.5 12 3.5c2.3 0 4.5.6 6.2 1.8 1.8 1.3 3 3.1 3.5 5.2.14.6.7.98 1.3.85.6-.13 1-.7.85-1.3-.6-2.6-2.1-4.8-4.11-6.3zM2.8 12.7c.6.1 1.15-.3 1.25-.9.4-2.4 1.9-4.4 4-5.5 2.1-1.1 4.6-1.1 6.8-.2.55.24 1.2 0 1.4-.55.25-.55 0-1.2-.55-1.4-2.8-1.2-6-.1-8.7 1.3-2.6 1.4-4.5 3.9-5 6.9-.1.6.3 1.15.9 1.25zM12 7.5c-2.5 0-4.5 2-4.5 4.5 0 1.2.5 2.3 1.3 3.2L6.4 19.3c-.4.4-.4 1 0 1.4.2.2.5.3.7.3s.5-.1.7-.3l2.4-2.4c.6.3 1.2.4 1.8.4 2.5 0 4.5-2 4.5-4.5s-2-4.5-4.5-4.5zm0 7c-1.4 0-2.5-1.1-2.5-2.5s1.1-2.5 2.5-2.5 2.5 1.1 2.5 2.5-1.1 2.5-2.5 2.5z"
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M23.78 5.004h-.228a2.187 2.187 0 00-2.18 2.196v4.912c0 .98-.804 1.775-1.76 1.775a1.818 1.818 0 01-1.472-.773L13.168 5.95a2.197 2.197 0 00-1.81-.95c-1.134 0-2.154.972-2.154 2.173v4.94c0 .98-.797 1.775-1.76 1.775-.57 0-1.136-.289-1.472-.773L.408 5.098C.282 4.918 0 5.007 0 5.228v4.284c0 .216.066.426.188.604l5.475 7.889c.324.466.8.812 1.351.938 1.377.316 2.645-.754 2.645-2.117V11.89c0-.98.787-1.775 1.76-1.775h.002c.586 0 1.135.288 1.472.773l4.972 7.163a2.15 2.15 0 001.81.95c1.158 0 2.151-.973 2.151-2.173v-4.939c0-.98.787-1.775 1.76-1.775h.194c.122 0 .22-.1.22-.222V5.225a.221.221 0 00-.22-.222z"
           fill={color ? "#09B6A2" : "currentColor"}
         />
       </svg>
     )
   }
 
-  if (normalized.includes('trae')) {
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
-        <path
-          d="M12 2L2 7.5v9L12 22l10-5.5v-9L12 2zm0 2.3l7.5 4.1L12 12.5 4.5 8.4 12 4.3zM4 9.8l7 3.9v7.4l-7-3.9V9.8zm9 11.3v-7.4l7-3.9v7.4l-7 3.9z"
-          fill={color ? "#10B981" : "currentColor"}
-        />
-        {color ? (
-          <path d="M12 4.3l7.5 4.1L12 12.5 4.5 8.4 12 4.3z" fill="#34D399" />
-        ) : null}
-      </svg>
-    )
-  }
-
-  if (normalized.includes('antigravity') || normalized.includes('gemini')) {
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
-        <defs>
-          <linearGradient id="geminiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#1BA1E3" />
-            <stop offset="50%" stopColor="#5468FF" />
-            <stop offset="100%" stopColor="#BD34FE" />
-          </linearGradient>
-        </defs>
-        <path
-          d="M12 0C12 6.627 6.627 12 0 12c6.627 0 12 5.373 12 12 0-6.627 5.373-12 12-12-6.627 0-12-5.373-12-12z"
-          fill={color ? "url(#geminiGrad)" : "currentColor"}
-        />
-      </svg>
-    )
-  }
-
-  if (normalized.includes('cline')) {
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
-        <rect x="3" y="5" width="18" height="14" rx="4" fill={color ? "#3B82F6" : "currentColor"} />
-        <circle cx="8.5" cy="11.5" r="2" fill="#FFFFFF" />
-        <circle cx="15.5" cy="11.5" r="2" fill="#FFFFFF" />
-        <rect x="7" y="15" width="10" height="1.5" rx="0.75" fill="#FFFFFF" />
-        <path d="M12 2v3M9 2h6" stroke={color ? "#3B82F6" : "currentColor"} strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    )
-  }
-
+  // 7. Roo Code (Official Kangaroo in Amber/Orange - #F59E0B)
   if (normalized.includes('roo')) {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -112,29 +131,75 @@ export function AIToolLogo({
     )
   }
 
+  // 8. Cline (Official Coding Robot in Electric Blue - #3B82F6)
+  if (normalized.includes('cline')) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+        <path
+          d="M17.035 3.991c2.75 0 4.98 2.24 4.98 5.003v1.667l1.45 2.896a1.01 1.01 0 01-.002.909l-1.448 2.864v1.668c0 2.762-2.23 5.002-4.98 5.002H7.074c-2.751 0-4.98-2.24-4.98-5.002V17.33l-1.48-2.855a1.01 1.01 0 01-.003-.927l1.482-2.887V8.994c0-2.763 2.23-5.003 4.98-5.003h9.962zM8.265 9.6a2.274 2.274 0 00-2.274 2.274v4.042a2.274 2.274 0 004.547 0v-4.042A2.274 2.274 0 008.265 9.6zm7.326 0a2.274 2.274 0 00-2.274 2.274v4.042a2.274 2.274 0 104.548 0v-4.042A2.274 2.274 0 0015.59 9.6z"
+          fill={color ? "#3B82F6" : "currentColor"}
+        />
+        <path d="M12.054 5.558a2.779 2.779 0 100-5.558 2.779 2.779 0 000 5.558z" fill={color ? "#3B82F6" : "currentColor"} />
+      </svg>
+    )
+  }
+
+  // 9. OpenAI Codex CLI (Official OpenAI Rosette/Spiral in Official OpenAI Green #10A37F or Monochrome)
   if (normalized.includes('codex') || normalized.includes('openai')) {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
         <path
-          d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zM8.307 13.628l2.457-1.417 2.457 1.417v2.834l-2.457 1.417-2.457-1.417v-2.834z"
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z"
           fill={color ? "#10A37F" : "currentColor"}
         />
       </svg>
     )
   }
 
-  if (normalized.includes('copilot')) {
+  // 10. GitHub Copilot (Official GitHub Copilot Gradient Logo)
+  if (normalized.includes('github') || normalized.includes('copilot')) {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
         <path
-          d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.53 1.03 1.53 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"
-          fill={color ? "#238636" : "currentColor"}
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M9 23l.073-.001a2.53 2.53 0 01-2.347-1.838l-.697-2.433a2.529 2.529 0 00-2.426-1.839h-.497l-.104-.002c-4.485 0-2.935-5.278-1.75-9.225l.162-.525C2.412 3.99 3.883 1 6.25 1h8.86c1.12 0 2.106.745 2.422 1.829l.715 2.453a2.53 2.53 0 002.247 1.823l.147.005.534.001c3.557.115 3.088 3.745 2.156 7.206l-.113.413c-.154.548-.315 1.089-.47 1.607l-.163.525C21.588 20.01 20.116 23 17.75 23h-8.75zm8.22-15.89l-3.856.001a2.526 2.526 0 00-2.35 1.615L9.21 15.04a2.529 2.529 0 01-2.43 1.847l3.853.002c1.056 0 1.992-.661 2.361-1.644l1.796-6.287a2.529 2.529 0 012.43-1.848z"
+          fill={color ? "#8957E5" : "currentColor"}
         />
       </svg>
     )
   }
 
-  // Default LobeHub
+  // 11. OpenCode AI CLI (Official opencode.ai Brand Asset)
+  if (normalized.includes('opencode')) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 30" fill="none" className={className}>
+        <path d="M18 24H6V12H18V24Z" fill={color ? "#888888" : "currentColor"} opacity={color ? "0.45" : "1"} />
+        <path
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M18 6H6V24H18V6ZM24 30H0V0H24V30Z"
+          fill={color ? "var(--color-ink, #FFFFFF)" : "currentColor"}
+        />
+      </svg>
+    )
+  }
+
+  // 12. Visual Studio Code
+  if (normalized.includes('vscode') || normalized === 'code' || normalized.includes('vs code')) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+        <path
+          d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.43-3.36a.996.996 0 0 0-1.37.18l-1.02 1.34a.996.996 0 0 0 .18 1.37l3.74 2.84-3.74 2.84a.996.996 0 0 0-.18 1.37l1.02 1.34a.996.996 0 0 0 1.37.18l4.43-3.36 9.46 8.63a1.494 1.494 0 0 0 1.705.29l4.94-2.377A1.5 1.5 0 0 0 24 20.038V3.962a1.5 1.5 0 0 0-.85-1.375zM18 17.5l-6.9-5.5L18 6.5v11z"
+          fill={color ? "#007ACC" : "currentColor"}
+        />
+      </svg>
+    )
+  }
+
+  // Default LobeHub / Universal AI Node
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
       <defs>

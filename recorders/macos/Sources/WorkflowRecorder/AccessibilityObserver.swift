@@ -3,6 +3,43 @@ import ApplicationServices
 import CryptoKit
 import Foundation
 
+private enum AccessibilityObserverError: LocalizedError {
+    case eventTapUnavailable
+    case startupTimedOut
+    case observerReleased
+
+    var errorDescription: String? {
+        switch self {
+        case .eventTapUnavailable:
+            "Unable to create the macOS input event tap. Check Accessibility permission."
+        case .startupTimedOut:
+            "Timed out while starting the macOS input event tap."
+        case .observerReleased:
+            "The macOS input observer was released during startup."
+        }
+    }
+}
+
+private final class ObserverStartSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var startupError: Error?
+
+    func finish(error: Error? = nil) {
+        lock.withLock { startupError = error }
+        semaphore.signal()
+    }
+
+    func wait() throws {
+        guard semaphore.wait(timeout: .now() + 2) == .success else {
+            throw AccessibilityObserverError.startupTimedOut
+        }
+        if let startupError = lock.withLock({ startupError }) {
+            throw startupError
+        }
+    }
+}
+
 final class AccessibilityObserver: @unchecked Sendable {
     private let eventHandler: @Sendable (CaptureEvent) -> Void
     private let lock = NSLock()
@@ -25,19 +62,24 @@ final class AccessibilityObserver: @unchecked Sendable {
         lock.unlock()
     }
 
-    func start(sessionId: String) {
+    func start(sessionId: String) throws {
         stop()
         lock.lock()
         self.sessionId = sessionId
+        lastApplicationId = nil
         lock.unlock()
 
+        let startSignal = ObserverStartSignal()
         let observerThread = Thread { [weak self] in
-            guard let self else { return }
-            let mask = (1 << CGEventType.leftMouseDown.rawValue)
-                | (1 << CGEventType.rightMouseDown.rawValue)
-                | (1 << CGEventType.otherMouseDown.rawValue)
-                | (1 << CGEventType.keyDown.rawValue)
-                | (1 << CGEventType.scrollWheel.rawValue)
+            guard let self else {
+                startSignal.finish(error: AccessibilityObserverError.observerReleased)
+                return
+            }
+            let mask = (CGEventMask(1) << CGEventType.leftMouseDown.rawValue)
+                | (CGEventMask(1) << CGEventType.rightMouseDown.rawValue)
+                | (CGEventMask(1) << CGEventType.otherMouseDown.rawValue)
+                | (CGEventMask(1) << CGEventType.keyDown.rawValue)
+                | (CGEventMask(1) << CGEventType.scrollWheel.rawValue)
 
             guard let tap = CGEvent.tapCreate(
                 tap: .cgSessionEventTap,
@@ -46,21 +88,31 @@ final class AccessibilityObserver: @unchecked Sendable {
                 eventsOfInterest: CGEventMask(mask),
                 callback: AccessibilityObserver.eventTapCallback,
                 userInfo: Unmanaged.passUnretained(self).toOpaque()
-            ) else { return }
+            ) else {
+                startSignal.finish(error: AccessibilityObserverError.eventTapUnavailable)
+                return
+            }
 
             let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
             let currentRunLoop = CFRunLoopGetCurrent()
-            lock.lock()
-            eventTap = tap
-            runLoop = currentRunLoop
-            lock.unlock()
+            self.lock.lock()
+            self.eventTap = tap
+            self.runLoop = currentRunLoop
+            self.lock.unlock()
             CFRunLoopAddSource(currentRunLoop, source, .commonModes)
             CGEvent.tapEnable(tap: tap, enable: true)
+            startSignal.finish()
             CFRunLoopRun()
         }
         observerThread.name = "com.trace.recorder.accessibility"
         thread = observerThread
         observerThread.start()
+        do {
+            try startSignal.wait()
+        } catch {
+            stop()
+            throw error
+        }
     }
 
     func stop() {
@@ -69,6 +121,8 @@ final class AccessibilityObserver: @unchecked Sendable {
         let currentRunLoop = runLoop
         eventTap = nil
         runLoop = nil
+        sessionId = ""
+        lastApplicationId = nil
         lock.unlock()
 
         if let currentTap { CGEvent.tapEnable(tap: currentTap, enable: false) }
@@ -130,7 +184,11 @@ final class AccessibilityObserver: @unchecked Sendable {
                 pointer: Point(x: point.x, y: point.y),
                 keyCode: nil,
                 event: event,
-                target: target
+                target: target,
+                attributes: [
+                    "buttonNumber": String(event.getIntegerValueField(.mouseEventButtonNumber)),
+                    "clickState": String(event.getIntegerValueField(.mouseEventClickState)),
+                ]
             )
         case .keyDown:
             emit(
@@ -141,7 +199,10 @@ final class AccessibilityObserver: @unchecked Sendable {
                 pointer: nil,
                 keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
                 event: event,
-                target: focusedSemanticTarget(for: frontmost?.processIdentifier)
+                target: focusedSemanticTarget(for: frontmost?.processIdentifier),
+                attributes: [
+                    "isRepeat": event.getIntegerValueField(.keyboardEventAutorepeat) == 0 ? "false" : "true",
+                ]
             )
         case .scrollWheel:
             emit(
@@ -152,7 +213,12 @@ final class AccessibilityObserver: @unchecked Sendable {
                 pointer: Point(x: point.x, y: point.y),
                 keyCode: nil,
                 event: event,
-                target: semanticTarget(at: point)
+                target: semanticTarget(at: point),
+                attributes: [
+                    "deltaX": String(event.getIntegerValueField(.scrollWheelEventDeltaAxis2)),
+                    "deltaY": String(event.getIntegerValueField(.scrollWheelEventDeltaAxis1)),
+                    "isContinuous": event.getIntegerValueField(.scrollWheelEventIsContinuous) == 0 ? "false" : "true",
+                ]
             )
         default:
             break
@@ -167,7 +233,8 @@ final class AccessibilityObserver: @unchecked Sendable {
         pointer: Point?,
         keyCode: Int?,
         event: CGEvent,
-        target: SemanticTarget?
+        target: SemanticTarget?,
+        attributes: [String: String] = [:]
     ) {
         eventHandler(CaptureEvent(
             id: UUID().uuidString,
@@ -180,7 +247,7 @@ final class AccessibilityObserver: @unchecked Sendable {
             keyCode: keyCode,
             modifiers: event.flags.rawValue,
             target: target,
-            attributes: [:]
+            attributes: attributes
         ))
     }
 

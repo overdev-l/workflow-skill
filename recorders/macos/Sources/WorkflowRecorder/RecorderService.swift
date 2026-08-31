@@ -78,6 +78,11 @@ final class RecorderService: @unchecked Sendable {
     }
 
     private func start(sessionId requestedSessionId: String?) async {
+        if lock.withLock({ state == .observing }) {
+            sendStatus()
+            return
+        }
+
         let permissions = PermissionCenter.snapshot()
         guard permissions.screenRecording, permissions.accessibility else {
             writer.send("error", payload: RecorderError(
@@ -92,16 +97,18 @@ final class RecorderService: @unchecked Sendable {
         let nextSessionId = requestedSessionId ?? sessionId ?? UUID().uuidString
         do {
             try await screenObserver.start()
-            accessibilityObserver.start(sessionId: nextSessionId)
+            try accessibilityObserver.start(sessionId: nextSessionId)
             lock.withLock {
                 sessionId = nextSessionId
                 state = .observing
             }
             sendStatus()
         } catch {
+            accessibilityObserver.stop()
+            await screenObserver.stop()
             lock.withLock { state = .interrupted }
             writer.send("error", payload: RecorderError(
-                code: "screen_capture_start_failed",
+                code: "capture_start_failed",
                 message: error.localizedDescription,
                 recoverable: true
             ))

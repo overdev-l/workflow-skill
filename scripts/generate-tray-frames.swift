@@ -2,28 +2,50 @@ import AppKit
 import Foundation
 
 struct MotionFrame {
-    let offsetX: CGFloat
-    let offsetY: CGFloat
-    let rotation: CGFloat
+    let amount: CGFloat
 }
 
 let projectRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let resources = projectRoot.appendingPathComponent("apps/desktop/resources")
 let sourceURL = resources.appendingPathComponent("trace-tray-spirit.png")
 let frames = [
-    MotionFrame(offsetX: 0.0, offsetY: -2.8, rotation: 0.0),
-    MotionFrame(offsetX: -1.8, offsetY: 0.8, rotation: -5.2),
-    MotionFrame(offsetX: -2.8, offsetY: 4.6, rotation: -8.5),
-    MotionFrame(offsetX: -1.4, offsetY: 6.5, rotation: -4.8),
-    MotionFrame(offsetX: 0.6, offsetY: 5.2, rotation: 1.8),
-    MotionFrame(offsetX: 2.6, offsetY: 2.5, rotation: 7.8),
-    MotionFrame(offsetX: 2.5, offsetY: -0.4, rotation: 6.2),
-    MotionFrame(offsetX: 1.0, offsetY: -2.2, rotation: 2.0),
+    MotionFrame(amount: 0.0),
+    MotionFrame(amount: 0.7),
+    MotionFrame(amount: 1.0),
+    MotionFrame(amount: 0.7),
+    MotionFrame(amount: 0.0),
+    MotionFrame(amount: -0.7),
+    MotionFrame(amount: -1.0),
+    MotionFrame(amount: -0.7),
 ]
 
-guard let source = NSImage(contentsOf: sourceURL) else {
-    fputs("Unable to load \(sourceURL.path)\n", stderr)
+guard
+    let sourceData = try? Data(contentsOf: sourceURL),
+    let sourceBitmap = NSBitmapImageRep(data: sourceData)
+else {
+    fputs("Unable to decode \(sourceURL.path)\n", stderr)
     exit(1)
+}
+
+func smoothstep(_ value: CGFloat) -> CGFloat {
+    let t = min(1, max(0, value))
+    return t * t * (3 - 2 * t)
+}
+
+func sampleSource(x: Int, y: CGFloat) -> NSColor {
+    let clampedY = min(CGFloat(sourceBitmap.pixelsHigh - 1), max(0, y))
+    let y0 = Int(floor(clampedY))
+    let y1 = min(sourceBitmap.pixelsHigh - 1, y0 + 1)
+    let fraction = clampedY - CGFloat(y0)
+    let first = sourceBitmap.colorAt(x: x, y: y0)?.usingColorSpace(.deviceRGB) ?? .clear
+    let second = sourceBitmap.colorAt(x: x, y: y1)?.usingColorSpace(.deviceRGB) ?? .clear
+
+    return NSColor(
+        deviceRed: first.redComponent + (second.redComponent - first.redComponent) * fraction,
+        green: first.greenComponent + (second.greenComponent - first.greenComponent) * fraction,
+        blue: first.blueComponent + (second.blueComponent - first.blueComponent) * fraction,
+        alpha: first.alphaComponent + (second.alphaComponent - first.alphaComponent) * fraction
+    )
 }
 
 for (index, frame) in frames.enumerated() {
@@ -36,6 +58,7 @@ for (index, frame) in frames.enumerated() {
         hasAlpha: true,
         isPlanar: false,
         colorSpaceName: .deviceRGB,
+        bitmapFormat: .alphaNonpremultiplied,
         bytesPerRow: 0,
         bitsPerPixel: 0
     ) else {
@@ -44,23 +67,21 @@ for (index, frame) in frames.enumerated() {
     }
 
     bitmap.size = NSSize(width: 64, height: 64)
-    NSGraphicsContext.saveGraphicsState()
-    guard let graphics = NSGraphicsContext(bitmapImageRep: bitmap) else {
-        fputs("Unable to create graphics context for frame \(index)\n", stderr)
-        exit(1)
+
+    for y in 0..<bitmap.pixelsHigh {
+        for x in 0..<bitmap.pixelsWide {
+            // Keep the head, face and arms pixel-identical across every frame.
+            // The deformation fades in below y=39 and reaches its maximum only
+            // at the skirt edge, so the icon never bobs or rotates as a whole.
+            let verticalWeight = smoothstep((CGFloat(y) - 39) / 17)
+            let horizontalWeight = smoothstep((CGFloat(x) - 15) / 5)
+                * smoothstep((51 - CGFloat(x)) / 5)
+            let skirtWave = sin((CGFloat(x) - 10) / 44 * .pi * 2)
+            let displacement = frame.amount * 3.2 * skirtWave
+                * verticalWeight * horizontalWeight
+            bitmap.setColor(sampleSource(x: x, y: CGFloat(y) - displacement), atX: x, y: y)
+        }
     }
-    NSGraphicsContext.current = graphics
-    graphics.cgContext.clear(CGRect(x: 0, y: 0, width: 64, height: 64))
-    graphics.imageInterpolation = .high
-    graphics.cgContext.translateBy(x: 32 + frame.offsetX, y: 32 + frame.offsetY)
-    graphics.cgContext.rotate(by: frame.rotation * .pi / 180)
-    source.draw(
-        in: NSRect(x: -27, y: -27, width: 54, height: 54),
-        from: NSRect(origin: .zero, size: source.size),
-        operation: NSCompositingOperation.sourceOver,
-        fraction: 1
-    )
-    NSGraphicsContext.restoreGraphicsState()
 
     guard let png = bitmap.representation(using: .png, properties: [:]) else {
         fputs("Unable to encode frame \(index)\n", stderr)

@@ -7,12 +7,14 @@ import {
   Files,
   FolderOpen,
   GitBranch,
+  Globe2,
   Layers,
   Mail,
   Terminal,
   Zap,
 } from 'lucide-react'
 import type { Workflow, WorkflowNode } from '@workflow-skill/workflow-model'
+import { useI18n } from '../i18n'
 
 interface WorkflowGraphProps {
   workflow: Workflow
@@ -40,6 +42,7 @@ const appIcons: Record<string, typeof Files> = {
 function getNodeIcon(node: WorkflowNode) {
   if (node.id === 'done') return Check
   if (node.kind === 'wait') return Clock3
+  if (node.kind === 'http') return Globe2
   if (node.app) {
     const key = node.app.toLowerCase()
     if (appIcons[key]) return appIcons[key]
@@ -74,6 +77,8 @@ export function WorkflowGraph({
   selectedNodeId: controlledSelectedId,
   onNodeSelect,
 }: WorkflowGraphProps) {
+  const { resolvedLocale } = useI18n()
+  const isZh = resolvedLocale === 'zh-CN'
   const graphLabelId = useId()
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null)
 
@@ -81,8 +86,8 @@ export function WorkflowGraph({
 
   // Topological Column Assignment & Smooth Spline Calculation
   const layout = useMemo(() => {
-    const nodes = workflow.nodes
-    const edges = workflow.edges
+    const nodes = workflow?.nodes || []
+    const edges = workflow?.edges || []
 
     const inDegree: Record<string, number> = {}
     const outgoing: Record<string, string[]> = {}
@@ -205,7 +210,7 @@ export function WorkflowGraph({
 
   if (compact) {
     return (
-      <div className="flow-mini-spark" aria-label={`${workflow.name} 步骤简图`}>
+      <div className="flow-mini-spark" aria-label={`${workflow.name} ${isZh ? '步骤简图' : 'step preview'}`}>
         {workflow.nodes.slice(0, 5).map((node, i) => (
           <span
             key={node.id}
@@ -223,7 +228,7 @@ export function WorkflowGraph({
   return (
     <section className="flow-graph-container" aria-labelledby={graphLabelId}>
       <h3 id={graphLabelId} className="sr-only">
-        {workflow.name} 完整工作流拓扑
+        {workflow.name} {isZh ? '完整工作流拓扑' : 'complete workflow graph'}
       </h3>
 
       <div className="flow-graph__scroll">

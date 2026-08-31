@@ -1,10 +1,20 @@
 export type WorkflowNodeKind =
   | 'action'
+  | 'http'
   | 'wait'
   | 'parallel-split'
   | 'parallel-join'
   | 'branch'
   | 'loop'
+
+export interface HttpRequestTemplate {
+  method: string
+  url: string
+  headers: Record<string, string>
+  body?: string
+  resourceType?: string
+  expectedStatus?: number
+}
 
 export interface WorkflowNode {
   id: string
@@ -13,11 +23,34 @@ export interface WorkflowNode {
   kind: WorkflowNodeKind
   app?: string
   confidence: number
+  http?: HttpRequestTemplate
 }
 
 export interface WorkflowEdge {
   from: string
   to: string
+}
+
+export type CaptureWorkflowState = 'recording' | 'paused' | 'completed' | 'interrupted'
+
+export interface CaptureWorkflowMetadata {
+  sessionIds: string[]
+  startedAt: string
+  updatedAt: string
+  eventCount: number
+  state: CaptureWorkflowState
+  scenario?: 'desktop' | 'browser'
+}
+
+export interface RepositorySkillSummary {
+  name: string
+  description: string
+}
+
+export interface RepositorySkillSearchResult {
+  repository: string
+  sourceUrl: string
+  skills: RepositorySkillSummary[]
 }
 
 export interface Workflow {
@@ -29,6 +62,7 @@ export interface Workflow {
   confidence: number
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
+  capture?: CaptureWorkflowMetadata
 }
 
 export type AIToolCategory = 'all' | 'ide' | 'cli' | 'extension' | 'standard'
@@ -43,6 +77,7 @@ export interface AIToolTarget {
   id: string
   name: string
   category: 'ide' | 'cli' | 'extension' | 'standard'
+  scope?: 'global' | 'project'
   defaultDir: string
   customDir?: string
   installed?: boolean
@@ -50,16 +85,28 @@ export interface AIToolTarget {
   iconName: string
   description?: string
   compatibleTools?: AssociatedAITool[]
+  itemCount?: number
+}
+
+export interface AIProjectItem {
+  id: string
+  name: string
+  path: string
+  sources: string[]
+  skillDir: string
+  lastOpenedAt: number
 }
 
 export const DEFAULT_AI_TOOLS: AIToolTarget[] = [
+  // --- Global Environments ---
   {
-    id: 'agents-std',
-    name: '.agents 通用目录环境',
+    id: 'agents-global',
+    name: '.agents 全局通用环境',
     category: 'standard',
+    scope: 'global',
     defaultDir: '.agents/skills',
     iconName: 'FolderTree',
-    description: 'skills.sh 跨工具通用开放规范，多个主流 AI Agent 原生共用此目录',
+    description: 'skills.sh 全局开放标准目录，Antigravity、Gemini CLI、OpenCode、LobeHub 原生共用',
     compatibleTools: [
       { id: 'antigravity', name: 'Google Antigravity', logoId: 'antigravity' },
       { id: 'gemini', name: 'Gemini CLI', logoId: 'gemini' },
@@ -68,93 +115,264 @@ export const DEFAULT_AI_TOOLS: AIToolTarget[] = [
     ],
   },
   {
-    id: 'claude-code',
-    name: '.claude 技能目录环境',
+    id: 'claude-global',
+    name: '.claude 全局技能环境',
     category: 'cli',
+    scope: 'global',
     defaultDir: '.claude/skills',
     iconName: 'Zap',
-    description: 'Anthropic Claude Code CLI 终端编程 Agent 专用技能目录',
+    description: 'Anthropic Claude Code 全局终端编程 Agent 技能目录 (~/.claude/skills)',
     compatibleTools: [
       { id: 'claude-code', name: 'Claude Code', logoId: 'claude' },
       { id: 'claude-cli', name: 'Claude CLI', logoId: 'claude' },
     ],
   },
   {
-    id: 'cursor',
-    name: '.cursor 技能目录环境',
+    id: 'cursor-global',
+    name: '.cursor 全局技能环境',
     category: 'ide',
+    scope: 'global',
     defaultDir: '.cursor/skills',
     iconName: 'Terminal',
-    description: 'Cursor AI 智能编程编辑器技能与规则配置目录',
+    description: 'Cursor IDE 全局智能编程编辑器技能与规则目录 (~/.cursor/skills)',
     compatibleTools: [
       { id: 'cursor', name: 'Cursor IDE', logoId: 'cursor' },
     ],
   },
   {
-    id: 'windsurf',
-    name: '.windsurf 技能目录环境',
-    category: 'ide',
-    defaultDir: '.windsurf/skills',
-    iconName: 'Monitor',
-    description: 'Codeium Windsurf AI 原生 IDE 技能配置目录',
+    id: 'github-global',
+    name: '.github 全局技能环境',
+    category: 'extension',
+    scope: 'global',
+    defaultDir: '.github/skills',
+    iconName: 'FolderTree',
+    description: 'GitHub Copilot 全局 Agent 技能扩展目录 (~/.github/skills)',
     compatibleTools: [
-      { id: 'windsurf', name: 'Windsurf IDE', logoId: 'windsurf' },
+      { id: 'github-copilot', name: 'GitHub Copilot', logoId: 'copilot' },
     ],
   },
   {
-    id: 'trae',
-    name: '.trae 技能目录环境',
+    id: 'gemini-global',
+    name: '.gemini 全局技能环境',
+    category: 'standard',
+    scope: 'global',
+    defaultDir: '.gemini/antigravity/skills',
+    iconName: 'FolderTree',
+    description: 'Google Antigravity & Gemini 全局 Agent 技能目录 (~/.gemini/antigravity/skills)',
+    compatibleTools: [
+      { id: 'antigravity', name: 'Google Antigravity', logoId: 'antigravity' },
+      { id: 'gemini', name: 'Gemini Agent', logoId: 'gemini' },
+    ],
+  },
+  {
+    id: 'trae-global',
+    name: '.trae 全局技能环境',
     category: 'ide',
+    scope: 'global',
     defaultDir: '.trae/skills',
     iconName: 'Monitor',
-    description: 'ByteDance Trae AI 自适应集成开发环境技能目录',
+    description: 'ByteDance Trae AI 自适应集成开发环境全局技能目录 (~/.trae/skills)',
     compatibleTools: [
       { id: 'trae', name: 'Trae IDE', logoId: 'trae' },
     ],
   },
   {
-    id: 'cline',
-    name: '.cline 技能目录环境',
+    id: 'roo-global',
+    name: '.roo 全局技能环境',
     category: 'extension',
-    defaultDir: '.cline/skills',
-    iconName: 'Boxes',
-    description: 'Cline VS Code 自主编码 Agent 插件技能目录',
-    compatibleTools: [
-      { id: 'cline', name: 'Cline Extension', logoId: 'cline' },
-    ],
-  },
-  {
-    id: 'roo',
-    name: '.roo 技能目录环境',
-    category: 'extension',
+    scope: 'global',
     defaultDir: '.roo/skills',
     iconName: 'Boxes',
-    description: 'Roo Code 多模式 AI 架构与任务插件技能目录',
+    description: 'Roo Code 多模式 AI 架构与任务插件全局技能目录 (~/.roo/skills)',
     compatibleTools: [
       { id: 'roo', name: 'Roo Code', logoId: 'roo' },
     ],
   },
   {
-    id: 'codex',
-    name: '.codex 技能目录环境',
+    id: 'cline-global',
+    name: '.cline 全局技能环境',
+    category: 'extension',
+    scope: 'global',
+    defaultDir: '.cline/skills',
+    iconName: 'Boxes',
+    description: 'Cline VS Code 自主编码 Agent 插件全局技能目录 (~/.cline/skills)',
+    compatibleTools: [
+      { id: 'cline', name: 'Cline Extension', logoId: 'cline' },
+    ],
+  },
+  {
+    id: 'codex-global',
+    name: '.codex 全局技能环境',
     category: 'cli',
+    scope: 'global',
     defaultDir: '.codex/skills',
     iconName: 'Zap',
-    description: 'OpenAI Codex 命令行代码生成工具技能目录',
+    description: 'OpenAI Codex 命令行代码生成工具全局技能目录 (~/.codex/skills)',
     compatibleTools: [
       { id: 'codex', name: 'Codex CLI', logoId: 'codex' },
       { id: 'openai', name: 'OpenAI Agent', logoId: 'openai' },
     ],
   },
   {
-    id: 'copilot',
-    name: '.github 技能目录环境',
+    id: 'opencode-global',
+    name: '.config/opencode 全局环境',
+    category: 'cli',
+    scope: 'global',
+    defaultDir: '.config/opencode/skills',
+    iconName: 'FolderTree',
+    description: 'OpenCode Agent CLI 全局配置技能目录 (~/.config/opencode/skills)',
+    compatibleTools: [
+      { id: 'opencode', name: 'OpenCode CLI', logoId: 'opencode' },
+    ],
+  },
+  {
+    id: 'windsurf-global',
+    name: '.windsurf 全局技能环境',
+    category: 'ide',
+    scope: 'global',
+    defaultDir: '.windsurf/skills',
+    iconName: 'Monitor',
+    description: 'Codeium Windsurf AI 原生 IDE 全局技能配置目录 (~/.windsurf/skills)',
+    compatibleTools: [
+      { id: 'windsurf', name: 'Windsurf IDE', logoId: 'windsurf' },
+    ],
+  },
+
+  // --- Project Workspace Environments ---
+  {
+    id: 'agents-project',
+    name: '.agents 项目工作区环境',
+    category: 'standard',
+    scope: 'project',
+    defaultDir: '.agents/skills',
+    iconName: 'FolderTree',
+    description: '当前项目仓库内 .agents/skills 通用工作区技能目录',
+    compatibleTools: [
+      { id: 'antigravity', name: 'Google Antigravity', logoId: 'antigravity' },
+      { id: 'opencode', name: 'OpenCode', logoId: 'opencode' },
+      { id: 'lobehub', name: 'LobeHub', logoId: 'lobehub' },
+    ],
+  },
+  {
+    id: 'claude-project',
+    name: '.claude 项目工作区环境',
+    category: 'cli',
+    scope: 'project',
+    defaultDir: '.claude/skills',
+    iconName: 'Zap',
+    description: '当前项目仓库内 .claude/skills 专用项目级技能目录',
+    compatibleTools: [
+      { id: 'claude-code', name: 'Claude Code', logoId: 'claude' },
+    ],
+  },
+  {
+    id: 'cursor-project',
+    name: '.cursor 项目工作区环境',
+    category: 'ide',
+    scope: 'project',
+    defaultDir: '.cursor/skills',
+    iconName: 'Terminal',
+    description: '当前项目仓库内 .cursor/skills 专用项目级技能目录',
+    compatibleTools: [
+      { id: 'cursor', name: 'Cursor IDE', logoId: 'cursor' },
+    ],
+  },
+  {
+    id: 'github-project',
+    name: '.github 项目技能环境',
     category: 'extension',
+    scope: 'project',
     defaultDir: '.github/skills',
     iconName: 'FolderTree',
-    description: 'GitHub Copilot 扩展技能配置目录',
+    description: '当前项目仓库内 .github/skills 扩展技能配置目录',
     compatibleTools: [
       { id: 'github-copilot', name: 'GitHub Copilot', logoId: 'copilot' },
+    ],
+  },
+  {
+    id: 'trae-project',
+    name: '.trae 项目工作区环境',
+    category: 'ide',
+    scope: 'project',
+    defaultDir: '.trae/skills',
+    iconName: 'Monitor',
+    description: '当前项目仓库内 .trae/skills 专用项目级技能目录',
+    compatibleTools: [
+      { id: 'trae', name: 'Trae IDE', logoId: 'trae' },
+    ],
+  },
+  {
+    id: 'gemini-project',
+    name: '.gemini 项目工作区环境',
+    category: 'standard',
+    scope: 'project',
+    defaultDir: '.gemini/skills',
+    iconName: 'FolderTree',
+    description: '当前项目仓库内 .gemini/skills 技能目录',
+    compatibleTools: [
+      { id: 'gemini', name: 'Gemini CLI', logoId: 'gemini' },
+      { id: 'antigravity', name: 'Google Antigravity', logoId: 'antigravity' },
+    ],
+  },
+  {
+    id: 'windsurf-project',
+    name: '.windsurf 项目工作区环境',
+    category: 'ide',
+    scope: 'project',
+    defaultDir: '.windsurf/skills',
+    iconName: 'Monitor',
+    description: '当前项目仓库内 .windsurf/skills 专用项目级技能目录',
+    compatibleTools: [
+      { id: 'windsurf', name: 'Windsurf IDE', logoId: 'windsurf' },
+    ],
+  },
+  {
+    id: 'codex-project',
+    name: '.codex 项目工作区环境',
+    category: 'cli',
+    scope: 'project',
+    defaultDir: '.codex/skills',
+    iconName: 'Zap',
+    description: '当前项目仓库内 .codex/skills 专用项目级技能目录',
+    compatibleTools: [
+      { id: 'codex', name: 'Codex CLI', logoId: 'codex' },
+      { id: 'openai', name: 'OpenAI Agent', logoId: 'openai' },
+    ],
+  },
+  {
+    id: 'opencode-project',
+    name: '.opencode 项目工作区环境',
+    category: 'cli',
+    scope: 'project',
+    defaultDir: '.opencode/skills',
+    iconName: 'FolderTree',
+    description: '当前项目仓库内 .opencode/skills 专用项目级技能目录',
+    compatibleTools: [
+      { id: 'opencode', name: 'OpenCode CLI', logoId: 'opencode' },
+    ],
+  },
+  {
+    id: 'roo-project',
+    name: '.roo 项目工作区环境',
+    category: 'extension',
+    scope: 'project',
+    defaultDir: '.roo/skills',
+    iconName: 'Boxes',
+    description: '当前项目仓库内 .roo/skills 专用项目级技能目录',
+    compatibleTools: [
+      { id: 'roo', name: 'Roo Code', logoId: 'roo' },
+    ],
+  },
+  {
+    id: 'cline-project',
+    name: '.cline 项目工作区环境',
+    category: 'extension',
+    scope: 'project',
+    defaultDir: '.cline/skills',
+    iconName: 'Boxes',
+    description: '当前项目仓库内 .cline/skills 专用项目级技能目录',
+    compatibleTools: [
+      { id: 'cline', name: 'Cline Extension', logoId: 'cline' },
     ],
   },
 ]
@@ -170,11 +388,14 @@ export interface Skill {
   versions: number
   workflow: Workflow
   targetTools?: string[]
+  targetProjects?: string[]
   tags?: string[]
   triggers?: string[]
   skillMarkdown?: string
   skillPath?: string
 }
+
+export type DeleteSkillMode = 'trash' | 'permanent'
 
 export const reportWorkflow: Workflow = {
   id: 'weekly-report',
@@ -363,3 +584,140 @@ version: 4.0.0
   },
 ]
 
+export interface RemoteSkill {
+  id: string
+  name: string
+  description: string
+  author: string
+  stars: number
+  downloads: string
+  verified: boolean
+  tags: string[]
+  recommendedTools: string[]
+  skillMarkdown: string
+}
+
+export const communityRemoteSkills: RemoteSkill[] = [
+  {
+    id: 'nextjs-app-router-best-practices',
+    name: 'Next.js 15 App Router 最佳实践规范',
+    description: '指导 AI Agent 生成符合 Next.js 15 App Router、Server Actions、React Server Components 标准的架构代码。',
+    author: 'vercel/community',
+    stars: 1420,
+    downloads: '28.5k',
+    verified: true,
+    tags: ['nextjs', 'react', 'typescript', 'frontend'],
+    recommendedTools: ['agents-std', 'claude-code', 'cursor'],
+    skillMarkdown: `---
+name: nextjs-app-router-best-practices
+description: Next.js 15 App Router & Server Components coding standards
+tags: [nextjs, react, frontend]
+---
+
+# Next.js App Router Best Practices
+
+## Guidelines
+1. Always prefer Server Components unless client state (useState/useEffect/event listeners) is strictly needed.
+2. Place Server Actions in dedicated \`actions/\` folders with \`'use server'\`.
+3. Use Next.js dynamic routing convention: \`app/[slug]/page.tsx\`.
+4. Ensure proper loading and error boundaries (\`loading.tsx\`, \`error.tsx\`).
+`,
+  },
+  {
+    id: 'supabase-postgres-expert',
+    name: 'Supabase Postgres 数据库优化规范',
+    description: 'PostgreSQL 架构设计、RLS 行级安全策略编写、索引性能优化及高并发连接池配置最佳实践。',
+    author: 'supabase/official',
+    stars: 2180,
+    downloads: '42.1k',
+    verified: true,
+    tags: ['supabase', 'postgres', 'database', 'sql'],
+    recommendedTools: ['antigravity', 'claude-code', 'windsurf'],
+    skillMarkdown: `---
+name: supabase-postgres-expert
+description: Postgres performance optimization, RLS policies, and schema design from Supabase
+tags: [postgres, supabase, sql]
+---
+
+# Supabase Postgres Expert Skill
+
+## Guidelines
+1. Always enable RLS (Row Level Security) on all tables with sensible policies.
+2. Add foreign key indexes to prevent table locking during joins and updates.
+3. Optimize queries with EXPLAIN ANALYZE before deploying production migrations.
+`,
+  },
+  {
+    id: 'git-conventional-commits-flow',
+    name: 'Git 语义化提交与分支工作流规范',
+    description: '自动遵循 Conventional Commits 标准解析 Diff，生成符合标准的 feat/fix/refactor/chore 提交信息并管理分支。',
+    author: 'antigravity-hub',
+    stars: 980,
+    downloads: '19.4k',
+    verified: true,
+    tags: ['git', 'workflow', 'ci-cd'],
+    recommendedTools: ['agents-std', 'claude-code', 'cursor', 'trae'],
+    skillMarkdown: `---
+name: git-conventional-commits-flow
+description: Enforce semantic conventional commits and branch flows
+tags: [git, workflow, commits]
+---
+
+# Git Conventional Commits Skill
+
+## Commit Structure
+- \`feat(scope): ...\` for new features
+- \`fix(scope): ...\` for bug fixes
+- \`refactor(scope): ...\` for code cleanups without behavior changes
+- \`chore(scope): ...\` for build scripts / dependency updates
+`,
+  },
+  {
+    id: 'docker-compose-production-deploy',
+    name: 'Docker 生产级多容器编排技能',
+    description: '多阶段构建 Dockerfile 瘦身、无特权非 root 用户执行、Docker Compose 健康检查与持久化卷治理。',
+    author: 'docker/community',
+    stars: 870,
+    downloads: '15.2k',
+    verified: true,
+    tags: ['docker', 'devops', 'deployment'],
+    recommendedTools: ['agents-std', 'claude-code', 'roo'],
+    skillMarkdown: `---
+name: docker-compose-production-deploy
+description: Hardened multi-stage Docker builds and Docker Compose recipes
+tags: [docker, devops, deploy]
+---
+
+# Docker Production Deploy Skill
+
+## Rules
+1. Multi-stage builds: build stage with full SDK, runtime stage with minimal alpine/distroless.
+2. Never run containers as root: declare \`USER nonroot:nonroot\`.
+3. Include healthcheck endpoints in docker-compose.yml.
+`,
+  },
+  {
+    id: 'tailwind-v4-design-system',
+    name: 'Tailwind CSS v4 现代原子化设计规范',
+    description: '针对 Tailwind CSS v4 CSS-first 配置、OKLCH 色彩空间、动态变体与现代玻璃态组件的 Prompt 规范与代码生成。',
+    author: 'tailwindlabs/community',
+    stars: 1650,
+    downloads: '31.8k',
+    verified: true,
+    tags: ['tailwind', 'css', 'design-system', 'ui'],
+    recommendedTools: ['cursor', 'windsurf', 'trae'],
+    skillMarkdown: `---
+name: tailwind-v4-design-system
+description: Modern Tailwind CSS v4 design tokens and glassy component generator
+tags: [tailwind, css, ui]
+---
+
+# Tailwind CSS v4 Design System
+
+## Instructions
+1. Use \`@theme\` block in main CSS file instead of tailwind.config.js.
+2. Utilize modern \`oklch()\` color definitions for high dynamic range fidelity.
+3. Combine utility classes with CSS variables for dynamic light/dark theming.
+`,
+  },
+]

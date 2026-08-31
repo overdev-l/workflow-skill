@@ -1,15 +1,30 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 import {
   Activity,
   AlertTriangle,
+  AppWindow,
   Archive,
+  ArrowDown,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   Bookmark,
   BookOpen,
   Boxes,
   Check,
+  CheckCheck,
   CheckCircle2,
+  CircleDot,
+  ChevronDown,
   ChevronRight,
   Clock3,
   Code,
@@ -28,11 +43,15 @@ import {
   Globe,
   Grid,
   Info,
+  Keyboard,
   Languages,
   Link2,
+  ListTree,
   Mail,
   Monitor,
+  MousePointer2,
   Moon,
+  MoveVertical,
   MoreHorizontal,
   Pause,
   Pencil,
@@ -40,11 +59,13 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Save,
   Search,
   Settings,
   ShieldCheck,
   Sliders,
   Sparkles,
+  Star,
   Sun,
   Terminal,
   Trash2,
@@ -54,15 +75,23 @@ import {
   Zap,
 } from 'lucide-react'
 import {
+  communityRemoteSkills,
   DEFAULT_AI_TOOLS,
   demoSkills,
+  type AIProjectItem,
   type AIToolCategory,
   type AIToolTarget,
+  type DeleteSkillMode,
+  type RemoteSkill,
+  type RepositorySkillSearchResult,
+  type RepositorySkillSummary,
   type Skill,
   type Workflow,
   type WorkflowNode,
 } from '@workflow-skill/workflow-model'
 import type {
+  BrowserCaptureEnvelope,
+  BrowserCaptureStatus,
   CaptureEvent,
   RecorderEnvelope,
   RecorderStatus,
@@ -174,11 +203,6 @@ function AppSidebar({
       ) : (
         /* Standard App Navigation Mode */
         <div className="app-sidebar-mode view-enter">
-          {/* Brand Header */}
-          <div className="sidebar-brand">
-            <span className="brand-name">{t.brand.name}</span>
-          </div>
-
           {/* Main Navigation Capsule Views: Skill, Workflow, AI Environments */}
           <nav className="sidebar-nav-list">
             <button
@@ -509,55 +533,152 @@ function SafeDeleteSkillModal({
   aiTools: AIToolTarget[]
   open: boolean
   onClose: () => void
-  onConfirm: (skill: Skill) => void
+  onConfirm: (skill: Skill, mode: DeleteSkillMode) => void | Promise<void>
 }) {
   const { t } = useI18n()
+  const [deleting, setDeleting] = useState(false)
+  const [deleteMode, setDeleteMode] = useState<DeleteSkillMode>('trash')
+  const deletingRef = useRef(false)
+  const cancelButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    deletingRef.current = false
+    setDeleting(false)
+    setDeleteMode('trash')
+    const focusTimer = window.setTimeout(() => cancelButtonRef.current?.focus(), 40)
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !deletingRef.current) onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.clearTimeout(focusTimer)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
   if (!open || !skill) return null
 
   const linkedTools = aiTools.filter((tool) => skill.targetTools?.includes(tool.id))
 
+  const handleConfirm = async () => {
+    if (deleting) return
+    deletingRef.current = true
+    setDeleting(true)
+    try {
+      await onConfirm(skill, deleteMode)
+      onClose()
+    } catch {
+      deletingRef.current = false
+      setDeleting(false)
+    }
+  }
+
   return (
-    <div className="glass-modal-overlay view-enter" onClick={onClose}>
-      <div className="glass-dialog-box safe-delete-dialog" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="modal-glass-backdrop safe-delete-backdrop view-enter"
+      onMouseDown={() => {
+        if (!deleting) onClose()
+      }}
+    >
+      <div
+        className="glass-dialog-box safe-delete-dialog modal-pop"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="safe-delete-title"
+        aria-describedby="safe-delete-description"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="safe-delete-header">
-          <div className="danger-icon-badge">
-            <AlertTriangle size={20} />
+          <div className={`danger-icon-badge ${deleteMode === 'permanent' ? 'is-critical' : 'is-recoverable'}`}>
+            {deleteMode === 'trash' ? <Archive size={18} /> : <AlertTriangle size={20} />}
           </div>
-          <div>
-            <h3 className="glass-dialog-title">{t.skills.safeDeleteConfirmTitle}</h3>
-            <p className="glass-dialog-desc">{t.skills.safeDeleteConfirmDesc(skill.name, linkedTools.length)}</p>
+          <div className="safe-delete-heading-copy">
+            <h2 id="safe-delete-title">{t.skills.safeDeleteConfirmTitle}</h2>
+            <p id="safe-delete-description">{t.skills.safeDeleteConfirmDesc(skill.name, linkedTools.length)}</p>
           </div>
         </div>
+
+        <fieldset className="safe-delete-mode-fieldset" disabled={deleting}>
+          <legend>{t.skills.safeDeleteModeLabel}</legend>
+          <div className="safe-delete-mode-options">
+            <label className={`safe-delete-mode-option ${deleteMode === 'trash' ? 'is-selected' : ''}`}>
+              <input
+                type="radio"
+                name="delete-skill-mode"
+                value="trash"
+                checked={deleteMode === 'trash'}
+                onChange={() => setDeleteMode('trash')}
+              />
+              <Archive size={15} aria-hidden="true" />
+              <span>
+                <strong>{t.skills.safeDeleteTrashTitle}</strong>
+                <small>{t.skills.safeDeleteTrashDesc}</small>
+              </span>
+            </label>
+            <label className={`safe-delete-mode-option is-permanent ${deleteMode === 'permanent' ? 'is-selected' : ''}`}>
+              <input
+                type="radio"
+                name="delete-skill-mode"
+                value="permanent"
+                checked={deleteMode === 'permanent'}
+                onChange={() => setDeleteMode('permanent')}
+              />
+              <Trash2 size={15} aria-hidden="true" />
+              <span>
+                <strong>{t.skills.safeDeletePermanentTitle}</strong>
+                <small>{t.skills.safeDeletePermanentDesc}</small>
+              </span>
+            </label>
+          </div>
+        </fieldset>
 
         {linkedTools.length > 0 ? (
           <div className="safe-delete-targets-list">
             <span className="safe-delete-targets-label">{t.skills.safeDeleteLinkedNotice}</span>
-            <div className="safe-delete-targets-grid">
+            <ul className="safe-delete-targets-grid">
               {linkedTools.map((tool) => (
-                <div key={tool.id} className="safe-delete-target-row font-mono">
-                  <AIToolLogo toolId={tool.id} size={15} color />
-                  <span className="target-name">{tool.name}</span>
-                  <span className="target-path">({tool.detectedPath || tool.defaultDir}/{skill.id})</span>
-                </div>
+                <li key={tool.id} className="safe-delete-target-row">
+                  <span className="safe-delete-target-icon" aria-hidden="true">
+                    <AIToolLogo toolId={tool.id} size={15} color />
+                  </span>
+                  <span className="safe-delete-target-copy">
+                    <strong className="target-name">{tool.name}</strong>
+                    <span
+                      className="target-path font-mono"
+                      title={`${tool.detectedPath || tool.defaultDir}/${skill.id}`}
+                    >
+                      {tool.detectedPath || tool.defaultDir}/{skill.id}
+                    </span>
+                  </span>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         ) : null}
 
-        <div className="glass-dialog-actions">
-          <button type="button" className="btn btn--secondary btn--capsule" onClick={onClose}>
+        <div className="safe-delete-actions">
+          <button
+            ref={cancelButtonRef}
+            type="button"
+            className="btn btn--secondary btn--capsule"
+            onClick={onClose}
+            disabled={deleting}
+          >
             {t.skills.cancelBtn}
           </button>
           <button
             type="button"
-            className="btn btn--danger btn--capsule"
-            onClick={() => {
-              onConfirm(skill)
-              onClose()
-            }}
+            className={`btn ${deleteMode === 'permanent' ? 'btn--danger' : 'btn--primary'} btn--capsule`}
+            onClick={() => void handleConfirm()}
+            disabled={deleting}
           >
-            <Trash2 size={13} />
-            <span>{t.skills.confirmDeleteBtn}</span>
+            {deleteMode === 'trash' ? <Archive size={13} /> : <Trash2 size={13} />}
+            <span>
+              {deleting
+                ? deleteMode === 'trash' ? t.skills.movingToTrashBtn : t.skills.deletingBtn
+                : deleteMode === 'trash' ? t.skills.moveToTrashBtn : t.skills.confirmDeleteBtn}
+            </span>
           </button>
         </div>
       </div>
@@ -565,1031 +686,2296 @@ function SafeDeleteSkillModal({
   )
 }
 
-function SkillDetailDrawer({
+interface AIEnvGroup {
+  key: string
+  name: string
+  logoId: string
+  tools: AIToolTarget[]
+}
+
+const AI_ENVIRONMENT_FAMILIES = [
+  { key: 'agents', name: 'agents', match: (t: AIToolTarget) => t.id.includes('agents') },
+  { key: 'claude', name: 'Claude Code', match: (t: AIToolTarget) => t.id.includes('claude') },
+  { key: 'cursor', name: 'Cursor', match: (t: AIToolTarget) => t.id.includes('cursor') },
+  { key: 'gemini', name: 'Antigravity', match: (t: AIToolTarget) => t.id.includes('gemini') || t.id.includes('antigravity') },
+  { key: 'trae', name: 'Trae', match: (t: AIToolTarget) => t.id.includes('trae') },
+  { key: 'windsurf', name: 'Windsurf', match: (t: AIToolTarget) => t.id.includes('windsurf') },
+  { key: 'roo', name: 'Roo Code', match: (t: AIToolTarget) => t.id.includes('roo') },
+  { key: 'cline', name: 'Cline', match: (t: AIToolTarget) => t.id.includes('cline') },
+  { key: 'codex', name: 'Codex', match: (t: AIToolTarget) => t.id.includes('codex') || t.id.includes('openai') },
+  { key: 'opencode', name: 'OpenCode', match: (t: AIToolTarget) => t.id.includes('opencode') },
+  { key: 'github', name: 'GitHub Copilot', match: (t: AIToolTarget) => t.id.includes('github') || t.id.includes('copilot') },
+]
+
+function groupAIToolsByEnvironment(tools: AIToolTarget[]): AIEnvGroup[] {
+  const groups: AIEnvGroup[] = []
+  const used = new Set<string>()
+
+  for (const fam of AI_ENVIRONMENT_FAMILIES) {
+    const matched = tools.filter((t) => fam.match(t))
+    if (matched.length > 0) {
+      matched.forEach((t) => used.add(t.id))
+      matched.sort((a, b) => (a.scope === 'global' ? -1 : 1))
+      groups.push({
+        key: fam.key,
+        name: fam.name,
+        logoId: matched[0].id,
+        tools: matched,
+      })
+    }
+  }
+
+  const remaining = tools.filter((t) => !used.has(t.id))
+  for (const t of remaining) {
+    groups.push({
+      key: t.id,
+      name: t.name,
+      logoId: t.id,
+      tools: [t],
+    })
+  }
+
+  return groups
+}
+
+function ManageSkillLinksModal({
   skill,
+  skills,
   aiTools,
   open,
   onClose,
-  onToggleLink,
-  onDeleteRequest,
-  notify,
+  onToggleLinkTarget,
 }: {
   skill: Skill | null
+  skills: Skill[]
   aiTools: AIToolTarget[]
   open: boolean
   onClose: () => void
-  onToggleLink: (skill: Skill, toolId: string) => Promise<void>
-  onDeleteRequest: (skill: Skill) => void
-  notify?: (msg: string) => void
+  onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
 }) {
-  const { t } = useI18n()
-  const [editingMd, setEditingMd] = useState('')
-  const [savingMd, setSavingMd] = useState(false)
-
-  useEffect(() => {
-    if (skill) {
-      setEditingMd(skill.skillMarkdown || '')
-      if (window.workflowSkill?.readSkillMarkdown) {
-        window.workflowSkill.readSkillMarkdown(skill.id).then((content) => {
-          if (content) setEditingMd(content)
-        }).catch(() => {})
-      }
-    }
-  }, [skill])
+  const [busy, setBusy] = useState(false)
 
   if (!open || !skill) return null
 
-  const handleOpenSourceDir = () => {
-    if (window.workflowSkill?.getStoragePath && window.workflowSkill?.openPathInFinder) {
-      window.workflowSkill.getStoragePath().then((root) => {
-        void window.workflowSkill?.openPathInFinder?.(`${root}/skills/${skill.id}`)
-      }).catch(() => {})
-    }
-  }
+  const currentSkill = skills.find((s) => s.id === skill.id) || skill
+  const targetTools = currentSkill.targetTools || []
+  const envGroups = groupAIToolsByEnvironment(aiTools)
+  const totalLinkedCount = aiTools.filter((t) => targetTools.includes(t.id)).length
 
-  const handleSaveMarkdown = async () => {
-    setSavingMd(true)
+  const handleToggleGroup = async (group: AIEnvGroup) => {
+    if (busy) return
+    const allLinked = group.tools.every((t) => targetTools.includes(t.id))
+    const shouldLink = !allLinked
+
+    setBusy(true)
     try {
-      if (window.workflowSkill?.saveSkillMarkdown) {
-        await window.workflowSkill.saveSkillMarkdown(skill.id, editingMd)
+      for (const t of group.tools) {
+        const isLinked = targetTools.includes(t.id)
+        if (shouldLink && !isLinked) {
+          await onToggleLinkTarget(currentSkill, t.id)
+        } else if (!shouldLink && isLinked) {
+          await onToggleLinkTarget(currentSkill, t.id)
+        }
       }
-      notify?.(t.skills.savedSkillMdToast)
     } finally {
-      setSavingMd(false)
+      setBusy(false)
     }
   }
 
   return (
-    <div className="skill-drawer-overlay view-enter" onClick={onClose}>
-      <aside className="skill-drawer-panel" onClick={(e) => e.stopPropagation()}>
-        {/* Drawer Header */}
-        <div className="skill-drawer-header">
-          <div className="skill-drawer-title-wrap">
-            <div className="skill-drawer-title-row">
-              <h2 className="skill-drawer-title">{skill.name}</h2>
-              <span className="pinned-ver-pill font-mono">{t.skills.versionPrefix}{skill.versions}.0</span>
-            </div>
-            <p className="skill-drawer-desc">{skill.description}</p>
+    <div className="modal-glass-backdrop view-enter" onClick={onClose}>
+      <div
+        className="glass-dialog-box modal-pop env-link-tree-dialog"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Dialog Header */}
+        <div className="dialog-header-row env-tree-dialog-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Link2 size={15} style={{ color: 'var(--color-accent)' }} />
+            <h3 className="glass-dialog-title" style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 650 }}>
+              {currentSkill.name}
+            </h3>
           </div>
-          <button type="button" className="drawer-close-btn" onClick={onClose}>
-            <X size={16} />
+          <button type="button" className="clear-search-btn" onClick={onClose} style={{ cursor: 'pointer' }}>
+            <X size={14} />
           </button>
         </div>
 
-        <div className="skill-drawer-body">
-          {/* Central Store Info */}
-          <div className="skill-central-store-card">
-            <div className="central-store-info">
-              <Folder size={14} className="central-folder-icon" />
-              <div className="central-store-paths">
-                <span className="central-store-label">{t.skills.openSourceDirBtn}</span>
-                <span className="central-store-path font-mono">~/.trace/skills/{skill.id}/SKILL.md</span>
-              </div>
-            </div>
-            <button type="button" className="btn btn--secondary btn--capsule" onClick={handleOpenSourceDir}>
-              <FolderOpen size={12} />
-              <span>{t.skills.openSourceDirBtn}</span>
-            </button>
-          </div>
+        {/* Tree Body Grouped by AI Environment */}
+        <div className="env-tree-body" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+          {envGroups.map((group) => {
+            const linkedCount = group.tools.filter((t) => targetTools.includes(t.id)).length
+            const allLinked = group.tools.length > 0 && linkedCount === group.tools.length
+            const hasLinked = linkedCount > 0
 
-          {/* AI Tools Distribution Matrix */}
-          <div className="skill-drawer-section">
-            <div className="drawer-section-header">
-              <h3 className="drawer-section-title">{t.skills.distributionMatrixTitle}</h3>
-              <span className="drawer-section-sub">（支持 NTFS Junction 与 Symlink 跨平台无缝挂载）</span>
-            </div>
+            return (
+              <div key={group.key} className="env-tree-branch">
+                <div className="env-tree-branch-header">
+                  <div className="branch-header-left">
+                    <AIToolLogo toolId={group.logoId} size={16} />
+                    <span className="branch-title">{group.name}</span>
+                    {group.tools.length > 1 ? (
+                      <span className="branch-badge font-mono">
+                        {linkedCount}/{group.tools.length}
+                      </span>
+                    ) : hasLinked ? (
+                      <span className="branch-badge font-mono" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                        已挂载
+                      </span>
+                    ) : null}
+                  </div>
 
-            <div className="drawer-tool-list">
-              {aiTools
-                .filter((tool) => tool.installed)
-                .map((tool) => {
-                  const isLinked = Boolean(skill.targetTools?.includes(tool.id))
-                return (
-                  <div key={tool.id} className={`drawer-tool-row ${isLinked ? 'is-linked' : ''}`}>
-                    <div className="drawer-tool-left">
-                      <div className="drawer-tool-icon-wrap">
-                        <AIToolLogo toolId={tool.id} size={18} color />
-                      </div>
-                      <div className="drawer-tool-meta">
-                        <div className="drawer-tool-name-row">
-                          <strong className="drawer-tool-name">{tool.name}</strong>
-                          <span className="tool-category-badge">{tool.category.toUpperCase()}</span>
-                          <span className={`tool-installed-badge ${tool.installed ? 'is-installed' : ''}`}>
-                            {tool.installed ? t.skills.installedBadge : t.skills.notInstalledBadge}
+                  {group.tools.length > 1 ? (
+                    <div className="branch-header-actions">
+                      <button
+                        type="button"
+                        className="btn btn--capsule-ghost btn--capsule btn--sm branch-action-btn"
+                        onClick={() => void handleToggleGroup(group)}
+                        disabled={busy}
+                      >
+                        {allLinked ? '取消' : '全选'}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="env-tree-children" style={{ paddingLeft: '14px' }}>
+                  {group.tools.map((tool) => {
+                    const isLinked = targetTools.includes(tool.id)
+                    const isProject = tool.scope === 'project'
+
+                    return (
+                      <div
+                        key={tool.id}
+                        className={`env-tree-node-row ${isLinked ? 'is-linked' : ''}`}
+                        onClick={() => void onToggleLinkTarget(currentSkill, tool.id)}
+                      >
+                        <div className="node-content-left">
+                          <span
+                            className={`env-scope-tag ${isProject ? 'is-project' : 'is-global'}`}
+                            title={isProject ? '当前项目工作区目录' : '用户全局主目录'}
+                          >
+                            {isProject ? <FolderTree size={10} /> : <Globe size={10} />}
+                            <span>{isProject ? '项目' : '全局'}</span>
+                          </span>
+
+                          <span className="node-path font-mono">
+                            {tool.detectedPath || tool.defaultDir}
                           </span>
                         </div>
-                        <span className="drawer-tool-path font-mono">
-                          {tool.detectedPath || tool.defaultDir}/{skill.id}
-                        </span>
-                      </div>
-                    </div>
 
-                    <button
-                      type="button"
-                      className={`btn btn--capsule ${isLinked ? 'btn--primary' : 'btn--secondary'}`}
-                      onClick={() => onToggleLink(skill, tool.id)}
-                    >
-                      {isLinked ? <Link2 size={12} /> : <Unlink size={12} />}
-                      <span>{isLinked ? t.skills.healthyStatus : t.skills.unlinkedStatus}</span>
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Live SKILL.md Editor */}
-          <div className="skill-drawer-section">
-            <div className="drawer-section-header">
-              <h3 className="drawer-section-title">{t.skills.editSkillMdTitle}</h3>
-              <button
-                type="button"
-                className="btn btn--secondary btn--capsule"
-                onClick={handleSaveMarkdown}
-                disabled={savingMd}
-              >
-                <Check size={12} />
-                <span>{t.skills.saveSkillMdBtn}</span>
-              </button>
-            </div>
-            <textarea
-              className="skill-md-editor font-mono"
-              value={editingMd}
-              onChange={(e) => setEditingMd(e.target.value)}
-              placeholder="# SKILL.md Instructions..."
-              rows={12}
-            />
-          </div>
-
-          {/* Danger Zone */}
-          <div className="skill-drawer-section danger-zone-section">
-            <div className="danger-zone-card">
-              <div className="danger-zone-info">
-                <strong>{t.skills.safeDeleteConfirmTitle}</strong>
-                <span>删除此 Skill 将自动解除全部已挂载工具目录的软链接，并移除中央源文件。</span>
-              </div>
-              <button
-                type="button"
-                className="btn btn--danger btn--capsule"
-                onClick={() => onDeleteRequest(skill)}
-              >
-                <Trash2 size={13} />
-                <span>{t.skills.confirmDeleteBtn}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </aside>
-    </div>
-  )
-}
-
-function SkillsOverviewPage({
-  skills,
-  aiTools,
-  onOpenDetail,
-  onNewSkill,
-  onToggleLinkTarget,
-  onDeleteSkill,
-  onDetectTools,
-  onBulkLink,
-  onBulkUnlink,
-  notify,
-}: {
-  skills: Skill[]
-  aiTools: AIToolTarget[]
-  onOpenDetail: (skill: Skill) => void
-  onNewSkill: () => void
-  onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
-  onDeleteSkill: (skill: Skill) => Promise<void>
-  onDetectTools: () => void
-  onBulkLink: (targetId: string) => Promise<void>
-  onBulkUnlink: (targetId: string) => Promise<void>
-  notify?: (msg: string) => void
-}) {
-  const { t } = useI18n()
-  const [skillTab, setSkillTab] = useState<'local' | 'environments' | 'remote'>('local')
-  const [query, setQuery] = useState('')
-  const [filterMode, setFilterMode] = useState<'all' | 'pinned'>('all')
-  const [categoryFilter, setCategoryFilter] = useState<AIToolCategory>('all')
-  const [selectedToolFilter, setSelectedToolFilter] = useState<string>('all')
-
-  // Drawer and Delete Modal States
-  const [drawerSkill, setDrawerSkill] = useState<Skill | null>(null)
-  const [deleteModalSkill, setDeleteModalSkill] = useState<Skill | null>(null)
-
-  // Filter skills by search query, pin status, AI tool category, and specific target tool
-  const filteredSkills = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return skills.filter((sk) => {
-      if (filterMode === 'pinned' && !sk.pinned) return false
-
-      if (categoryFilter !== 'all') {
-        const targetToolObjects = (sk.targetTools || []).map((tid) => aiTools.find((t) => t.id === tid)).filter(Boolean)
-        const matchesCategory = targetToolObjects.some((t) => t?.category === categoryFilter)
-        if (!matchesCategory) return false
-      }
-
-      if (selectedToolFilter !== 'all') {
-        if (!sk.targetTools?.includes(selectedToolFilter)) return false
-      }
-
-      if (!q) return true
-      const searchStr = `${sk.name} ${sk.description} ${(sk.apps || []).join(' ')} ${(sk.tags || []).join(' ')} ${(sk.triggers || []).join(' ')} ${(sk.targetTools || []).join(' ')}`.toLowerCase()
-      return searchStr.includes(q)
-    })
-  }, [skills, query, filterMode, categoryFilter, selectedToolFilter, aiTools])
-
-  const pinnedCount = useMemo(() => skills.filter((s) => s.pinned).length, [skills])
-
-  // Category counts
-  const categoryCounts = useMemo(() => {
-    const counts: Record<AIToolCategory, number> = {
-      all: skills.length,
-      ide: 0,
-      cli: 0,
-      extension: 0,
-      standard: 0,
-    }
-    for (const sk of skills) {
-      const categories = new Set(
-        (sk.targetTools || []).map((tid) => aiTools.find((t) => t.id === tid)?.category).filter(Boolean)
-      )
-      if (categories.has('ide')) counts.ide += 1
-      if (categories.has('cli')) counts.cli += 1
-      if (categories.has('extension')) counts.extension += 1
-      if (categories.has('standard')) counts.standard += 1
-    }
-    return counts
-  }, [skills, aiTools])
-
-  const handleOpenLocalDir = () => {
-    if (window.workflowSkill?.getStoragePath && window.workflowSkill?.openPathInFinder) {
-      window.workflowSkill.getStoragePath().then((root) => {
-        void window.workflowSkill?.openPathInFinder?.(root)
-      }).catch(() => {})
-    }
-  }
-
-  const handleOpenCentralStore = () => {
-    if (window.workflowSkill?.getStoragePath && window.workflowSkill?.openPathInFinder) {
-      window.workflowSkill
-        .getStoragePath()
-        .then((root) => {
-          void window.workflowSkill?.openPathInFinder?.(`${root}/skills`)
-        })
-        .catch(() => {})
-    }
-  }
-
-  return (
-    <div className="clean-page view-enter">
-      <header className="page-header stagger-item">
-        <div className="page-header__left">
-          <h1 className="page-title">
-            {skillTab === 'local' ? t.skills.title : t.skills.remoteLibraryTitle}
-          </h1>
-          <span className="page-subtitle">
-            {skillTab === 'local' ? t.skills.subtitle : t.skills.remoteLibrarySub}
-          </span>
-        </div>
-
-        {/* Centered Segmented Tab Switcher (Local vs Remote with Spring Slider) */}
-        <div className="page-header__center">
-          <SkillSegmentedTabs
-            value={skillTab}
-            onChange={(next) => {
-              setSkillTab(next)
-              setQuery('')
-            }}
-          />
-        </div>
-
-        <div className="page-header__right">
-          {skillTab === 'local' ? (
-            <>
-              <button
-                type="button"
-                className="btn btn--secondary btn--capsule"
-                onClick={onDetectTools}
-                title={t.skills.detectToolsBtn}
-              >
-                <Sparkles size={13} className="sparkle-active-icon" />
-                <span>{t.skills.detectToolsBtn}</span>
-              </button>
-              <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
-                <Plus size={13} />
-                <span>{t.skills.newSkill}</span>
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="btn btn--secondary btn--capsule"
-              onClick={() => notify?.(t.skills.remoteComingSoonToast)}
-            >
-              <Sliders size={13} />
-              <span>{t.skills.remoteConfigureBtn}</span>
-            </button>
-          )}
-        </div>
-      </header>
-
-      {skillTab === 'local' ? (
-        <div key="local-tab" className="tab-content-pane">
-          {skills.length > 0 ? (
-            <>
-              {/* Filter Toolbar: Search, Pins, and AI Tool Category Segmented Filter */}
-              <div className="filter-toolbar-row stagger-item">
-                <label className="search-capsule-box">
-                  <Search size={14} />
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder={t.skills.searchPlaceholder}
-                  />
-                  {query ? (
-                    <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
-                      <X size={13} />
-                    </button>
-                  ) : null}
-                </label>
-
-                {/* Flat Category Switcher */}
-                <div className="flat-segmented-filter">
-                  <button
-                    type="button"
-                    className={`filter-pill-tab ${filterMode === 'all' ? 'is-active' : ''}`}
-                    onClick={() => setFilterMode('all')}
-                  >
-                    <span>{t.skills.allSection}</span>
-                    <span className="filter-count-badge font-mono">{skills.length}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`filter-pill-tab ${filterMode === 'pinned' ? 'is-active' : ''}`}
-                    onClick={() => setFilterMode('pinned')}
-                  >
-                    <Bookmark size={12} className="filter-pin-icon" />
-                    <span>{t.skills.pinnedSection}</span>
-                    <span className="filter-count-badge font-mono">{pinnedCount}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* AI Tool Category Rail & Quick Tool Filter Pills */}
-              <div className="ai-tool-filter-rail stagger-item">
-                <div className="category-capsule-tabs">
-                  <button
-                    type="button"
-                    className={`cat-pill-btn ${categoryFilter === 'all' ? 'is-active' : ''}`}
-                    onClick={() => {
-                      setCategoryFilter('all')
-                      setSelectedToolFilter('all')
-                    }}
-                  >
-                    <span>{t.skills.categoryAll}</span>
-                    <span className="cat-count-badge font-mono">{categoryCounts.all}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`cat-pill-btn ${categoryFilter === 'ide' ? 'is-active' : ''}`}
-                    onClick={() => {
-                      setCategoryFilter('ide')
-                      setSelectedToolFilter('all')
-                    }}
-                  >
-                    <span>{t.skills.categoryIde}</span>
-                    <span className="cat-count-badge font-mono">{categoryCounts.ide}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`cat-pill-btn ${categoryFilter === 'cli' ? 'is-active' : ''}`}
-                    onClick={() => {
-                      setCategoryFilter('cli')
-                      setSelectedToolFilter('all')
-                    }}
-                  >
-                    <span>{t.skills.categoryCli}</span>
-                    <span className="cat-count-badge font-mono">{categoryCounts.cli}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`cat-pill-btn ${categoryFilter === 'extension' ? 'is-active' : ''}`}
-                    onClick={() => {
-                      setCategoryFilter('extension')
-                      setSelectedToolFilter('all')
-                    }}
-                  >
-                    <span>{t.skills.categoryExtension}</span>
-                    <span className="cat-count-badge font-mono">{categoryCounts.extension}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`cat-pill-btn ${categoryFilter === 'standard' ? 'is-active' : ''}`}
-                    onClick={() => {
-                      setCategoryFilter('standard')
-                      setSelectedToolFilter('all')
-                    }}
-                  >
-                    <span>{t.skills.categoryStandard}</span>
-                    <span className="cat-count-badge font-mono">{categoryCounts.standard}</span>
-                  </button>
-                </div>
-
-                {/* Secondary Quick Filter: Specific AI Tools Chips (Only Installed) */}
-                <div className="tool-quick-filter-chips">
-                  <button
-                    type="button"
-                    className={`tool-filter-chip ${selectedToolFilter === 'all' ? 'is-active' : ''}`}
-                    onClick={() => setSelectedToolFilter('all')}
-                  >
-                    <span>{t.skills.allToolsFilter}</span>
-                  </button>
-                  {aiTools
-                    .filter((tool) => tool.installed && (categoryFilter === 'all' || tool.category === categoryFilter))
-                    .map((tool) => {
-                      const count = skills.filter((s) => s.targetTools?.includes(tool.id)).length
-                      const isSelected = selectedToolFilter === tool.id
-                      return (
                         <button
-                          key={tool.id}
                           type="button"
-                          className={`tool-filter-chip ${isSelected ? 'is-active' : ''} is-installed`}
-                          onClick={() => setSelectedToolFilter(isSelected ? 'all' : tool.id)}
+                          className={`btn btn--capsule btn--sm ${isLinked ? 'btn--primary' : 'btn--capsule-ghost'}`}
+                          style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
                         >
-                          <AIToolLogo toolId={tool.id} size={12} color={isSelected} />
-                          <span>{tool.name}</span>
-                          <span className="tool-chip-count font-mono">{count}</span>
+                          {isLinked ? <Check size={11} /> : <Link2 size={11} />}
+                          <span>{isLinked ? '已挂载' : '未挂载'}</span>
                         </button>
-                      )
-                    })}
-                </div>
-              </div>
-
-              {/* Local Skills List Container */}
-              {filteredSkills.length > 0 ? (
-                <div className="flat-table-wrap stagger-item">
-                  <div className="flat-rows-list">
-                    {filteredSkills.map((sk, idx) => {
-                      const installedTargets = aiTools.filter(
-                        (tool) => tool.installed && (categoryFilter === 'all' || tool.category === categoryFilter),
-                      )
-                      return (
-                        <div
-                          key={sk.id}
-                          className="flat-row skill-distribution-row"
-                          style={{ animationDelay: `${idx * 20}ms` }}
-                          onClick={() => setDrawerSkill(sk)}
-                          role="button"
-                          tabIndex={0}
-                        >
-                          {/* Left: Metadata */}
-                          <div className="flat-row__left">
-                            <div className="flat-title-row">
-                              {sk.pinned ? <Bookmark size={13} className="flat-pinned-icon" /> : null}
-                              <strong className="flat-row-title">{sk.name}</strong>
-                              {sk.tags?.slice(0, 2).map((tag) => (
-                                <span key={tag} className="skill-tag-pill font-mono">
-                                  #{tag}
-                                </span>
-                              ))}
-                            </div>
-                            <span className="flat-row-desc">{sk.description}</span>
-                            {sk.triggers && sk.triggers.length > 0 ? (
-                              <div className="skill-triggers-row">
-                                {sk.triggers.map((trig) => (
-                                  <span key={trig} className="skill-trigger-chip font-mono">
-                                    {trig}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-
-                          {/* Middle: Live Distribution Capsule Pills Matrix (Only Installed) */}
-                          <div className="flat-row__middle">
-                            <div className="target-capsules-group">
-                              {installedTargets.slice(0, 5).map((tool) => {
-                                const isLinked = Boolean(sk.targetTools?.includes(tool.id))
-                                return (
-                                  <AIToolTargetPill
-                                    key={tool.id}
-                                    tool={tool}
-                                    isLinked={isLinked}
-                                    title={
-                                      isLinked
-                                        ? t.skills.linkedTooltip(tool.name, tool.detectedPath || tool.defaultDir)
-                                        : t.skills.unlinkedTooltip(tool.name)
-                                    }
-                                    onClick={() => void onToggleLinkTarget(sk, tool.id)}
-                                  />
-                                )
-                              })}
-                              {installedTargets.length > 5 && categoryFilter === 'all' ? (
-                                <button
-                                  type="button"
-                                  className="target-capsule-more font-mono"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setDrawerSkill(sk)
-                                  }}
-                                >
-                                  +{installedTargets.length - 5}
-                                </button>
-                              ) : null}
-                            </div>
-                            <WorkflowGraph workflow={sk.workflow} compact />
-                          </div>
-
-                        {/* Right: Meta, Actions, and Chevron */}
-                        <div className="flat-row__right">
-                          <span className="flat-row-meta font-mono">{sk.updatedLabel}</span>
-                          <span className="pinned-ver-pill font-mono">{t.skills.versionPrefix}{sk.versions}.0</span>
-                          <button
-                            type="button"
-                            className="row-action-icon-btn"
-                            title="配置分发与规则"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setDrawerSkill(sk)
-                            }}
-                          >
-                            <MoreHorizontal size={15} />
-                          </button>
-                        </div>
                       </div>
-                    )})}
-                  </div>
-                </div>
-              ) : (
-                /* Zero-Card Clean Empty Search State */
-                <div className="clean-empty-state stagger-item">
-                  <div className="empty-icon-halo">
-                    <Search size={26} className="empty-icon-glow" />
-                  </div>
-                  <h3 className="empty-title">{t.skills.emptySearch}</h3>
-                  <p className="empty-desc">{t.skills.emptySearchDesc(query)}</p>
-                  <div className="empty-state-actions">
-                    <button
-                      type="button"
-                      className="btn btn--secondary btn--capsule"
-                      onClick={() => {
-                        setQuery('')
-                        setCategoryFilter('all')
-                        setSelectedToolFilter('all')
-                      }}
-                    >
-                      <X size={13} />
-                      <span>{t.skills.clearSearchBtn}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            /* Zero-Card Clean Empty Local Skills State */
-            <div className="clean-empty-state stagger-item">
-              <div className="empty-icon-halo">
-                <Boxes size={30} className="empty-icon-glow" />
-              </div>
-              <h3 className="empty-title">{t.skills.emptyLocalTitle}</h3>
-              <p className="empty-desc">{t.skills.emptyLocalDesc}</p>
-              <div className="empty-state-actions">
-                <button type="button" className="btn btn--primary btn--capsule" onClick={onNewSkill}>
-                  <Plus size={13} />
-                  <span>{t.skills.newSkill}</span>
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary btn--capsule"
-                  onClick={handleOpenLocalDir}
-                >
-                  <FolderOpen size={13} />
-                  <span>{t.skills.openLocalDirBtn}</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div key="remote-tab" className="tab-content-pane">
-          {/* Zero-Card Clean Empty Remote Skills State */}
-          <div className="clean-empty-state stagger-item">
-            <div className="empty-icon-halo">
-              <Globe size={30} className="empty-icon-glow" />
-            </div>
-            <h3 className="empty-title">{t.skills.emptyRemoteTitle}</h3>
-            <p className="empty-desc">{t.skills.emptyRemoteDesc}</p>
-            <div className="empty-state-actions">
-              <button
-                type="button"
-                className="btn btn--secondary btn--capsule"
-                onClick={() => notify?.(t.skills.remoteComingSoonToast)}
-              >
-                <Sliders size={13} />
-                <span>{t.skills.remoteConfigureBtn}</span>
-              </button>
-              <button
-                type="button"
-                className="btn btn--capsule-ghost btn--capsule"
-                onClick={() => notify?.(t.skills.remoteComingSoonToast)}
-              >
-                <ExternalLink size={13} />
-                <span>{t.skills.remoteDocsBtn}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Slide-over Skill Detail & Distribution Matrix Drawer */}
-      <SkillDetailDrawer
-        skill={drawerSkill}
-        aiTools={aiTools}
-        open={Boolean(drawerSkill)}
-        onClose={() => setDrawerSkill(null)}
-        onToggleLink={onToggleLinkTarget}
-        onDeleteRequest={(sk) => {
-          setDrawerSkill(null)
-          setDeleteModalSkill(sk)
-        }}
-        notify={notify}
-      />
-
-      {/* Safe Delete Modal with Explicit Downstream Links List */}
-      <SafeDeleteSkillModal
-        skill={deleteModalSkill}
-        aiTools={aiTools}
-        open={Boolean(deleteModalSkill)}
-        onClose={() => setDeleteModalSkill(null)}
-        onConfirm={onDeleteSkill}
-      />
-    </div>
-  )
-}
-
-/* =========================================================================
-   Level 1: AI Environments Page (Dedicated AI Tools Management Hub)
-   ========================================================================= */
-function AIEnvironmentsPage({
-  aiTools,
-  skills,
-  onDetectTools,
-  onToggleLinkTarget,
-  onBulkLink,
-  onBulkUnlink,
-  notify,
-}: {
-  aiTools: AIToolTarget[]
-  skills: Skill[]
-  onDetectTools: () => void
-  onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
-  onBulkLink: (targetId: string) => Promise<void>
-  onBulkUnlink: (targetId: string) => Promise<void>
-  notify?: (msg: string) => void
-}) {
-  const { t } = useI18n()
-  const [categoryFilter, setCategoryFilter] = useState<AIToolCategory>('all')
-  const [query, setQuery] = useState('')
-
-  // Only consider installed/detected physical directory environments
-  const installedTools = useMemo(() => aiTools.filter((t) => t.installed), [aiTools])
-
-  const filteredTools = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return installedTools.filter((tool) => {
-      if (categoryFilter !== 'all' && tool.category !== categoryFilter) return false
-      if (!q) return true
-      const searchStr = `${tool.name} ${tool.description || ''} ${tool.defaultDir} ${tool.category} ${(tool.compatibleTools || []).map((c) => c.name).join(' ')}`.toLowerCase()
-      return searchStr.includes(q)
-    })
-  }, [installedTools, categoryFilter, query])
-
-  const totalCompatibleAgents = useMemo(() => {
-    return installedTools.reduce((acc, t) => acc + (t.compatibleTools?.length || 1), 0)
-  }, [installedTools])
-
-  const totalActiveLinks = useMemo(() => {
-    const installedIds = new Set(installedTools.map((t) => t.id))
-    return skills.reduce((acc, sk) => {
-      const active = (sk.targetTools || []).filter((id) => installedIds.has(id)).length
-      return acc + active
-    }, 0)
-  }, [skills, installedTools])
-
-  const handleOpenToolDir = (tool: AIToolTarget) => {
-    const targetPath = tool.detectedPath || tool.defaultDir
-    if (window.workflowSkill?.openPathInFinder) {
-      void window.workflowSkill.openPathInFinder(targetPath)
-    }
-  }
-
-  const handleOpenCentralStore = () => {
-    if (window.workflowSkill?.getStoragePath && window.workflowSkill?.openPathInFinder) {
-      window.workflowSkill
-        .getStoragePath()
-        .then((root) => {
-          void window.workflowSkill?.openPathInFinder?.(`${root}/skills`)
-        })
-        .catch(() => {})
-    }
-  }
-
-  return (
-    <div className="clean-page view-enter">
-      {/* Header */}
-      <header className="page-header stagger-item">
-        <div className="page-header__left">
-          <h1 className="page-title">{t.environments.title}</h1>
-          <span className="page-subtitle">{t.environments.subtitle}</span>
-        </div>
-
-        <div className="page-header__right">
-          <button
-            type="button"
-            className="btn btn--secondary btn--capsule"
-            onClick={onDetectTools}
-            title={t.environments.rescanBtn}
-          >
-            <Sparkles size={13} className="sparkle-active-icon" />
-            <span>{t.environments.rescanBtn}</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn--capsule-ghost btn--capsule"
-            onClick={handleOpenCentralStore}
-          >
-            <FolderOpen size={13} />
-            <span>中央仓库</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Hero Metric Cards */}
-      <div className="env-hero-metrics-grid stagger-item">
-        <div className="env-metric-card">
-          <span className="env-metric-label">{t.environments.metricInstalled}</span>
-          <div className="env-metric-value-row">
-            <span className="env-metric-num font-mono is-green">{installedTools.length}</span>
-            <span className="env-metric-unit">个本地已就绪</span>
-          </div>
-          <span className="env-metric-hint">已自动感知物理配置目录与技能路径</span>
-        </div>
-
-        <div className="env-metric-card">
-          <span className="env-metric-label">兼容共用 Agent 工具</span>
-          <div className="env-metric-value-row">
-            <span className="env-metric-num font-mono">{totalCompatibleAgents}</span>
-            <span className="env-metric-unit">个主流 Agent</span>
-          </div>
-          <span className="env-metric-hint">包含 Antigravity、Claude Code、Cursor 等</span>
-        </div>
-
-        <div className="env-metric-card">
-          <span className="env-metric-label">{t.environments.metricLinks}</span>
-          <div className="env-metric-value-row">
-            <span className="env-metric-num font-mono is-accent">{totalActiveLinks}</span>
-            <span className="env-metric-unit">处实时挂载</span>
-          </div>
-          <span className="env-metric-hint">NTFS Junction / Symlink 物理软链分发</span>
-        </div>
-      </div>
-
-      {/* Filter Toolbar: Search & Categories */}
-      <div className="filter-toolbar-row stagger-item">
-        <label className="search-capsule-box">
-          <Search size={14} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索已就绪环境名称、目录或工具…"
-          />
-          {query ? (
-            <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
-              <X size={13} />
-            </button>
-          ) : null}
-        </label>
-
-        {/* Category Segmented Tabs */}
-        <div className="category-capsule-tabs">
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'all' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('all')}
-          >
-            <span>{t.skills.categoryAll}</span>
-            <span className="cat-count-badge font-mono">{installedTools.length}</span>
-          </button>
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'standard' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('standard')}
-          >
-            <span>{t.skills.categoryStandard}</span>
-            <span className="cat-count-badge font-mono">
-              {installedTools.filter((t) => t.category === 'standard').length}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'ide' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('ide')}
-          >
-            <span>{t.skills.categoryIde}</span>
-            <span className="cat-count-badge font-mono">
-              {installedTools.filter((t) => t.category === 'ide').length}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'cli' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('cli')}
-          >
-            <span>{t.skills.categoryCli}</span>
-            <span className="cat-count-badge font-mono">
-              {installedTools.filter((t) => t.category === 'cli').length}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`cat-pill-btn ${categoryFilter === 'extension' ? 'is-active' : ''}`}
-            onClick={() => setCategoryFilter('extension')}
-          >
-            <span>{t.skills.categoryExtension}</span>
-            <span className="cat-count-badge font-mono">
-              {installedTools.filter((t) => t.category === 'extension').length}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* Environments Grid List */}
-      {filteredTools.length > 0 ? (
-        <div className="env-cards-grid stagger-item">
-          {filteredTools.map((tool, idx) => {
-            const mountedSkills = skills.filter((s) => s.targetTools?.includes(tool.id))
-            const isAllMounted = mountedSkills.length === skills.length && skills.length > 0
-            return (
-              <div
-                key={tool.id}
-                className="env-card is-installed"
-                style={{ animationDelay: `${idx * 25}ms` }}
-              >
-                {/* Card Header: LobeHub Official Logo Cluster + Titles + Badges */}
-                <div className="env-card-header">
-                  <div className="env-logo-wrap">
-                    {tool.compatibleTools && tool.compatibleTools.length > 1 ? (
-                      <div className="env-logo-cluster">
-                        {tool.compatibleTools.slice(0, 4).map((ct) => (
-                          <div key={ct.id} className="env-logo-cluster-item" title={ct.name}>
-                            <AIToolLogo toolId={ct.logoId} size={16} color />
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <AIToolLogo toolId={tool.id} size={36} color />
-                    )}
-                  </div>
-                  <div className="env-title-meta">
-                    <div className="env-title-row">
-                      <h3 className="env-tool-name">{tool.name}</h3>
-                      <span className="env-cat-badge">{tool.category.toUpperCase()}</span>
-                    </div>
-                    <span className="env-status-pill is-ready">
-                      <span className="env-status-dot" />
-                      <span>{t.environments.installedReady}</span>
-                    </span>
-                  </div>
-                </div>
-
-                {/* Shared AI Tools Badges */}
-                {tool.compatibleTools && tool.compatibleTools.length > 0 ? (
-                  <div className="env-shared-tools-row">
-                    <span className="env-shared-tools-label">{t.environments.sharedToolsLabel}:</span>
-                    <div className="env-shared-tools-badges">
-                      {tool.compatibleTools.map((ct) => (
-                        <span key={ct.id} className="env-shared-tool-badge">
-                          <AIToolLogo toolId={ct.logoId} size={13} color />
-                          <span>{ct.name}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Description */}
-                <p className="env-desc">{tool.description}</p>
-
-                {/* Directory Path */}
-                <div className="env-path-box">
-                  <div className="env-path-text font-mono" title={tool.detectedPath || tool.defaultDir}>
-                    <Folder size={12} className="env-path-icon" />
-                    <span>{tool.detectedPath || tool.defaultDir}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="env-path-open-btn"
-                    title={t.environments.openDirBtn}
-                    onClick={() => handleOpenToolDir(tool)}
-                  >
-                    <ExternalLink size={12} />
-                  </button>
-                </div>
-
-                {/* Mounted Skills Summary & Chips */}
-                <div className="env-mounted-section">
-                  <div className="env-mounted-header">
-                    <span className="env-mounted-title">
-                      {t.environments.mountedSkillsLabel(mountedSkills.length)}
-                    </span>
-                    <span className="env-mounted-ratio font-mono">
-                      {mountedSkills.length}/{skills.length}
-                    </span>
-                  </div>
-
-                  <div className="env-skill-chips-wrap">
-                    {mountedSkills.length > 0 ? (
-                      mountedSkills.map((sk) => (
-                        <button
-                          key={sk.id}
-                          type="button"
-                          className="env-skill-chip is-linked"
-                          title="点击解除此 Skill 软链接"
-                          onClick={() => void onToggleLinkTarget(sk, tool.id)}
-                        >
-                          <Link2 size={10} className="env-chip-link-icon" />
-                          <span>{sk.name}</span>
-                          <X size={10} className="env-chip-unlink-icon" />
-                        </button>
-                      ))
-                    ) : (
-                      <span className="env-no-skills-hint">{t.environments.noMountedSkills}</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Card Footer Actions */}
-                <div className="env-card-footer">
-                  {isAllMounted ? (
-                    <button
-                      type="button"
-                      className="btn btn--secondary btn--capsule btn--sm"
-                      onClick={() => void onBulkUnlink(tool.id)}
-                    >
-                      <Unlink size={12} />
-                      <span>{t.environments.unlinkAllFromTargetBtn}</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn--primary btn--capsule btn--sm"
-                      onClick={() => void onBulkLink(tool.id)}
-                    >
-                      <Link2 size={12} />
-                      <span>{t.environments.syncAllToTargetBtn}</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    className="btn btn--capsule-ghost btn--capsule btn--sm"
-                    onClick={() => handleOpenToolDir(tool)}
-                  >
-                    <FolderOpen size={12} />
-                    <span>打开目录</span>
-                  </button>
+                    )
+                  })}
                 </div>
               </div>
             )
           })}
         </div>
-      ) : (
-        /* Zero Installed Environments Clean Empty State */
-        <div className="clean-empty-state stagger-item">
-          <div className="empty-icon-halo">
-            <FolderTree size={30} className="empty-icon-glow" />
+
+        {/* Dialog Footer */}
+        <div className="dialog-footer-row env-tree-dialog-footer">
+          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+            当前已挂载到 <strong>{totalLinkedCount}</strong> 个环境
           </div>
-          <h3 className="empty-title">未检测到已就绪的 AI 环境技能目录</h3>
-          <p className="empty-desc">
-            Trace 会自动扫描本机上的 `.agents`、`.claude`、`.cursor` 等 AI 工具目录。
-          </p>
-          <div className="empty-state-actions">
-            <button
-              type="button"
-              className="btn btn--primary btn--capsule"
-              onClick={onDetectTools}
-            >
-              <Sparkles size={13} />
-              <span>重新扫描物理目录</span>
-            </button>
-          </div>
+          <button type="button" className="btn btn--primary btn--capsule btn--sm" onClick={onClose}>
+            <span>完成</span>
+          </button>
         </div>
-      )}
+      </div>
     </div>
   )
 }
+
+/* =========================================================================
+   3-Column macOS Pro View: Skills Architecture (Column 2 + Column 3)
+   ========================================================================= */
+function SkillsThreeColumn({
+  skills,
+  aiTools,
+  selectedSkillId,
+  onSelectSkillId,
+  onNewSkill,
+  onToggleLinkTarget,
+  onDeleteSkill,
+  onDetectTools,
+  onExportCode,
+  notify,
+}: {
+  skills: Skill[]
+  aiTools: AIToolTarget[]
+  selectedSkillId: string
+  onSelectSkillId: (id: string) => void
+  onNewSkill: () => void
+  onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
+  onDeleteSkill: (skill: Skill, mode: DeleteSkillMode) => Promise<void>
+  onDetectTools: () => void
+  onExportCode: (workflow: Workflow, name: string) => void
+  notify?: (msg: string) => void
+}) {
+  const { t } = useI18n()
+  const [skillTab, setSkillTab] = useState<'local' | 'remote'>('local')
+  const [query, setQuery] = useState('')
+  const [skillMdContent, setSkillMdContent] = useState('')
+  const [deleteModalSkill, setDeleteModalSkill] = useState<Skill | null>(null)
+  const [linkModalSkill, setLinkModalSkill] = useState<Skill | null>(null)
+  const [selectedRemoteSkillId, setSelectedRemoteSkillId] = useState<string>(communityRemoteSkills[0]?.id || '')
+  const [repositorySearchResult, setRepositorySearchResult] = useState<RepositorySkillSearchResult | null>(null)
+  const [selectedRepositorySkillName, setSelectedRepositorySkillName] = useState('')
+  const [repositorySearching, setRepositorySearching] = useState(false)
+  const [repositorySearchError, setRepositorySearchError] = useState('')
+
+  const installedTools = useMemo(() => aiTools.filter((t) => t.installed), [aiTools])
+
+  // Filter Local Skills
+  const filteredLocalSkills = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return skills
+    return skills.filter((sk) => {
+      const searchStr = `${sk.name} ${sk.description || ''} ${(sk.tags || []).join(' ')}`.toLowerCase()
+      return searchStr.includes(q)
+    })
+  }, [skills, query])
+
+  const activeLocalSkill = useMemo(() => {
+    return filteredLocalSkills.find((s) => s.id === selectedSkillId) || filteredLocalSkills[0] || null
+  }, [filteredLocalSkills, selectedSkillId])
+
+  const activeLinkedTools = useMemo(() => {
+    if (!activeLocalSkill) return []
+    return aiTools.filter((tool) => activeLocalSkill.targetTools?.includes(tool.id))
+  }, [aiTools, activeLocalSkill])
+
+  // Filter Remote Skills
+  const filteredRemoteSkills = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return communityRemoteSkills
+    return communityRemoteSkills.filter((r) => {
+      const searchStr = `${r.name} ${r.description} ${r.author} ${r.tags.join(' ')}`.toLowerCase()
+      return searchStr.includes(q)
+    })
+  }, [query])
+
+  const activeRemoteSkill = useMemo(() => {
+    return filteredRemoteSkills.find((r) => r.id === selectedRemoteSkillId) || filteredRemoteSkills[0] || null
+  }, [filteredRemoteSkills, selectedRemoteSkillId])
+
+  const repositoryQuery = query.trim()
+  const isRepositoryQuery = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,38}\/[a-zA-Z0-9_.-]{1,100}$/.test(repositoryQuery)
+  const repositoryResultIsCurrent = repositorySearchResult?.repository === repositoryQuery
+  const activeRepositorySkill = useMemo<RepositorySkillSummary | null>(() => {
+    if (!repositoryResultIsCurrent || !repositorySearchResult) return null
+    return repositorySearchResult.skills.find((skill) => skill.name === selectedRepositorySkillName)
+      || repositorySearchResult.skills[0]
+      || null
+  }, [repositoryResultIsCurrent, repositorySearchResult, selectedRepositorySkillName])
+
+  const handleRepositorySearch = async () => {
+    if (!isRepositoryQuery || !window.workflowSkill?.searchRepositorySkills) return
+    setRepositorySearching(true)
+    setRepositorySearchError('')
+    try {
+      const result = await window.workflowSkill.searchRepositorySkills(repositoryQuery)
+      setRepositorySearchResult(result)
+      setSelectedRepositorySkillName(result.skills[0]?.name || '')
+    } catch (error) {
+      setRepositorySearchResult(null)
+      setRepositorySearchError(error instanceof Error ? error.message : '仓库搜索失败，请稍后重试')
+    } finally {
+      setRepositorySearching(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeLocalSkill && skillTab === 'local') {
+      setSkillMdContent(activeLocalSkill.skillMarkdown || '')
+      if (window.workflowSkill?.readSkillMarkdown) {
+        window.workflowSkill
+          .readSkillMarkdown(activeLocalSkill.id)
+          .then((content) => {
+            if (content) setSkillMdContent(content)
+          })
+          .catch(() => {})
+      }
+    }
+  }, [activeLocalSkill?.id, skillTab])
+
+  const handleInstallRemoteSkill = async (remote: RemoteSkill) => {
+    const newSkill: Skill = {
+      id: remote.id,
+      name: remote.name,
+      description: remote.description,
+      apps: ['AI Agent Runtime'],
+      updatedLabel: '刚刚安装',
+      pinned: false,
+      sourceRuns: 1,
+      versions: 1,
+      workflow: {
+        id: `wf-${remote.id}`,
+        name: remote.name,
+        summary: remote.description,
+        repeatCount: 1,
+        estimatedMinutes: 2,
+        confidence: 99,
+        nodes: [
+          {
+            id: 'step-1',
+            label: 'Load Remote Skill Protocol',
+            kind: 'action',
+            app: 'AI Agent Runtime',
+            confidence: 100,
+          },
+          {
+            id: 'step-2',
+            label: 'Execute Agent Guidelines',
+            kind: 'action',
+            confidence: 99,
+          },
+        ],
+        edges: [{ from: 'step-1', to: 'step-2' }],
+      },
+      targetTools: installedTools.map((t) => t.id),
+      tags: remote.tags,
+      skillMarkdown: remote.skillMarkdown,
+    }
+
+    if (window.workflowSkill?.saveLocalSkill) {
+      await window.workflowSkill.saveLocalSkill(newSkill)
+    }
+
+    for (const tool of installedTools) {
+      if (window.workflowSkill?.linkSkillTarget) {
+        await window.workflowSkill.linkSkillTarget(newSkill.id, tool.id)
+      }
+    }
+
+    notify?.(`已成功安装 ${remote.name} 并挂载到本地环境`)
+    onSelectSkillId(newSkill.id)
+    setSkillTab('local')
+    if (onDetectTools) onDetectTools()
+  }
+
+  return (
+    <>
+      {/* Column 2: Master List of Skills (Local or Remote) */}
+      <aside className="app-col-master view-enter">
+        <div className="master-header">
+          <div className="master-header-top">
+            <div className="master-tab-segmented">
+              <button
+                type="button"
+                className={`master-tab-btn ${skillTab === 'local' ? 'is-active' : ''}`}
+                onClick={() => setSkillTab('local')}
+              >
+                <span>本地</span>
+              </button>
+              <button
+                type="button"
+                className={`master-tab-btn ${skillTab === 'remote' ? 'is-active' : ''}`}
+                onClick={() => setSkillTab('remote')}
+              >
+                <span>远程</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="master-search-row">
+            <label className="master-search-input">
+              <Search size={13} />
+              <input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setRepositorySearchError('')
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && skillTab === 'remote' && isRepositoryQuery) {
+                    event.preventDefault()
+                    void handleRepositorySearch()
+                  }
+                }}
+                placeholder={skillTab === 'local' ? '搜索本地全局技能…' : '输入 owner/repo 或搜索社区 Skill…'}
+              />
+              {skillTab === 'remote' && isRepositoryQuery ? (
+                <button
+                  type="button"
+                  className="repo-search-submit"
+                  onClick={() => void handleRepositorySearch()}
+                  disabled={repositorySearching}
+                  aria-label={`搜索 GitHub 仓库 ${repositoryQuery}`}
+                  title="使用 skills CLI 搜索仓库"
+                >
+                  {repositorySearching ? <RefreshCw size={11} className="is-spinning" /> : <ArrowRight size={11} />}
+                </button>
+              ) : query ? (
+                <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
+                  <X size={12} />
+                </button>
+              ) : null}
+            </label>
+          </div>
+        </div>
+
+        <div className="master-list-scroll">
+          {skillTab === 'local' ? (
+            filteredLocalSkills.map((sk) => {
+              const isSelected = activeLocalSkill?.id === sk.id
+              return (
+                <div
+                  key={sk.id}
+                  className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
+                  onClick={() => onSelectSkillId(sk.id)}
+                  style={{ padding: '6px 8px', gap: '8px' }}
+                >
+                  <div className="master-item-logo">
+                    <Folder size={15} style={{ color: 'var(--color-accent)' }} />
+                  </div>
+
+                  <span
+                    className="master-item-title"
+                    title={sk.name}
+                    style={{
+                      fontSize: '0.8125rem',
+                      fontWeight: isSelected ? 650 : 550,
+                      color: 'var(--color-ink)',
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {sk.name}
+                  </span>
+                </div>
+              )
+            })
+          ) : (
+            isRepositoryQuery ? (
+              repositorySearching ? (
+                <div className="master-list-status" role="status">
+                  <RefreshCw size={15} className="master-list-status__spinner" />
+                  <span>正在读取 {repositoryQuery}…</span>
+                  <small>运行 npx skills add --list</small>
+                </div>
+              ) : repositorySearchError ? (
+                <div className="master-list-status is-error" role="alert">
+                  <AlertTriangle size={15} />
+                  <span>{repositorySearchError}</span>
+                  <button type="button" className="btn btn--secondary btn--capsule btn--sm" onClick={() => void handleRepositorySearch()}>
+                    重新搜索
+                  </button>
+                </div>
+              ) : repositoryResultIsCurrent && repositorySearchResult ? (
+                repositorySearchResult.skills.map((skill) => {
+                  const isSelected = activeRepositorySkill?.name === skill.name
+                  return (
+                    <button
+                      type="button"
+                      key={`${repositorySearchResult.repository}/${skill.name}`}
+                      className={`master-item-row repository-skill-row ${isSelected ? 'is-selected' : ''}`}
+                      onClick={() => setSelectedRepositorySkillName(skill.name)}
+                    >
+                      <div className="master-item-logo">
+                        <GitBranch size={14} style={{ color: 'var(--color-accent)' }} />
+                      </div>
+                      <div className="master-item-content">
+                        <span className="master-item-title">{skill.name}</span>
+                        <span className="master-item-sub">{skill.description || repositorySearchResult.repository}</span>
+                      </div>
+                    </button>
+                  )
+                })
+              ) : (
+                <button type="button" className="repository-search-prompt" onClick={() => void handleRepositorySearch()}>
+                  <GitBranch size={16} />
+                  <span>
+                    <strong>搜索 GitHub 仓库</strong>
+                    <small>{repositoryQuery}</small>
+                  </span>
+                  <ArrowRight size={13} />
+                </button>
+              )
+            ) : filteredRemoteSkills.map((r) => {
+              const isSelected = activeRemoteSkill?.id === r.id
+              return (
+                <div
+                  key={r.id}
+                  className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
+                  onClick={() => setSelectedRemoteSkillId(r.id)}
+                  style={{ padding: '6px 8px', gap: '8px' }}
+                >
+                  <div className="master-item-logo">
+                    <Globe size={15} style={{ color: '#38bdf8' }} />
+                  </div>
+
+                  <span
+                    className="master-item-title"
+                    title={r.name}
+                    style={{
+                      fontSize: '0.8125rem',
+                      fontWeight: isSelected ? 650 : 550,
+                      color: 'var(--color-ink)',
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {r.name}
+                  </span>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </aside>
+
+      {/* Column 3: Detail Canvas */}
+      <section className="app-col-detail view-enter">
+        {skillTab === 'local' ? (
+          activeLocalSkill ? (
+            <div className="detail-stage-wrap">
+              {/* Clean macOS Pro Document Header */}
+              <div className="detail-doc-header">
+                <div className="detail-doc-top-row">
+                  <div className="detail-doc-title-box">
+                    <Folder size={16} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
+                    <h1 className="detail-doc-title">{activeLocalSkill.name}</h1>
+                  </div>
+
+                  <div className="detail-doc-actions">
+                    {/* Interactive Avatar Stack as the Environment Link/Switcher Button */}
+                    {activeLinkedTools.length > 0 ? (
+                      <button
+                        type="button"
+                        className="linked-tools-avatar-btn"
+                        onClick={() => {
+                          if (window.workflowSkill?.openSkillLinkWindow) {
+                            void window.workflowSkill.openSkillLinkWindow(activeLocalSkill.id)
+                          } else {
+                            setLinkModalSkill(activeLocalSkill)
+                          }
+                        }}
+                        title={`已链接到 ${activeLinkedTools.length} 个 AI 环境: ${activeLinkedTools.map((t) => getAIToolDisplayName(t)).join('、')} (点击在新窗口中管理分发树)`}
+                      >
+                        <div className="linked-tools-avatar-stack">
+                          {activeLinkedTools.slice(0, 4).map((tool, idx) => (
+                            <div
+                              key={tool.id}
+                              className="linked-tool-avatar"
+                              style={{ zIndex: 10 + idx }}
+                            >
+                              <AIToolLogo toolId={tool.id} size={18} color />
+                            </div>
+                          ))}
+
+                          {activeLinkedTools.length > 4 ? (
+                            <div className="linked-tool-avatar-more" style={{ zIndex: 20 }}>
+                              +{activeLinkedTools.length - 4}
+                            </div>
+                          ) : null}
+                        </div>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn--capsule-ghost btn--capsule btn--sm"
+                        onClick={() => {
+                          if (window.workflowSkill?.openSkillLinkWindow) {
+                            void window.workflowSkill.openSkillLinkWindow(activeLocalSkill.id)
+                          } else {
+                            setLinkModalSkill(activeLocalSkill)
+                          }
+                        }}
+                        title="在新窗口中设置要链接的 AI 环境"
+                      >
+                        <Link2 size={12} />
+                        <span>链接环境</span>
+                      </button>
+                    )}
+
+                    {/* Delete Button */}
+                    <button
+                      type="button"
+                      className="btn btn--danger btn--capsule btn--sm"
+                      onClick={() => setDeleteModalSkill(activeLocalSkill)}
+                    >
+                      <Trash2 size={12} />
+                      <span>删除</span>
+                    </button>
+                  </div>
+                </div>
+
+                {activeLocalSkill.description ? (
+                  <p className="detail-doc-desc">
+                    {activeLocalSkill.description}
+                  </p>
+                ) : null}
+              </div>
+
+              {/* Pure Document View (Read-Only) */}
+              <div className="skill-doc-wrap">
+                <div className="skill-doc-meta-bar font-mono">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <FileText size={12} style={{ color: 'var(--color-accent)' }} />
+                    <span>SKILL.md</span>
+                  </div>
+                </div>
+
+                <pre className="skill-doc-preview">
+                  {skillMdContent || activeLocalSkill.skillMarkdown || '（无 SKILL.md 内容）'}
+                </pre>
+              </div>
+            </div>
+          ) : (
+            <div className="clean-empty-state">
+              <FolderTree size={30} className="empty-icon-glow" />
+              <h3 className="empty-title">请在左侧列表选择一个 Skill</h3>
+            </div>
+          )
+        ) : (
+          /* Remote Skill Detail View (No Card) */
+          activeRepositorySkill && repositoryResultIsCurrent && repositorySearchResult ? (
+            <div className="detail-stage-wrap repository-result-detail">
+              <div className="detail-doc-header">
+                <div className="detail-doc-top-row">
+                  <div className="detail-doc-title-box">
+                    <GitBranch size={16} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
+                    <h1 className="detail-doc-title">{activeRepositorySkill.name}</h1>
+                    <span className="master-item-mounted-chip font-mono">GitHub</span>
+                  </div>
+                  <div className="detail-doc-actions">
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--capsule btn--sm"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(
+                          `npx skills add ${repositorySearchResult.repository} --skill ${activeRepositorySkill.name}`,
+                        )
+                        notify?.('已复制安装命令')
+                      }}
+                    >
+                      <Copy size={12} />
+                      <span>复制安装命令</span>
+                    </button>
+                  </div>
+                </div>
+                <p className="detail-doc-desc">{activeRepositorySkill.description || '仓库未提供 Skill 描述。'}</p>
+              </div>
+
+              <div className="repository-source-summary">
+                <div className="repository-source-row">
+                  <span>来源仓库</span>
+                  <strong className="font-mono">{repositorySearchResult.repository}</strong>
+                </div>
+                <div className="repository-source-row">
+                  <span>发现方式</span>
+                  <strong className="font-mono">npx skills add --list</strong>
+                </div>
+                <div className="repository-command-preview font-mono">
+                  npx skills add {repositorySearchResult.repository} --skill {activeRepositorySkill.name}
+                </div>
+              </div>
+            </div>
+          ) : activeRemoteSkill ? (
+            <div className="detail-stage-wrap">
+              {/* Clean macOS Pro Document Header */}
+              <div className="detail-doc-header">
+                <div className="detail-doc-top-row">
+                  <div className="detail-doc-title-box">
+                    <Globe size={16} style={{ color: '#38bdf8', flexShrink: 0 }} />
+                    <h1 className="detail-doc-title">{activeRemoteSkill.name}</h1>
+                    <span className="master-item-mounted-chip font-mono" style={{ marginLeft: '4px' }}>
+                      {activeRemoteSkill.verified ? '官方认证' : '社区开源'}
+                    </span>
+                  </div>
+
+                  <div className="detail-doc-actions">
+                    {skills.some((s) => s.id === activeRemoteSkill.id) ? (
+                      <button type="button" className="btn btn--saved btn--capsule btn--sm" disabled>
+                        <Check size={12} />
+                        <span>已安装到本地</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn--primary btn--capsule btn--sm"
+                        onClick={() => void handleInstallRemoteSkill(activeRemoteSkill)}
+                      >
+                        <Download size={12} />
+                        <span>一键安装并挂载</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="detail-doc-desc">
+                  <span>{activeRemoteSkill.description}</span>
+                  <span style={{ margin: '0 6px', opacity: 0.4 }}>|</span>
+                  <span>作者: <strong style={{ color: 'var(--color-ink)' }}>{activeRemoteSkill.author}</strong></span>
+                  <span style={{ margin: '0 4px' }}>·</span>
+                  <span style={{ color: '#f59e0b' }}>★ {activeRemoteSkill.stars}</span>
+                  <span style={{ margin: '0 4px' }}>·</span>
+                  <span>{activeRemoteSkill.downloads} 次安装</span>
+                </div>
+              </div>
+
+              {/* Pure Document Preview (Read-Only) */}
+              <div className="skill-doc-wrap">
+                <div className="skill-doc-meta-bar font-mono">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <FileText size={12} style={{ color: '#38bdf8' }} />
+                    <span>SKILL.md 规则定义</span>
+                  </div>
+                </div>
+
+                <pre className="skill-doc-preview">
+                  {activeRemoteSkill.skillMarkdown}
+                </pre>
+              </div>
+            </div>
+          ) : (
+            <div className="clean-empty-state">
+              <Globe size={30} className="empty-icon-glow" />
+              <h3 className="empty-title">请在左侧列表选择一个远程 Skill</h3>
+            </div>
+          )
+        )}
+
+        <SafeDeleteSkillModal
+          skill={deleteModalSkill}
+          aiTools={installedTools}
+          open={Boolean(deleteModalSkill)}
+          onClose={() => setDeleteModalSkill(null)}
+          onConfirm={onDeleteSkill}
+        />
+
+        <ManageSkillLinksModal
+          skill={linkModalSkill}
+          skills={skills}
+          aiTools={aiTools}
+          open={Boolean(linkModalSkill)}
+          onClose={() => setLinkModalSkill(null)}
+          onToggleLinkTarget={onToggleLinkTarget}
+        />
+      </section>
+    </>
+  )
+}
+
+/* =========================================================================
+   3-Column macOS Pro View: AI Environments Architecture (Column 2 + Column 3)
+   ========================================================================= */
+const getAIToolDisplayName = (tool: AIToolTarget): string => {
+  const id = tool.id.toLowerCase()
+  if (id.includes('agent')) return 'agents'
+  if (id.includes('claude')) return 'Claude Code'
+  if (id.includes('cursor')) return 'Cursor'
+  if (id.includes('gemini') || id.includes('antigravity')) return 'Antigravity'
+  if (id.includes('trae')) return 'Trae'
+  if (id.includes('windsurf')) return 'Windsurf'
+  if (id.includes('roo')) return 'Roo Code'
+  if (id.includes('cline')) return 'Cline'
+  if (id.includes('codex') || id.includes('openai')) return 'Codex'
+  if (id.includes('opencode')) return 'OpenCode'
+  if (id.includes('github') || id.includes('copilot')) return 'GitHub Copilot'
+  return tool.name
+}
+
+const getToolIdFromSource = (source: string): string => {
+  const s = (source || '').toLowerCase()
+  if (s.includes('cursor')) return 'cursor'
+  if (s.includes('claude')) return 'claude'
+  if (s.includes('antigravity') || s.includes('gemini')) return 'antigravity'
+  if (s.includes('trae')) return 'trae'
+  if (s.includes('windsurf')) return 'windsurf'
+  if (s.includes('code') || s.includes('vscode')) return 'vscode'
+  if (s.includes('roo')) return 'roo'
+  if (s.includes('cline')) return 'cline'
+  if (s.includes('opencode')) return 'opencode'
+  return 'agents'
+}
+
+const formatProjectLastOpened = (timestamp: number): string => {
+  if (!timestamp) return '时间未知'
+  const elapsed = Math.max(0, Date.now() - timestamp)
+  const minute = 60 * 1000
+  const hour = 60 * minute
+  const day = 24 * hour
+  if (elapsed < minute) return '刚刚'
+  if (elapsed < hour) return `${Math.floor(elapsed / minute)} 分钟前`
+  if (elapsed < day) return `${Math.floor(elapsed / hour)} 小时前`
+  if (elapsed < 7 * day) return `${Math.floor(elapsed / day)} 天前`
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(timestamp)
+}
+
+function AIEnvironmentsThreeColumn({
+  aiTools,
+  skills,
+  selectedEnvId,
+  onSelectEnvId,
+  onDetectTools,
+  onToggleLinkTarget,
+  onBulkLink,
+  onBulkUnlink,
+  notify,
+}: {
+  aiTools: AIToolTarget[]
+  skills: Skill[]
+  selectedEnvId: string
+  onSelectEnvId: (id: string) => void
+  onDetectTools: () => void
+  onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
+  onBulkLink: (targetId: string) => Promise<void>
+  onBulkUnlink: (targetId: string) => Promise<void>
+  notify?: (msg: string) => void
+}) {
+  const { t } = useI18n()
+  const [envTab, setEnvTab] = useState<'global' | 'project'>('global')
+  const [query, setQuery] = useState('')
+  const [skillSearchQuery, setSkillSearchQuery] = useState('')
+  const [projects, setProjects] = useState<AIProjectItem[]>([])
+  const [selectedProjectPath, setSelectedProjectPath] = useState<string>('')
+  const [projectsLoading, setProjectsLoading] = useState(false)
+  const [projectsError, setProjectsError] = useState('')
+
+  const loadProjects = async () => {
+    if (!window.workflowSkill?.getAIProjects) {
+      setProjectsError('当前运行环境不支持本地项目扫描')
+      return
+    }
+    setProjectsLoading(true)
+    setProjectsError('')
+    try {
+      const list = await window.workflowSkill.getAIProjects()
+      const nextProjects = Array.isArray(list) ? list : []
+      setProjects(nextProjects)
+      setSelectedProjectPath((currentPath) => {
+        if (nextProjects.some((project) => project.path === currentPath)) return currentPath
+        return nextProjects[0]?.path || ''
+      })
+    } catch {
+      setProjectsError('无法读取本地 AI 工具的项目记录')
+    } finally {
+      setProjectsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (envTab === 'project') void loadProjects()
+  }, [envTab])
+
+  // Filter global tools
+  const filteredTools = useMemo(() => {
+    const scopeTools = aiTools.filter((t) => (t.scope || 'global') === 'global')
+    const list = scopeTools.filter((t) => t.installed)
+    const q = query.trim().toLowerCase()
+    if (!q) return list
+    return list.filter((tool) => {
+      const displayName = getAIToolDisplayName(tool).toLowerCase()
+      const searchStr = `${displayName} ${tool.name} ${tool.description || ''} ${tool.defaultDir} ${tool.category}`.toLowerCase()
+      return searchStr.includes(q)
+    })
+  }, [aiTools, query])
+
+  // Filter projects
+  const filteredProjects = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return projects
+    return projects.filter((p) => {
+      const searchStr = `${p.name} ${p.path} ${p.sources.join(' ')}`.toLowerCase()
+      return searchStr.includes(q)
+    })
+  }, [projects, query])
+
+  // Active Global Tool
+  const activeTool = useMemo(() => {
+    return filteredTools.find((t) => t.id === selectedEnvId) || filteredTools[0] || null
+  }, [filteredTools, selectedEnvId])
+
+  // Active Project
+  const activeProject = useMemo(() => {
+    return filteredProjects.find((p) => p.path === selectedProjectPath) || filteredProjects[0] || null
+  }, [filteredProjects, selectedProjectPath])
+
+  const handleOpenToolDir = (targetPath: string) => {
+    if (window.workflowSkill?.openPathInFinder) {
+      void window.workflowSkill.openPathInFinder(targetPath)
+    }
+  }
+
+  const handleToggleProjectSkill = async (skill: Skill, projectPath: string) => {
+    const isLinked = Boolean(skill.targetProjects?.includes(projectPath))
+    if (isLinked) {
+      if (window.workflowSkill?.unlinkSkillProject) {
+        await window.workflowSkill.unlinkSkillProject(skill.id, projectPath)
+        onDetectTools()
+        notify?.(`已从项目解绑 ${skill.name}`)
+      }
+    } else {
+      if (window.workflowSkill?.linkSkillProject) {
+        await window.workflowSkill.linkSkillProject(skill.id, projectPath)
+        onDetectTools()
+        notify?.(`已将 ${skill.name} 挂载至项目`)
+      }
+    }
+  }
+
+  const handleBulkLinkProject = async (projectPath: string) => {
+    if (window.workflowSkill?.linkAllSkillsToProject) {
+      const res = await window.workflowSkill.linkAllSkillsToProject(projectPath)
+      if (res.success) {
+        onDetectTools()
+        notify?.(`已成功挂载 ${res.count} 个 Skill 到项目`)
+      }
+    }
+  }
+
+  const handleBulkUnlinkProject = async (projectPath: string) => {
+    if (window.workflowSkill?.unlinkAllSkillsFromProject) {
+      const res = await window.workflowSkill.unlinkAllSkillsFromProject(projectPath)
+      if (res.success) {
+        onDetectTools()
+        notify?.(`已清空项目中的全部 Skill 软链`)
+      }
+    }
+  }
+
+  const activeMountedSkills = useMemo(() => {
+    if (!activeTool) return []
+    return skills.filter((s) => s.targetTools?.includes(activeTool.id))
+  }, [skills, activeTool])
+
+  const activeProjectMountedSkills = useMemo(() => {
+    if (!activeProject) return []
+    return skills.filter((s) => s.targetProjects?.includes(activeProject.path))
+  }, [skills, activeProject])
+
+  const filteredProjectMountedSkills = useMemo(() => {
+    const q = skillSearchQuery.trim().toLowerCase()
+    if (!q) return activeProjectMountedSkills
+    return activeProjectMountedSkills.filter((s) => {
+      const searchStr = `${s.name} ${s.description} ${(s.tags || []).join(' ')}`.toLowerCase()
+      return searchStr.includes(q)
+    })
+  }, [activeProjectMountedSkills, skillSearchQuery])
+
+  const filteredMountedTableSkills = useMemo(() => {
+    const q = skillSearchQuery.trim().toLowerCase()
+    if (!q) return skills
+    return skills.filter((s) => {
+      const searchStr = `${s.name} ${s.description} ${(s.tags || []).join(' ')}`.toLowerCase()
+      return searchStr.includes(q)
+    })
+  }, [skills, skillSearchQuery])
+
+  return (
+    <>
+      {/* Column 2: Master List (Global AI Environments or Scanned AI Projects) */}
+      <aside className="app-col-master view-enter">
+        <div className="master-header">
+          <div className="master-header-top">
+            <div className="master-tab-segmented">
+              <button
+                type="button"
+                className={`master-tab-btn ${envTab === 'global' ? 'is-active' : ''}`}
+                onClick={() => {
+                  setEnvTab('global')
+                  setQuery('')
+                }}
+              >
+                <span>全局</span>
+              </button>
+              <button
+                type="button"
+                className={`master-tab-btn ${envTab === 'project' ? 'is-active' : ''}`}
+                onClick={() => {
+                  setQuery('')
+                  if (envTab === 'project') void loadProjects()
+                  setEnvTab('project')
+                }}
+              >
+                <span>项目</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="master-search-row">
+            <label className="master-search-input">
+              <Search size={13} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={envTab === 'global' ? '搜索全局 AI 目录…' : '搜索 AI 工具项目…'}
+              />
+              {query ? (
+                <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
+                  <X size={12} />
+                </button>
+              ) : null}
+            </label>
+          </div>
+        </div>
+
+        <div className="master-list-scroll">
+          {envTab === 'global' ? (
+            /* Mode 1: Global AI Tools */
+            filteredTools.map((tool) => {
+              const isSelected = activeTool?.id === tool.id
+              const displayName = getAIToolDisplayName(tool)
+              return (
+                <div
+                  key={tool.id}
+                  className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
+                  onClick={() => onSelectEnvId(tool.id)}
+                  style={{ padding: '6px 8px', gap: '8px' }}
+                >
+                  <div className="master-item-logo">
+                    <AIToolLogo toolId={tool.id} size={15} color />
+                  </div>
+
+                  <span
+                    className="master-item-title"
+                    style={{
+                      fontSize: '0.8125rem',
+                      fontWeight: isSelected ? 650 : 550,
+                      color: 'var(--color-ink)',
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {displayName}
+                  </span>
+                </div>
+              )
+            })
+          ) : (
+            /* Mode 2: AI Opened / Scanned Projects */
+            projectsLoading && projects.length === 0 ? (
+              <div className="master-list-status" role="status">
+                <RefreshCw size={15} className="master-list-status__spinner" />
+                <span>正在读取 AI 工具项目…</span>
+              </div>
+            ) : projectsError && projects.length === 0 ? (
+              <div className="master-list-status">
+                <AlertTriangle size={15} />
+                <span>{projectsError}</span>
+                <button type="button" className="btn btn--capsule-ghost btn--capsule btn--sm" onClick={() => void loadProjects()}>
+                  <RefreshCw size={11} />
+                  <span>重新扫描</span>
+                </button>
+              </div>
+            ) : filteredProjects.length === 0 ? (
+              <div className="master-list-status">
+                <FolderOpen size={15} />
+                <span>{query ? '没有匹配的项目' : '暂未发现 AI 工具打开过的项目'}</span>
+                {!query ? (
+                  <button type="button" className="btn btn--capsule-ghost btn--capsule btn--sm" onClick={() => void loadProjects()}>
+                    <RefreshCw size={11} />
+                    <span>重新扫描</span>
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              filteredProjects.map((proj) => {
+                const isSelected = activeProject?.path === proj.path
+                return (
+                  <div
+                    key={proj.path}
+                    className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
+                    onClick={() => setSelectedProjectPath(proj.path)}
+                    style={{ padding: '6px 8px', gap: '8px' }}
+                    title={`${proj.path}\n最近打开：${formatProjectLastOpened(proj.lastOpenedAt)}`}
+                  >
+                    <div className="master-item-logo">
+                      <Folder size={14} style={{ color: isSelected ? 'var(--color-accent)' : 'var(--color-muted)' }} />
+                    </div>
+
+                    <span
+                      className="master-item-title"
+                      style={{
+                        fontSize: '0.8125rem',
+                        fontWeight: isSelected ? 650 : 550,
+                        color: 'var(--color-ink)',
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {proj.name}
+                    </span>
+
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+                      {proj.sources.slice(0, 3).map((src) => (
+                        <span
+                          key={src}
+                          className="env-source-logo-chip"
+                          style={{ width: '16px', height: '16px' }}
+                          title={`在 ${src} 中打开过`}
+                        >
+                          <AIToolLogo toolId={getToolIdFromSource(src)} size={11} />
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })
+            )
+          )}
+        </div>
+      </aside>
+
+      {/* Column 3: Detail Stage (Selected Global Tool or Selected Project) */}
+      <section className="app-col-detail view-enter">
+        {envTab === 'global' && activeTool ? (
+          /* Global AI Tool Stage */
+          <div className="detail-stage-wrap">
+            <div className="detail-hero-header">
+              <div className="detail-hero-left">
+                <div className="detail-hero-logo">
+                  <AIToolLogo toolId={activeTool.id} size={22} color />
+                </div>
+
+                <div className="detail-hero-titles">
+                  <div className="detail-hero-title-row">
+                    <h1 className="detail-hero-name">{getAIToolDisplayName(activeTool)}</h1>
+                    <span className="pinned-ver-pill font-mono">全局环境</span>
+                  </div>
+                  <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span title={activeTool.detectedPath || activeTool.defaultDir}>
+                      {activeTool.detectedPath || activeTool.defaultDir}
+                    </span>
+                    <span>·</span>
+                    <span style={{ color: '#10b981' }}>已就绪</span>
+                    <span>·</span>
+                    <span>{activeMountedSkills.length} 个已挂载</span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="detail-hero-right">
+                {activeMountedSkills.length === skills.length && skills.length > 0 ? (
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--capsule btn--sm"
+                    onClick={() => void onBulkUnlink(activeTool.id)}
+                  >
+                    <Unlink size={12} />
+                    <span>清空此环境软链</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--capsule btn--sm"
+                    onClick={() => void onBulkLink(activeTool.id)}
+                  >
+                    <Link2 size={12} />
+                    <span>一键挂载全部 Skill</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="btn btn--capsule-ghost btn--capsule btn--sm"
+                  onClick={() => handleOpenToolDir(activeTool.detectedPath || activeTool.defaultDir)}
+                >
+                  <ExternalLink size={12} />
+                  <span>打开目录</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Global Tool Skills Table */}
+            <div className="detail-section-card" style={{ flex: 1, padding: '12px 14px' }}>
+              <div className="detail-section-card-title" style={{ marginBottom: '6px' }}>
+                <span>
+                  Skill 资产挂载列表 ({activeMountedSkills.length} / {skills.length})
+                </span>
+                <label className="master-search-input" style={{ width: '220px', height: '26px' }}>
+                  <Search size={12} />
+                  <input
+                    value={skillSearchQuery}
+                    onChange={(e) => setSkillSearchQuery(e.target.value)}
+                    placeholder="搜索 Skill…"
+                  />
+                  {skillSearchQuery ? (
+                    <button type="button" className="clear-search-btn" onClick={() => setSkillSearchQuery('')}>
+                      <X size={10} />
+                    </button>
+                  ) : null}
+                </label>
+              </div>
+
+              <div className="detail-skills-table">
+                {filteredMountedTableSkills.map((sk) => {
+                  const isLinked = Boolean(sk.targetTools?.includes(activeTool.id))
+                  return (
+                    <div key={sk.id} className={`detail-skill-row ${isLinked ? 'is-linked' : ''}`}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                        <div
+                          style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '6px',
+                            background: isLinked ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Folder size={14} style={{ color: isLinked ? '#10b981' : 'var(--color-accent)' }} />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, gap: '1px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '0.8125rem', fontWeight: 650, color: 'var(--color-ink)' }}>
+                              {sk.name}
+                            </span>
+                            {sk.tags?.slice(0, 3).map((t) => (
+                              <span key={t} className="skill-tag-pill font-mono" style={{ fontSize: '0.5625rem' }}>
+                                #{t}
+                              </span>
+                            ))}
+                          </div>
+                          <span
+                            style={{
+                              fontSize: '0.6875rem',
+                              color: 'var(--color-muted)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {sk.description || '无详细描述'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className={`btn btn--capsule btn--sm ${isLinked ? 'btn--secondary' : 'btn--primary'}`}
+                        style={{ padding: '2px 10px', fontSize: '0.6875rem', flexShrink: 0 }}
+                        onClick={() => void onToggleLinkTarget(sk, activeTool.id)}
+                      >
+                        {isLinked ? <Unlink size={10} /> : <Link2 size={10} />}
+                        <span>{isLinked ? '清除软链' : '挂载到此环境'}</span>
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        ) : envTab === 'project' && activeProject ? (
+          /* Project Workspace Stage */
+          <div className="detail-stage-wrap">
+            <div className="detail-hero-header">
+              <div className="detail-hero-left">
+                <div className="detail-hero-titles">
+                  <div className="detail-hero-title-row">
+                    <h1 className="detail-hero-name">{activeProject.name}</h1>
+                    <span className="pinned-ver-pill font-mono">项目工作区</span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: '4px' }}>
+                      {activeProject.sources.map((src) => (
+                        <span key={src} className="env-source-logo-chip" title={`在 ${src} 中打开过`}>
+                          <AIToolLogo toolId={getToolIdFromSource(src)} size={12} />
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                    <span title={activeProject.path}>{activeProject.path}</span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="detail-hero-right">
+                {activeProjectMountedSkills.length === skills.length && skills.length > 0 ? (
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--capsule btn--sm"
+                    onClick={() => void handleBulkUnlinkProject(activeProject.path)}
+                  >
+                    <Unlink size={12} />
+                    <span>清空此项目软链</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--capsule btn--sm"
+                    onClick={() => void handleBulkLinkProject(activeProject.path)}
+                  >
+                    <Link2 size={12} />
+                    <span>一键挂载全部 Skill</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="btn btn--capsule-ghost btn--capsule btn--sm"
+                  onClick={() => handleOpenToolDir(activeProject.path)}
+                >
+                  <ExternalLink size={12} />
+                  <span>打开项目</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Project Skills Table - Only show skills mounted in this project */}
+            <div className="detail-section-card" style={{ flex: 1, padding: '12px 14px' }}>
+              <div className="detail-section-card-title" style={{ marginBottom: '6px' }}>
+                <span>
+                  项目 Skill 列表 ({filteredProjectMountedSkills.length})
+                </span>
+                <label className="master-search-input" style={{ width: '220px', height: '26px' }}>
+                  <Search size={12} />
+                  <input
+                    value={skillSearchQuery}
+                    onChange={(e) => setSkillSearchQuery(e.target.value)}
+                    placeholder="搜索 Skill…"
+                  />
+                  {skillSearchQuery ? (
+                    <button type="button" className="clear-search-btn" onClick={() => setSkillSearchQuery('')}>
+                      <X size={10} />
+                    </button>
+                  ) : null}
+                </label>
+              </div>
+
+              <div className="detail-skills-table">
+                {filteredProjectMountedSkills.length > 0 ? (
+                  filteredProjectMountedSkills.map((sk) => {
+                    return (
+                      <div key={sk.id} className="detail-skill-row is-linked">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                          <div
+                            style={{
+                              width: '24px',
+                              height: '24px',
+                              borderRadius: '6px',
+                              background: 'rgba(16, 185, 129, 0.12)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Folder size={14} style={{ color: '#10b981' }} />
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, gap: '1px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.8125rem', fontWeight: 650, color: 'var(--color-ink)' }}>
+                                {sk.name}
+                              </span>
+                              {sk.tags?.slice(0, 3).map((t) => (
+                                <span key={t} className="skill-tag-pill font-mono" style={{ fontSize: '0.5625rem' }}>
+                                  #{t}
+                                </span>
+                              ))}
+                            </div>
+                            <span
+                              style={{
+                                fontSize: '0.6875rem',
+                                color: 'var(--color-muted)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {sk.description || '无详细描述'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn btn--capsule btn--sm btn--secondary"
+                          style={{ padding: '2px 10px', fontSize: '0.6875rem', flexShrink: 0 }}
+                          onClick={() => void handleToggleProjectSkill(sk, activeProject.path)}
+                          title="从当前项目中清除软链"
+                        >
+                          <Unlink size={10} />
+                          <span>清除软链</span>
+                        </button>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--color-muted)' }}>
+                    <p style={{ fontSize: '0.8125rem', margin: '0 0 10px 0' }}>当前项目暂未挂载任何 Skill</p>
+                    {skills.length > 0 ? (
+                      <button
+                        type="button"
+                        className="btn btn--capsule btn--primary btn--sm"
+                        onClick={() => void handleBulkLinkProject(activeProject.path)}
+                      >
+                        <Link2 size={11} />
+                        <span>一键挂载全部 Skill</span>
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="clean-empty-state">
+            {projectsLoading ? <RefreshCw size={30} className="empty-icon-glow master-list-status__spinner" /> : <FolderTree size={30} className="empty-icon-glow" />}
+            <h3 className="empty-title">
+              {envTab === 'project'
+                ? projectsLoading
+                  ? '正在扫描本地 AI 工具项目'
+                  : query
+                    ? '没有匹配的项目'
+                    : '暂未发现 AI 工具打开过的项目'
+                : '请在中间列表选择一个 AI 目录环境'}
+            </h3>
+            {envTab === 'project' && !projectsLoading ? (
+              <p className="empty-desc">
+                {projectsError || '打开 Cursor、Claude Code、Codex、Antigravity 等工具中的项目后重新扫描。'}
+              </p>
+            ) : null}
+          </div>
+        )}
+      </section>
+    </>
+  )
+}
+
+/* =========================================================================
+   3-Column macOS Pro View: Workflows Architecture (Column 2 + Column 3)
+   ========================================================================= */
+function captureEventApp(event: CaptureEvent) {
+  return event.applicationName || event.applicationId?.split('.').pop() || 'System'
+}
+
+function captureEventLabel(event: CaptureEvent, isZh: boolean) {
+  if (event.eventType === 'browser-navigation') return isZh ? '打开网页' : 'Opened page'
+  if (event.eventType === 'browser-click') return isZh ? '点击网页元素' : 'Clicked page element'
+  if (event.eventType === 'browser-change') return isZh ? '修改表单字段' : 'Changed form field'
+  if (event.eventType === 'browser-submit') return isZh ? '提交网页表单' : 'Submitted web form'
+  if (event.eventType === 'network-request') {
+    return isZh
+      ? `发起 ${event.network?.method || 'HTTP'} 请求`
+      : `Sent ${event.network?.method || 'HTTP'} request`
+  }
+  if (event.eventType === 'network-response') {
+    return isZh
+      ? `收到 ${event.network?.status || 'HTTP'} 响应`
+      : `Received ${event.network?.status || 'HTTP'} response`
+  }
+  if (event.eventType === 'application-activated') return isZh ? '切换前台应用' : 'Switched active app'
+  if (event.eventType === 'scroll') return isZh ? '滚动界面' : 'Scrolled interface'
+  if (event.eventType === 'key-down') {
+    return event.modifiers ? (isZh ? '使用键盘或快捷键' : 'Used keyboard or shortcut') : (isZh ? '键盘输入' : 'Keyboard input')
+  }
+  if (event.eventType === 'mouse-right-down') return isZh ? '右键点击' : 'Right click'
+  if (event.eventType === 'mouse-other-down') return isZh ? '辅助键点击' : 'Auxiliary click'
+  if (event.eventType === 'mouse-left-down') {
+    return Number(event.attributes.clickState) >= 2 ? (isZh ? '双击界面元素' : 'Double clicked element') : (isZh ? '点击界面元素' : 'Clicked interface element')
+  }
+  return event.eventType
+}
+
+function workflowSkillMarkdown(workflow: Workflow, isZh: boolean) {
+  const oneLine = (value: string) => value.replace(/\r?\n/g, ' ').trim()
+  const apps = Array.from(new Set(workflow.nodes.map((node) => node.app).filter(Boolean)))
+  const description = oneLine(workflow.summary || workflow.name)
+  const steps = workflow.nodes.map((node, index) => {
+    const app = node.app ? ` — ${oneLine(node.app)}` : ''
+    const detail = node.detail?.trim()
+    const http = node.http
+      ? `\n   - HTTP: \`${oneLine(node.http.method)} ${oneLine(node.http.url)}\``
+        + `\n   - Headers: \`${oneLine(JSON.stringify(node.http.headers))}\``
+        + (node.http.body ? `\n   - Body: \`${oneLine(node.http.body)}\`` : '')
+        + (node.http.expectedStatus ? `\n   - Expected status: \`${node.http.expectedStatus}\`` : '')
+      : ''
+    return `${index + 1}. **${oneLine(node.label)}**${app}${detail ? `\n   - ${oneLine(detail)}` : ''}${http}`
+  }).join('\n')
+
+  if (isZh) {
+    return `---
+name: ${workflow.id}
+description: ${JSON.stringify(description)}
+tools: ${JSON.stringify(apps.length > 0 ? apps : ['System'])}
+version: 1.0.0
+---
+
+# ${oneLine(workflow.name)}
+
+${description}
+
+## 执行步骤
+
+${steps}
+
+## 执行原则
+
+- 严格按上述顺序执行；等待步骤完成后再进入下一步。
+- 若目标应用、控件或必要上下文缺失，先向用户确认，不要猜测。
+- 不记录或复述密码、令牌及其他敏感输入内容。
+`
+  }
+
+  return `---
+name: ${workflow.id}
+description: ${JSON.stringify(description)}
+tools: ${JSON.stringify(apps.length > 0 ? apps : ['System'])}
+version: 1.0.0
+---
+
+# ${oneLine(workflow.name)}
+
+${description}
+
+## Workflow Steps
+
+${steps}
+
+## Execution Rules
+
+- Follow the steps in order and wait for each wait step before continuing.
+- If a target app, control, or required context is missing, ask the user instead of guessing.
+- Never record or repeat passwords, tokens, or other sensitive input content.
+`
+}
+
+function captureTargetLabel(event: CaptureEvent, isZh: boolean) {
+  if (event.network) {
+    try {
+      const url = new URL(event.network.url)
+      return `${event.network.method} ${url.host}${url.pathname}`
+    } catch {
+      return `${event.network.method} ${event.network.url}`
+    }
+  }
+  if (event.eventType === 'browser-navigation' && event.page?.url) {
+    try {
+      const url = new URL(event.page.url)
+      return `${url.host}${url.pathname}`
+    } catch {
+      return event.page.url
+    }
+  }
+  const role = event.target?.subrole || event.target?.role
+  if (!role) return isZh ? '未识别界面元素' : 'Unidentified interface element'
+  return role.replace(/^AX/, '').replace(/^ControlType\./, '').replace(/([a-z])([A-Z])/g, '$1 $2')
+}
+
+function CaptureEventGlyph({ event, size = 14 }: { event: CaptureEvent; size?: number }) {
+  if (event.source?.startsWith('browser')) return <Globe size={size} />
+  if (event.eventType === 'application-activated') return <AppWindow size={size} />
+  if (event.eventType === 'scroll') return <MoveVertical size={size} />
+  if (event.eventType === 'key-down') return <Keyboard size={size} />
+  if (event.eventType.startsWith('mouse-')) return <MousePointer2 size={size} />
+  return <CircleDot size={size} />
+}
+
+function WorkflowsThreeColumn({
+  items,
+  savedMap,
+  selectedWorkflowId,
+  onSelectWorkflowId,
+  onSaveSkill,
+  observing,
+  recorderStatus,
+  browserCaptureStatus,
+  recentEvents,
+  captureSessionId,
+  onToggleCapture,
+  onUpdateWorkflow,
+  onExportCode,
+  notify,
+}: {
+  items: Workflow[]
+  savedMap: Record<string, boolean>
+  selectedWorkflowId: string
+  onSelectWorkflowId: (id: string) => void
+  onSaveSkill: (workflow: Workflow) => void
+  observing: boolean
+  recorderStatus?: RecorderStatus
+  browserCaptureStatus?: BrowserCaptureStatus
+  recentEvents: CaptureEvent[]
+  captureSessionId: string
+  onToggleCapture: () => void
+  onUpdateWorkflow: (workflow: Workflow) => Promise<boolean>
+  onExportCode: (workflow: Workflow, name: string) => void
+  notify?: (msg: string) => void
+}) {
+  const { t, resolvedLocale } = useI18n()
+  const [query, setQuery] = useState('')
+  const [masterMode, setMasterMode] = useState<'workflows' | 'events'>('workflows')
+  const [selectedEventId, setSelectedEventId] = useState('')
+  const [draft, setDraft] = useState<Workflow | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState('')
+  const [detailTab, setDetailTab] = useState<'graph' | 'steps' | 'skill'>('graph')
+  const [saving, setSaving] = useState(false)
+  const wasObservingRef = useRef(observing)
+  const activeWorkflowIdRef = useRef('')
+  const isZh = resolvedLocale === 'zh-CN'
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return items
+    return items.filter((i) => {
+      const searchStr = `${i.name} ${i.summary || ''}`.toLowerCase()
+      return searchStr.includes(q)
+    })
+  }, [items, query])
+
+  const activeWf = useMemo(() => {
+    return filtered.find((w) => w.id === selectedWorkflowId) || filtered[0] || null
+  }, [filtered, selectedWorkflowId])
+
+  const filteredEvents = useMemo(() => {
+    const sessionEvents = captureSessionId
+      ? recentEvents.filter((event) => event.sessionId === captureSessionId)
+      : []
+    const q = query.trim().toLowerCase()
+    if (!q) return sessionEvents
+    return sessionEvents.filter((event) => {
+      const search = [
+        captureEventApp(event),
+        captureEventLabel(event, isZh),
+        event.eventType,
+        event.target?.role,
+        event.target?.subrole,
+        event.target?.identifier,
+        event.page?.url,
+        event.network?.method,
+        event.network?.url,
+        event.network?.status,
+      ].filter(Boolean).join(' ').toLowerCase()
+      return search.includes(q)
+    })
+  }, [recentEvents, captureSessionId, query, isZh])
+
+  const activeEvent = useMemo(() => (
+    filteredEvents.find((event) => event.id === selectedEventId) || filteredEvents[0] || null
+  ), [filteredEvents, selectedEventId])
+
+  const selectMasterMode = (mode: 'workflows' | 'events') => {
+    setMasterMode(mode)
+    setQuery('')
+  }
+
+  useEffect(() => {
+    if (observing) {
+      setMasterMode('events')
+      setQuery('')
+    } else if (wasObservingRef.current) {
+      setMasterMode('workflows')
+      setQuery('')
+    }
+    wasObservingRef.current = observing
+  }, [observing])
+
+  useEffect(() => {
+    if (!activeWf) {
+      setDraft(null)
+      setSelectedNodeId('')
+      activeWorkflowIdRef.current = ''
+      return
+    }
+    if (activeWorkflowIdRef.current !== activeWf.id) {
+      activeWorkflowIdRef.current = activeWf.id
+      setDetailTab('graph')
+    }
+    setDraft({
+      ...activeWf,
+      nodes: activeWf.nodes.map((node) => ({ ...node })),
+      edges: activeWf.edges.map((edge) => ({ ...edge })),
+      capture: activeWf.capture ? { ...activeWf.capture, sessionIds: [...activeWf.capture.sessionIds] } : undefined,
+    })
+    setSelectedNodeId(activeWf.nodes[0]?.id || '')
+  }, [activeWf])
+
+  const isDirty = Boolean(draft && activeWf && JSON.stringify(draft) !== JSON.stringify(activeWf))
+  const selectedNode = draft?.nodes.find((node) => node.id === selectedNodeId) || null
+  const skillPreview = useMemo(
+    () => draft ? workflowSkillMarkdown(draft, isZh) : '',
+    [draft, isZh],
+  )
+
+  const updateDraftNode = (changes: Partial<WorkflowNode>) => {
+    setDraft((current) => current ? {
+      ...current,
+      nodes: current.nodes.map((node) => node.id === selectedNodeId ? { ...node, ...changes } : node),
+    } : current)
+  }
+
+  const rebuildLinearEdges = (nodes: WorkflowNode[]) => (
+    nodes.slice(1).map((node, index) => ({ from: nodes[index].id, to: node.id }))
+  )
+
+  const moveSelectedNode = (offset: -1 | 1) => {
+    setDraft((current) => {
+      if (!current) return current
+      const index = current.nodes.findIndex((node) => node.id === selectedNodeId)
+      const nextIndex = index + offset
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.nodes.length) return current
+      const nodes = [...current.nodes]
+      const [node] = nodes.splice(index, 1)
+      nodes.splice(nextIndex, 0, node)
+      return { ...current, nodes, edges: rebuildLinearEdges(nodes) }
+    })
+  }
+
+  const deleteSelectedNode = () => {
+    setDraft((current) => {
+      if (!current || current.nodes.length <= 1) return current
+      const index = current.nodes.findIndex((node) => node.id === selectedNodeId)
+      const nodes = current.nodes.filter((node) => node.id !== selectedNodeId)
+      setSelectedNodeId(nodes[Math.min(Math.max(index, 0), nodes.length - 1)]?.id || '')
+      return { ...current, nodes, edges: rebuildLinearEdges(nodes) }
+    })
+  }
+
+  const addStep = () => {
+    setDetailTab('steps')
+    setDraft((current) => {
+      if (!current) return current
+      const node: WorkflowNode = {
+        id: `node-${Date.now()}`,
+        label: isZh ? '新步骤' : 'New step',
+        detail: '',
+        kind: 'action',
+        confidence: 100,
+      }
+      const nodes = [...current.nodes, node]
+      setSelectedNodeId(node.id)
+      return { ...current, nodes, edges: rebuildLinearEdges(nodes) }
+    })
+  }
+
+  const saveDraft = async () => {
+    if (!draft || !draft.name.trim()) return false
+    setSaving(true)
+    try {
+      const next = { ...draft, name: draft.name.trim(), summary: draft.summary?.trim() }
+      const saved = await onUpdateWorkflow(next)
+      if (saved) notify?.(t.workflows.savedChanges)
+      return saved
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveAsSkill = async () => {
+    if (!draft) return
+    if (isDirty && !(await saveDraft())) return
+    onSaveSkill(draft)
+  }
+
+  const copySkillPreview = async () => {
+    if (!skillPreview) return
+    try {
+      await navigator.clipboard.writeText(skillPreview)
+      notify?.(t.detail.copiedToast)
+    } catch {
+      notify?.(t.toast.nativeNotReady)
+    }
+  }
+
+  return (
+    <>
+      {/* Column 2: Master List of Discovered Workflows */}
+      <aside className="app-col-master view-enter">
+        <div className="master-header">
+          <div className="master-header-top">
+            <div className="master-tab-segmented workflow-master-tabs" role="tablist" aria-label={t.workflows.title}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={masterMode === 'workflows'}
+                className={`master-tab-btn ${masterMode === 'workflows' ? 'is-active' : ''}`}
+                onClick={() => selectMasterMode('workflows')}
+              >
+                {t.workflows.tabPatterns}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={masterMode === 'events'}
+                className={`master-tab-btn ${masterMode === 'events' ? 'is-active' : ''}`}
+                onClick={() => selectMasterMode('events')}
+              >
+                {t.workflows.tabEvents}
+              </button>
+            </div>
+            <span className={`capture-master-state ${observing ? 'is-live' : 'is-paused'}`} title={observing ? t.workflows.eventStreamLive : t.workflows.eventStreamPaused}>
+              <span className="capture-master-state__dot" />
+            </span>
+          </div>
+          <div className="master-search-row">
+            <label className="master-search-input">
+              <Search size={13} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={masterMode === 'workflows'
+                  ? t.workflows.searchPatternsPlaceholder
+                  : t.workflows.searchEventsPlaceholder}
+              />
+              {query ? (
+                <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
+                  <X size={12} />
+                </button>
+              ) : null}
+            </label>
+          </div>
+        </div>
+
+        <div className="master-list-scroll">
+          {masterMode === 'workflows' ? filtered.map((wf) => {
+            const isSelected = activeWf?.id === wf.id
+            const isSaved = Boolean(savedMap[wf.id])
+            return (
+              <div
+                key={wf.id}
+                className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
+                onClick={() => onSelectWorkflowId(wf.id)}
+              >
+                <div className="master-item-logo">
+                  <WorkflowIcon size={16} style={{ color: 'var(--color-accent)' }} />
+                </div>
+                <div className="master-item-content">
+                  <div className="master-item-title-row">
+                    <span className="master-item-title">{wf.name}</span>
+                    {isSaved ? <Bookmark size={11} style={{ color: '#10b981' }} /> : null}
+                  </div>
+                  <span className="master-item-sub">{wf.summary || '已捕获操作流'}</span>
+                  <div className="master-item-meta-row">
+                    <span className="master-item-badge font-mono">{t.workflows.stepCount(wf.nodes.length)}</span>
+                    <span className="master-item-mounted-chip font-mono">
+                      {isSaved ? t.workflows.savedAsSkill : t.workflows.singleCapture}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )
+          }) : filteredEvents.length > 0 ? filteredEvents.map((event) => {
+            const isSelected = activeEvent?.id === event.id
+            const occurredAt = new Date(event.occurredAt)
+            return (
+              <button
+                type="button"
+                key={event.id}
+                className={`capture-event-row ${isSelected ? 'is-selected' : ''}`}
+                onClick={() => setSelectedEventId(event.id)}
+              >
+                <span className="capture-event-glyph" aria-hidden="true">
+                  <CaptureEventGlyph event={event} />
+                </span>
+                <span className="capture-event-row__body">
+                  <span className="capture-event-row__top">
+                    <strong>{captureEventLabel(event, isZh)}</strong>
+                    <time dateTime={event.occurredAt}>
+                      {Number.isNaN(occurredAt.getTime()) ? '' : occurredAt.toLocaleTimeString(resolvedLocale, {
+                        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+                      })}
+                    </time>
+                  </span>
+                  <span className="capture-event-row__meta">
+                    <span>{captureEventApp(event)}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{captureTargetLabel(event, isZh)}</span>
+                  </span>
+                </span>
+              </button>
+            )
+          }) : (
+            <div className="master-list-status capture-events-empty">
+              <Activity size={16} />
+              <span>{query ? (isZh ? '没有匹配的行为' : 'No matching actions') : t.workflows.eventEmptyTitle}</span>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* Column 3: Detail Canvas of Selected Workflow */}
+      <section className="app-col-detail view-enter">
+        {masterMode === 'events' ? (
+          <div className="detail-stage-wrap capture-listener-stage">
+            <header className="capture-listener-header">
+              <div className="capture-listener-title-group">
+                <span className={`capture-listener-orb ${observing ? 'is-live' : 'is-paused'}`} aria-hidden="true">
+                  <Activity size={15} />
+                </span>
+                <div>
+                  <div className="capture-listener-title-row">
+                    <h1>{observing ? t.workflows.captureActiveTitle : t.workflows.captureIdleTitle}</h1>
+                    <span className={`capture-state-label ${observing ? 'is-live' : 'is-paused'}`}>
+                      <span className="capture-state-label__dot" />
+                      {observing ? t.workflows.eventStreamLive : t.workflows.eventStreamPaused}
+                    </span>
+                  </div>
+                  <p>{observing ? t.workflows.captureActiveDesc : t.workflows.captureIdleDesc}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className={`btn btn--capsule btn--sm ${observing ? 'capture-finish-btn' : 'btn--primary'}`}
+                onClick={onToggleCapture}
+              >
+                {observing ? <Check size={12} /> : <Play size={12} />}
+                <span>{observing ? t.workflows.capturePause : t.workflows.captureStart}</span>
+              </button>
+            </header>
+
+            <div className="capture-listener-summary" aria-label={t.workflows.eventStreamTitle}>
+              <span><Activity size={12} />{t.workflows.storedEvents(filteredEvents.length)}</span>
+              <span className="capture-summary-divider" aria-hidden="true" />
+              <span>
+                <Globe size={12} />
+                {t.workflows.currentApp(browserCaptureStatus?.pageUrl || recorderStatus?.activeApplication || 'Browser')}
+              </span>
+              {captureSessionId ? (
+                <>
+                  <span className="capture-summary-divider" aria-hidden="true" />
+                  <span className="font-mono">{captureSessionId.slice(0, 8)}</span>
+                </>
+              ) : null}
+            </div>
+
+            {activeEvent ? (
+              <section className="capture-event-inspector" aria-labelledby="capture-event-inspector-title">
+                <div className="capture-event-inspector__header">
+                  <span className="capture-event-glyph capture-event-glyph--large" aria-hidden="true">
+                    <CaptureEventGlyph event={activeEvent} size={18} />
+                  </span>
+                  <div className="capture-event-inspector__title">
+                    <span id="capture-event-inspector-title">{t.workflows.eventInspectorTitle}</span>
+                    <h2>{captureEventLabel(activeEvent, isZh)}</h2>
+                  </div>
+                  <time dateTime={activeEvent.occurredAt} className="font-mono">
+                    {new Date(activeEvent.occurredAt).toLocaleString(resolvedLocale, { hour12: false })}
+                  </time>
+                </div>
+
+                <dl className="capture-event-facts">
+                  <div>
+                    <dt>{isZh ? '应用' : 'Application'}</dt>
+                    <dd>{captureEventApp(activeEvent)}</dd>
+                  </div>
+                  <div>
+                    <dt>{isZh ? '行为类型' : 'Action type'}</dt>
+                    <dd className="font-mono">{activeEvent.eventType}</dd>
+                  </div>
+                  <div>
+                    <dt>{isZh ? '目标元素' : 'Target element'}</dt>
+                    <dd>{captureTargetLabel(activeEvent, isZh)}</dd>
+                  </div>
+                  <div>
+                    <dt>{isZh ? '控件标识' : 'Element identifier'}</dt>
+                    <dd className="font-mono">{activeEvent.target?.identifier || (isZh ? '未提供' : 'Not available')}</dd>
+                  </div>
+                  {activeEvent.pointer ? (
+                    <div>
+                      <dt>{isZh ? '指针位置' : 'Pointer position'}</dt>
+                      <dd className="font-mono">x {Math.round(activeEvent.pointer.x)} · y {Math.round(activeEvent.pointer.y)}</dd>
+                    </div>
+                  ) : null}
+                  {activeEvent.keyCode !== undefined ? (
+                    <div>
+                      <dt>{isZh ? '键盘语义' : 'Keyboard semantics'}</dt>
+                      <dd className="font-mono">Key {activeEvent.keyCode} · Mod {activeEvent.modifiers || 0}</dd>
+                    </div>
+                  ) : null}
+                  {activeEvent.target?.bounds ? (
+                    <div>
+                      <dt>{isZh ? '元素范围' : 'Element bounds'}</dt>
+                      <dd className="font-mono">
+                        {Math.round(activeEvent.target.bounds.width)} × {Math.round(activeEvent.target.bounds.height)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {activeEvent.network ? (
+                    <>
+                      <div>
+                        <dt>{isZh ? '请求方法' : 'HTTP method'}</dt>
+                        <dd className="font-mono">{activeEvent.network.method}</dd>
+                      </div>
+                      <div>
+                        <dt>{isZh ? '响应状态' : 'Response status'}</dt>
+                        <dd className="font-mono">{activeEvent.network.status ?? (isZh ? '等待响应' : 'Pending')}</dd>
+                      </div>
+                    </>
+                  ) : null}
+                  <div>
+                    <dt>{isZh ? '会话' : 'Session'}</dt>
+                    <dd className="font-mono">{activeEvent.sessionId.slice(0, 12)}</dd>
+                  </div>
+                </dl>
+
+                {Object.keys(activeEvent.attributes).length > 0 ? (
+                  <div className="capture-event-attributes">
+                    <span>{isZh ? '附加语义' : 'Additional semantics'}</span>
+                    <div>
+                      {Object.entries(activeEvent.attributes).map(([key, value]) => (
+                        <code key={key}>{key}: {value}</code>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="capture-privacy-note">
+                  <ShieldCheck size={14} />
+                  <span>{t.workflows.privacyNote}</span>
+                </div>
+              </section>
+            ) : observing ? (
+              <div className="capture-listener-empty">
+                <span className="capture-listener-orb is-live" aria-hidden="true"><Activity size={18} /></span>
+                <h2>{t.workflows.eventEmptyTitle}</h2>
+                <p>{t.workflows.eventEmptyDesc}</p>
+              </div>
+            ) : (
+              <div className="capture-onboarding">
+                <div className="capture-onboarding__hero">
+                  <span className="capture-onboarding__icon"><WorkflowIcon size={24} /></span>
+                  <h2>{t.workflows.guideTitle}</h2>
+                  <p>{t.workflows.captureIdleDesc}</p>
+                </div>
+                <ol className="capture-guide-steps">
+                  <li><span>1</span><div><strong>{t.workflows.guideStart}</strong><small>{t.workflows.guideStartDesc}</small></div></li>
+                  <li><span>2</span><div><strong>{t.workflows.guideOperate}</strong><small>{t.workflows.guideOperateDesc}</small></div></li>
+                  <li><span>3</span><div><strong>{t.workflows.guideFinish}</strong><small>{t.workflows.guideFinishDesc}</small></div></li>
+                </ol>
+                <button type="button" className="btn btn--capsule btn--primary" onClick={onToggleCapture}>
+                  <Play size={13} />
+                  <span>{t.workflows.captureStart}</span>
+                </button>
+                <div className="capture-privacy-note"><ShieldCheck size={14} /><span>{t.workflows.privacyNote}</span></div>
+              </div>
+            )}
+          </div>
+        ) : draft && activeWf ? (
+          <div className="detail-stage-wrap workflow-editor-stage">
+            <nav className="master-tab-segmented workflow-detail-tabs" role="tablist" aria-label={t.workflows.workspaceTabsLabel}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === 'graph'}
+                aria-controls="workflow-graph-panel"
+                className={`master-tab-btn ${detailTab === 'graph' ? 'is-active' : ''}`}
+                onClick={() => setDetailTab('graph')}
+              >
+                <WorkflowIcon size={11} />
+                <span>{t.workflows.graphTab}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === 'steps'}
+                aria-controls="workflow-steps-panel"
+                className={`master-tab-btn ${detailTab === 'steps' ? 'is-active' : ''}`}
+                onClick={() => setDetailTab('steps')}
+              >
+                <ListTree size={11} />
+                <span>{t.workflows.stepsTab}</span>
+                <span className="workflow-detail-tab-count font-mono">{draft.nodes.length}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === 'skill'}
+                aria-controls="workflow-skill-panel"
+                className={`master-tab-btn ${detailTab === 'skill' ? 'is-active' : ''}`}
+                onClick={() => setDetailTab('skill')}
+              >
+                <FileText size={11} />
+                <span>{t.workflows.skillTab}</span>
+              </button>
+            </nav>
+
+            {detailTab === 'graph' ? (
+              <section id="workflow-graph-panel" role="tabpanel" className="detail-section-card workflow-graph-card workflow-tab-panel">
+                <div className="detail-section-card-title">
+                  <span>{t.workflows.workflowEditorTitle}</span>
+                  <span className="workflow-panel-meta font-mono">{t.workflows.stepCount(draft.nodes.length)}</span>
+                </div>
+                <WorkflowGraph
+                  workflow={draft}
+                  selectedNodeId={selectedNodeId}
+                  onNodeSelect={(node) => setSelectedNodeId(node?.id || '')}
+                />
+                {selectedNode ? (
+                  <div className="workflow-graph-selection">
+                    <span className={`workflow-step-kind ${selectedNode.kind === 'wait' ? 'is-wait' : ''}`}>
+                      {selectedNode.kind === 'wait' ? <Clock3 size={12} /> : <Zap size={12} />}
+                    </span>
+                    <div>
+                      <strong>{selectedNode.label}</strong>
+                      <small>{selectedNode.app || t.workflows.noAppLabel}</small>
+                    </div>
+                    <button type="button" className="btn btn--secondary btn--capsule btn--sm" onClick={() => setDetailTab('steps')}>
+                      <Pencil size={11} /><span>{t.workflows.editSelectedStep}</span>
+                    </button>
+                  </div>
+                ) : null}
+              </section>
+            ) : detailTab === 'steps' ? (
+              <section id="workflow-steps-panel" role="tabpanel" className="workflow-steps-workbench workflow-tab-panel">
+                <div className="workflow-step-list-pane">
+                  <div className="workflow-step-list-pane__header">
+                    <div>
+                      <strong>{t.workflows.stepListTitle}</strong>
+                      <span>{t.workflows.stepCount(draft.nodes.length)}</span>
+                    </div>
+                    <button type="button" className="btn btn--secondary btn--capsule btn--sm" onClick={addStep}>
+                      <Plus size={11} /><span>{t.workflows.addStep}</span>
+                    </button>
+                  </div>
+                  <div className="workflow-step-list" role="listbox" aria-label={t.workflows.stepListTitle}>
+                    {draft.nodes.map((node, index) => (
+                      <button
+                        key={node.id}
+                        type="button"
+                        role="option"
+                        aria-selected={node.id === selectedNodeId}
+                        className={`workflow-step-row ${node.id === selectedNodeId ? 'is-selected' : ''}`}
+                        onClick={() => setSelectedNodeId(node.id)}
+                      >
+                        <span className="workflow-step-row__index font-mono">{String(index + 1).padStart(2, '0')}</span>
+                        <span className={`workflow-step-kind ${node.kind === 'wait' ? 'is-wait' : ''}`}>
+                          {node.kind === 'wait' ? <Clock3 size={12} /> : <Zap size={12} />}
+                        </span>
+                        <span className="workflow-step-row__content">
+                          <strong>{node.label}</strong>
+                          <small>{node.app || t.workflows.noAppLabel}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <aside className="workflow-step-editor">
+                  <div className="workflow-step-editor__header">
+                    <span>{t.workflows.stepEditorTitle}</span>
+                    <div className="workflow-step-editor__header-actions">
+                      {isDirty ? (
+                        <span className="workflow-unsaved-indicator" title={t.workflows.unsavedChanges} aria-label={t.workflows.unsavedChanges}>
+                          <CircleDot size={9} />
+                        </span>
+                      ) : null}
+                      {selectedNode ? <code>{String(draft.nodes.findIndex((node) => node.id === selectedNode.id) + 1).padStart(2, '0')}</code> : null}
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--capsule btn--sm"
+                        onClick={() => void saveDraft()}
+                        disabled={!isDirty || saving}
+                      >
+                        <Save size={11} />
+                        <span>{saving ? t.workflows.savingChanges : t.workflows.saveChanges}</span>
+                      </button>
+                    </div>
+                  </div>
+                  {selectedNode ? (
+                    <div className="workflow-step-editor__fields">
+                      <label>
+                        <span>{t.workflows.stepNameLabel}</span>
+                        <input value={selectedNode.label} onChange={(event) => updateDraftNode({ label: event.target.value })} />
+                      </label>
+                      <div className="workflow-editor-field-row">
+                        <label>
+                          <span>{t.workflows.stepTypeLabel}</span>
+                          <select value={selectedNode.kind} onChange={(event) => updateDraftNode({ kind: event.target.value as WorkflowNode['kind'] })}>
+                            <option value="action">{t.workflows.actionType}</option>
+                            <option value="wait">{t.workflows.waitType}</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span>{t.workflows.stepAppLabel}</span>
+                          <input value={selectedNode.app || ''} onChange={(event) => updateDraftNode({ app: event.target.value })} />
+                        </label>
+                      </div>
+                      <label>
+                        <span>{t.workflows.stepDetailLabel}</span>
+                        <textarea value={selectedNode.detail || ''} onChange={(event) => updateDraftNode({ detail: event.target.value })} />
+                      </label>
+                      <div className="workflow-step-editor__actions">
+                        <button type="button" className="btn btn--secondary btn--capsule btn--sm" onClick={() => moveSelectedNode(-1)} disabled={draft.nodes[0]?.id === selectedNode.id} title={t.workflows.moveEarlier}>
+                          <ArrowUp size={11} /><span>{t.workflows.moveEarlier}</span>
+                        </button>
+                        <button type="button" className="btn btn--secondary btn--capsule btn--sm" onClick={() => moveSelectedNode(1)} disabled={draft.nodes.at(-1)?.id === selectedNode.id} title={t.workflows.moveLater}>
+                          <ArrowDown size={11} /><span>{t.workflows.moveLater}</span>
+                        </button>
+                        <button type="button" className="btn btn--capsule-ghost btn--capsule btn--sm" onClick={deleteSelectedNode} disabled={draft.nodes.length <= 1} title={t.workflows.deleteStep}>
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : <p className="workflow-step-editor__hint">{t.workflows.selectStepHint}</p>}
+                </aside>
+              </section>
+            ) : (
+              <section id="workflow-skill-panel" role="tabpanel" className="workflow-skill-preview workflow-tab-panel">
+                <header className="workflow-skill-preview__header">
+                  <div>
+                    <strong>{t.workflows.skillPreviewTitle}</strong>
+                    <span>{t.workflows.skillPreviewDesc}</span>
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--capsule btn--sm"
+                      onClick={() => void saveAsSkill()}
+                      disabled={Boolean(savedMap[activeWf.id])}
+                    >
+                      <Sparkles size={11} />
+                      <span>{savedMap[activeWf.id] ? t.workflows.savedAsSkill : t.workflows.saveAsSkill}</span>
+                    </button>
+                    <button type="button" className="btn btn--secondary btn--capsule btn--sm" onClick={() => onExportCode(draft, draft.name)}>
+                      <Code size={11} /><span>{t.detail.exportCodeBtn}</span>
+                    </button>
+                    <button type="button" className="btn btn--secondary btn--capsule btn--sm" onClick={() => void copySkillPreview()}>
+                      <Copy size={11} /><span>{t.detail.copyClipboardBtn}</span>
+                    </button>
+                  </div>
+                </header>
+                <pre className="workflow-skill-preview__code"><code>{skillPreview}</code></pre>
+              </section>
+            )}
+          </div>
+        ) : (
+          <div className="capture-onboarding capture-onboarding--empty">
+            <div className="capture-onboarding__hero">
+              <span className="capture-onboarding__icon"><WorkflowIcon size={24} /></span>
+              <h2>{t.workflows.emptyTitle}</h2>
+              <p>{t.workflows.emptyDesc}</p>
+            </div>
+            <ol className="capture-guide-steps">
+              <li><span>1</span><div><strong>{t.workflows.guideStart}</strong><small>{t.workflows.guideStartDesc}</small></div></li>
+              <li><span>2</span><div><strong>{t.workflows.guideOperate}</strong><small>{t.workflows.guideOperateDesc}</small></div></li>
+              <li><span>3</span><div><strong>{t.workflows.guideFinish}</strong><small>{t.workflows.guideFinishDesc}</small></div></li>
+            </ol>
+            <button type="button" className="btn btn--capsule btn--primary" onClick={onToggleCapture}>
+              <Play size={13} /><span>{t.workflows.captureStart}</span>
+            </button>
+          </div>
+        )}
+      </section>
+    </>
+  )
+}
+
+
 
 /* =========================================================================
    Level 2: Dedicated Workflow Detail Page (Floating Glass Workbench)
@@ -2004,174 +3390,19 @@ const SHORTCUT_DEFINITIONS: ShortcutConfig[] = [
     defaultKey: '⌘K',
   },
   {
-    id: 'new_skill',
-    groupId: 'global',
-    titleKey: 'shortcutNewSkillTitle',
-    descKey: 'shortcutNewSkillDesc',
-    defaultKey: '⇧⌘N',
-  },
-  {
-    id: 'search_filter',
-    groupId: 'global',
-    titleKey: 'shortcutSearchTitle',
-    descKey: 'shortcutSearchDesc',
-    defaultKey: '⌘F',
-  },
-  {
     id: 'escape_back',
     groupId: 'global',
     titleKey: 'shortcutEscTitle',
     descKey: 'shortcutEscDesc',
     defaultKey: 'ESC',
   },
-  {
-    id: 'toggle_observe',
-    groupId: 'engine',
-    titleKey: 'shortcutToggleObserveTitle',
-    descKey: 'shortcutToggleObserveDesc',
-    defaultKey: '⌥⌘P',
-  },
-  {
-    id: 'save_skill',
-    groupId: 'engine',
-    titleKey: 'shortcutSaveSkillTitle',
-    descKey: 'shortcutSaveSkillDesc',
-    defaultKey: '⌘S',
-  },
-  {
-    id: 'export_code',
-    groupId: 'engine',
-    titleKey: 'shortcutExportCodeTitle',
-    descKey: 'shortcutExportCodeDesc',
-    defaultKey: '⇧⌘E',
-  },
-  {
-    id: 'nav_skills',
-    groupId: 'nav',
-    titleKey: 'shortcutSkillsNavTitle',
-    descKey: 'shortcutSkillsNavDesc',
-    defaultKey: '⌘1',
-  },
-  {
-    id: 'nav_workflows',
-    groupId: 'nav',
-    titleKey: 'shortcutWorkflowsNavTitle',
-    descKey: 'shortcutWorkflowsNavDesc',
-    defaultKey: '⌘2',
-  },
-  {
-    id: 'nav_settings',
-    groupId: 'nav',
-    titleKey: 'shortcutSettingsNavTitle',
-    descKey: 'shortcutSettingsNavDesc',
-    defaultKey: '⌘,',
-  },
 ]
 
-function formatKeyboardEvent(e: KeyboardEvent): string | null {
-  if (['Meta', 'Control', 'Alt', 'Shift', 'CapsLock'].includes(e.key)) {
-    return null
-  }
-
-  const parts: string[] = []
-  if (e.ctrlKey) parts.push('⌃')
-  if (e.altKey) parts.push('⌥')
-  if (e.shiftKey) parts.push('⇧')
-  if (e.metaKey) parts.push('⌘')
-
-  let keyName = e.key.toUpperCase()
-  if (e.key === 'Escape') keyName = 'ESC'
-  else if (e.key === 'Enter') keyName = '↵'
-  else if (e.key === 'Backspace') keyName = '⌫'
-  else if (e.key === 'Tab') keyName = '⇥'
-  else if (e.key === 'ArrowUp') keyName = '↑'
-  else if (e.key === 'ArrowDown') keyName = '↓'
-  else if (e.key === 'ArrowLeft') keyName = '←'
-  else if (e.key === 'ArrowRight') keyName = '→'
-  else if (e.key === ' ') keyName = 'SPACE'
-
-  if (
-    parts.length === 0 &&
-    !['ESC', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'].includes(
-      keyName,
-    )
-  ) {
-    return null
-  }
-
-  return `${parts.join('')}${keyName}`
-}
-
-function KeyboardShortcutsSection({ onShowToast }: { onShowToast?: (msg: string) => void }) {
+function KeyboardShortcutsSection() {
   const { t } = useI18n()
-  const [customShortcuts, setCustomShortcuts] = useState<Record<string, string>>(() => {
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('trace_shortcuts_v1')
-        if (saved) return JSON.parse(saved)
-      } catch {}
-    }
-    return {}
-  })
-  const [recordingId, setRecordingId] = useState<string | null>(null)
-
-  const getShortcutKey = (def: ShortcutConfig) => {
-    if (customShortcuts[def.id] !== undefined) {
-      return customShortcuts[def.id]
-    }
-    return def.defaultKey
-  }
-
-  const handleClear = (id: string) => {
-    const next = { ...customShortcuts, [id]: '' }
-    setCustomShortcuts(next)
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('trace_shortcuts_v1', JSON.stringify(next))
-    }
-    onShowToast?.(t.settings.shortcutUpdatedToast)
-  }
-
-  const handleResetDefaults = () => {
-    setCustomShortcuts({})
-    setRecordingId(null)
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('trace_shortcuts_v1')
-    }
-    onShowToast?.(t.settings.shortcutResetToast)
-  }
-
-  useEffect(() => {
-    if (!recordingId) return
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-
-      if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-        setRecordingId(null)
-        return
-      }
-
-      const combo = formatKeyboardEvent(e)
-      if (combo) {
-        const next = { ...customShortcuts, [recordingId]: combo }
-        setCustomShortcuts(next)
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('trace_shortcuts_v1', JSON.stringify(next))
-        }
-        setRecordingId(null)
-        onShowToast?.(`${combo} · ${t.settings.shortcutUpdatedToast}`)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [recordingId, customShortcuts, t, onShowToast])
 
   const groups = [
     { id: 'global' as const, label: t.settings.shortcutsGroupGlobal },
-    { id: 'engine' as const, label: t.settings.shortcutsGroupEngine },
-    { id: 'nav' as const, label: t.settings.shortcutsGroupNav },
   ]
 
   return (
@@ -2180,16 +3411,6 @@ function KeyboardShortcutsSection({ onShowToast }: { onShowToast?: (msg: string)
         <div className="page-header__left">
           <h1 className="page-title">{t.settings.shortcutsTab}</h1>
           <span className="page-subtitle">{t.settings.shortcutsSub}</span>
-        </div>
-        <div className="page-header__right">
-          <button
-            type="button"
-            className="btn btn--capsule btn--secondary btn--sm"
-            onClick={handleResetDefaults}
-          >
-            <RotateCcw size={12} />
-            <span>{t.settings.resetShortcutsBtn}</span>
-          </button>
         </div>
       </header>
 
@@ -2202,8 +3423,6 @@ function KeyboardShortcutsSection({ onShowToast }: { onShowToast?: (msg: string)
             <span className="settings-section-label">{group.label}</span>
             <div className="flat-settings-card">
               {items.map((item) => {
-                const keyCombo = getShortcutKey(item)
-                const isRecording = recordingId === item.id
                 const title = t.settings[item.titleKey] as string
                 const desc = t.settings[item.descKey] as string
 
@@ -2215,46 +3434,8 @@ function KeyboardShortcutsSection({ onShowToast }: { onShowToast?: (msg: string)
                     </div>
 
                     <div className="flat-shortcut-controls">
-                      <div className="shortcut-key-action-pair">
-                        {isRecording ? (
-                          <div className="shortcut-recording-badge font-mono">
-                            <span className="recording-pulse-dot" />
-                            <span>{t.settings.recordingShortcut}</span>
-                          </div>
-                        ) : (
-                          <div className="shortcut-pill-wrap">
-                            {keyCombo ? (
-                              <kbd className="shortcut-key-badge font-mono">{keyCombo}</kbd>
-                            ) : (
-                              <span className="shortcut-unassigned-text font-mono">
-                                {t.settings.unassignedShortcut}
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          className={`shortcut-action-icon-btn ${isRecording ? 'is-active' : ''}`}
-                          title={t.settings.editShortcutTooltip}
-                          onClick={() => setRecordingId(isRecording ? null : item.id)}
-                          aria-label={t.settings.editShortcutTooltip}
-                        >
-                          <Pencil size={13} />
-                        </button>
-                      </div>
-
-                      <div className="shortcut-delete-action">
-                        <button
-                          type="button"
-                          className="shortcut-action-icon-btn"
-                          title={t.settings.clearShortcutTooltip}
-                          onClick={() => handleClear(item.id)}
-                          disabled={!keyCombo || isRecording}
-                          aria-label={t.settings.clearShortcutTooltip}
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                      <div className="shortcut-pill-wrap">
+                        <kbd className="shortcut-key-badge font-mono">{item.defaultKey}</kbd>
                       </div>
                     </div>
                   </div>
@@ -2294,12 +3475,19 @@ function SettingsMainPage({
 }) {
   const { t, locale, setLocale, resolvedLocale } = useI18n()
   const [storagePath, setStoragePath] = useState<string>('')
+  const [projectWorkspace, setProjectWorkspace] = useState<string>('')
+  const [migrating, setMigrating] = useState<boolean>(false)
 
   useEffect(() => {
     let active = true
     if (window.workflowSkill?.getStoragePath) {
       window.workflowSkill.getStoragePath().then((p) => {
         if (active) setStoragePath(p)
+      }).catch(() => {})
+    }
+    if (window.workflowSkill?.getProjectWorkspace) {
+      window.workflowSkill.getProjectWorkspace().then((ws) => {
+        if (active) setProjectWorkspace(ws)
       }).catch(() => {})
     }
     return () => { active = false }
@@ -2312,6 +3500,38 @@ function SettingsMainPage({
         setStoragePath(selected)
         onShowToast?.(t.settings.dataStoragePathChangedToast)
       }
+    }
+  }
+
+  const handleSelectProjectWorkspace = async () => {
+    if (window.workflowSkill?.selectProjectWorkspace) {
+      const selected = await window.workflowSkill.selectProjectWorkspace()
+      if (selected) {
+        setProjectWorkspace(selected)
+        onShowToast?.(`已切换当前项目工作区为 ${selected}`)
+      }
+    }
+  }
+
+  const handleMigrateAllSkills = async () => {
+    if (migrating) return
+    if (!window.workflowSkill?.migrateAllSkillsToProject) {
+      onShowToast?.('当前环境不支持迁移 API')
+      return
+    }
+
+    setMigrating(true)
+    try {
+      const res = await window.workflowSkill.migrateAllSkillsToProject(projectWorkspace)
+      if (res.success) {
+        onShowToast?.(`已成功将 ${res.count} 个 Skill 迁移至项目，并在原位置创建软链接！`)
+      } else {
+        onShowToast?.(`迁移失败: ${res.error || '未知错误'}`)
+      }
+    } catch (err: any) {
+      onShowToast?.(`迁移异常: ${err.message || String(err)}`)
+    } finally {
+      setMigrating(false)
     }
   }
 
@@ -2425,12 +3645,80 @@ function SettingsMainPage({
                 </div>
               </div>
             </div>
+
+            {/* Row 4: Project Workspace */}
+            <div className="flat-setting-row">
+              <div className="flat-setting-info">
+                <strong className="flat-setting-title">当前项目工作区</strong>
+                <p className="flat-setting-desc font-mono" title={projectWorkspace || '未设置项目工作区'}>
+                  {projectWorkspace
+                    ? projectWorkspace
+                        .replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~')
+                        .replace(/^\/Users\/[^/]+/, '~')
+                        .replace(/^\\Users\\[^\\]+/, '~')
+                    : '使用默认启动目录'}
+                </p>
+              </div>
+              <div className="flat-setting-control">
+                <div className="setting-actions-group">
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary btn--sm"
+                    onClick={handleSelectProjectWorkspace}
+                  >
+                    <FolderOpen size={12} />
+                    <span>选择工作区</span>
+                  </button>
+                  {projectWorkspace ? (
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
+                      onClick={() => {
+                        if (window.workflowSkill?.openPathInFinder) {
+                          void window.workflowSkill.openPathInFinder(projectWorkspace)
+                        }
+                      }}
+                      title="在访达中打开项目工作区"
+                      aria-label="在访达中打开项目工作区"
+                    >
+                      <ExternalLink size={12} />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            {/* Row 5: One-Click Migration to Current Project */}
+            <div className="flat-setting-row">
+              <div className="flat-setting-info">
+                <strong className="flat-setting-title">一键迁移 Skill 到当前项目</strong>
+                <p className="flat-setting-desc">
+                  将所有 Skill 物理文件迁移至当前项目工作区的 <code className="font-mono">.agents/skills</code> 中，并在原位置创建软链接以保持全局环境兼容。
+                </p>
+              </div>
+              <div className="flat-setting-control">
+                <button
+                  type="button"
+                  className="btn btn--capsule btn--primary btn--sm"
+                  onClick={handleMigrateAllSkills}
+                  disabled={migrating}
+                  style={{ minWidth: '136px' }}
+                >
+                  {migrating ? (
+                    <RefreshCw size={12} className="spin-slow" />
+                  ) : (
+                    <FolderTree size={12} />
+                  )}
+                  <span>{migrating ? '正在迁移...' : '一键迁移到项目'}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </>
       ) : null}
 
       {tab === 'shortcuts' ? (
-        <KeyboardShortcutsSection onShowToast={onShowToast} />
+        <KeyboardShortcutsSection />
       ) : null}
 
       {tab === 'permissions' ? (
@@ -2959,6 +4247,94 @@ function NewSkillDialog({
   )
 }
 
+function BrowserCaptureDialog({
+  open,
+  starting,
+  onClose,
+  onStart,
+}: {
+  open: boolean
+  starting: boolean
+  onClose: () => void
+  onStart: (url: string) => Promise<boolean>
+}) {
+  const { t } = useI18n()
+  const [url, setUrl] = useState(() => {
+    try {
+      return window.localStorage.getItem('trace:last-browser-capture-url') || 'https://'
+    } catch {
+      return 'https://'
+    }
+  })
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (open) window.setTimeout(() => inputRef.current?.focus(), 40)
+  }, [open])
+
+  if (!open) return null
+
+  return (
+    <div className="modal-glass-backdrop" onMouseDown={starting ? undefined : onClose}>
+      <form
+        className="glass-dialog-box modal-pop browser-capture-dialog"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void onStart(url).then((started) => {
+            if (!started) return
+            try {
+              window.localStorage.setItem('trace:last-browser-capture-url', url.trim())
+            } catch {}
+          })
+        }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-header-row">
+          <div>
+            <h2>{t.workflows.browserDialogTitle}</h2>
+            <p>{t.workflows.browserDialogDesc}</p>
+          </div>
+          <button type="button" className="dialog-close-btn" onClick={onClose} aria-label={t.skills.cancelBtn} disabled={starting}>
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="dialog-input-area">
+          <label>
+            <span>{t.workflows.browserUrlLabel}</span>
+            <input
+              ref={inputRef}
+              className="dialog-capsule-input"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder={t.workflows.browserUrlPlaceholder}
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              disabled={starting}
+            />
+          </label>
+          <div className="browser-capture-dialog__note">
+            <ShieldCheck size={13} />
+            <span>{t.workflows.browserDialogPrivacy}</span>
+          </div>
+        </div>
+
+        <div className="dialog-footer-row">
+          <button type="button" className="btn btn--capsule btn--secondary" onClick={onClose} disabled={starting}>
+            {t.skills.cancelBtn}
+          </button>
+          <button type="submit" className="btn btn--capsule btn--primary" disabled={starting || !url.trim()}>
+            {starting ? <RefreshCw size={12} className="master-list-status__spinner" /> : <Globe size={12} />}
+            <span>{starting ? t.workflows.browserStarting : t.workflows.browserStartBtn}</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function updateDomTheme(theme: 'dark' | 'light') {
   if (typeof window !== 'undefined') {
     const root = window.document?.documentElement
@@ -2979,19 +4355,141 @@ function transitionTheme(callback: () => void) {
   callback()
 }
 
+const MASTER_COLUMN_DEFAULT_WIDTH = 210
+const MASTER_COLUMN_MIN_WIDTH = 180
+const MASTER_COLUMN_MAX_WIDTH = 360
+const MASTER_COLUMN_STORAGE_KEY = 'trace:master-column-width'
+
+function clampMasterColumnWidth(width: number) {
+  const viewportMax = typeof window === 'undefined'
+    ? MASTER_COLUMN_MAX_WIDTH
+    : Math.max(MASTER_COLUMN_MIN_WIDTH, window.innerWidth - 160 - 480)
+  return Math.round(Math.min(Math.max(width, MASTER_COLUMN_MIN_WIDTH), MASTER_COLUMN_MAX_WIDTH, viewportMax))
+}
+
+function getInitialMasterColumnWidth() {
+  if (typeof window === 'undefined') return MASTER_COLUMN_DEFAULT_WIDTH
+  try {
+    const stored = Number(window.localStorage.getItem(MASTER_COLUMN_STORAGE_KEY))
+    if (Number.isFinite(stored) && stored > 0) {
+      return Math.round(Math.min(Math.max(stored, MASTER_COLUMN_MIN_WIDTH), MASTER_COLUMN_MAX_WIDTH))
+    }
+  } catch {}
+  return MASTER_COLUMN_DEFAULT_WIDTH
+}
+
+function MasterColumnResizeHandle() {
+  const handleRef = useRef<HTMLDivElement>(null)
+  const dragStartRef = useRef<{ pointerX: number; width: number } | null>(null)
+  const preferredWidthRef = useRef(getInitialMasterColumnWidth())
+  const widthRef = useRef(clampMasterColumnWidth(preferredWidthRef.current))
+  const [width, setWidth] = useState(widthRef.current)
+
+  const renderWidth = (nextWidth: number) => {
+    const clamped = clampMasterColumnWidth(nextWidth)
+    widthRef.current = clamped
+    setWidth(clamped)
+    document.documentElement.style.setProperty('--master-column-width', `${clamped}px`)
+    return clamped
+  }
+
+  const applyWidth = (nextWidth: number, persist = false) => {
+    const clamped = renderWidth(nextWidth)
+    preferredWidthRef.current = clamped
+    if (persist) {
+      try {
+        window.localStorage.setItem(MASTER_COLUMN_STORAGE_KEY, String(clamped))
+      } catch {}
+    }
+  }
+
+  const finishResize = () => {
+    if (!dragStartRef.current) return
+    dragStartRef.current = null
+    document.body.classList.remove('is-resizing-master-column')
+    applyWidth(widthRef.current, true)
+  }
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    dragStartRef.current = { pointerX: event.clientX, width: widthRef.current }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    document.body.classList.add('is-resizing-master-column')
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragStartRef.current) return
+    applyWidth(dragStartRef.current.width + event.clientX - dragStartRef.current.pointerX)
+  }
+
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    finishResize()
+  }
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 24 : 8
+    let nextWidth: number | null = null
+    if (event.key === 'ArrowLeft') nextWidth = widthRef.current - step
+    if (event.key === 'ArrowRight') nextWidth = widthRef.current + step
+    if (event.key === 'Home') nextWidth = MASTER_COLUMN_MIN_WIDTH
+    if (event.key === 'End') nextWidth = MASTER_COLUMN_MAX_WIDTH
+    if (nextWidth === null) return
+    event.preventDefault()
+    applyWidth(nextWidth, true)
+  }
+
+  useLayoutEffect(() => {
+    renderWidth(preferredWidthRef.current)
+    const handleWindowResize = () => renderWidth(preferredWidthRef.current)
+    window.addEventListener('resize', handleWindowResize)
+    return () => {
+      window.removeEventListener('resize', handleWindowResize)
+      document.body.classList.remove('is-resizing-master-column')
+    }
+  }, [])
+
+  return (
+    <div
+      ref={handleRef}
+      className="master-column-resizer"
+      role="separator"
+      aria-label="调整中间栏宽度"
+      aria-orientation="vertical"
+      aria-valuemin={MASTER_COLUMN_MIN_WIDTH}
+      aria-valuemax={MASTER_COLUMN_MAX_WIDTH}
+      aria-valuenow={width}
+      aria-valuetext={`${width} 像素`}
+      tabIndex={0}
+      title="拖拽调整中间栏宽度，双击恢复默认"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
+      onLostPointerCapture={finishResize}
+      onDoubleClick={() => applyWidth(MASTER_COLUMN_DEFAULT_WIDTH, true)}
+      onKeyDown={handleKeyDown}
+    />
+  )
+}
+
 /* =========================================================================
    Main App Root
    ========================================================================= */
 export function App() {
-  const { t } = useI18n()
+  const { t, resolvedLocale } = useI18n()
   const stageRef = useRef<HTMLDivElement>(null)
-  const autoStartRequestedRef = useRef(false)
   const [view, setView] = useState<View>('skills')
   const [inSettings, setInSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark')
   const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>('dark')
-  const [observing, setObserving] = useState(true)
+  const [observing, setObserving] = useState(false)
+  const [browserCaptureOpen, setBrowserCaptureOpen] = useState(false)
+  const [browserCaptureStarting, setBrowserCaptureStarting] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
   const [newSkillOpen, setNewSkillOpen] = useState(false)
   const [exportState, setExportState] = useState<{
@@ -3004,6 +4502,11 @@ export function App() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [discoveries, setDiscoveries] = useState<Workflow[]>([])
   const [aiTools, setAiTools] = useState<AIToolTarget[]>(DEFAULT_AI_TOOLS)
+
+  // 3-Column macOS Selection States
+  const [selectedEnvId, setSelectedEnvId] = useState<string>('agents-std')
+  const [selectedSkillId, setSelectedSkillId] = useState<string>('')
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('')
 
   const handleDetectTools = async () => {
     let toolCount = 0
@@ -3021,6 +4524,9 @@ export function App() {
         const loaded = await window.workflowSkill.loadLocalSkills()
         if (Array.isArray(loaded)) {
           setSkills(loaded)
+          if (!selectedSkillId && loaded.length > 0) {
+            setSelectedSkillId(loaded[0].id)
+          }
           setToast(`已成功扫描并同步本机 ${loaded.length} 个全局 Skill 资产 (${toolCount} 个就绪环境)`)
           return
         }
@@ -3037,6 +4543,10 @@ export function App() {
         .then((detected) => {
           if (active && Array.isArray(detected) && detected.length > 0) {
             setAiTools(detected)
+            const installed = detected.filter((t) => t.installed)
+            if (installed.length > 0) {
+              setSelectedEnvId(installed[0].id)
+            }
           }
         })
         .catch(() => {})
@@ -3048,9 +4558,11 @@ export function App() {
           if (active && Array.isArray(loaded)) {
             if (loaded.length > 0) {
               setSkills(loaded)
+              setSelectedSkillId((prev) => prev || loaded[0].id)
             } else {
               // Seed demo skills with rich target tools data
               setSkills(demoSkills)
+              setSelectedSkillId((prev) => prev || demoSkills[0].id)
               for (const ds of demoSkills) {
                 void window.workflowSkill?.saveLocalSkill?.(ds)
               }
@@ -3096,17 +4608,19 @@ export function App() {
     }
   }
 
-  const handleDeleteSkillCompletely = async (skill: Skill) => {
+  const handleDeleteSkillCompletely = async (skill: Skill, mode: DeleteSkillMode) => {
+    let deleted = false
     if (window.workflowSkill?.deleteSkillCompletely) {
-      await window.workflowSkill.deleteSkillCompletely(skill.id)
+      deleted = await window.workflowSkill.deleteSkillCompletely(skill.id, mode)
     } else if (window.workflowSkill?.deleteLocalSkill) {
-      await window.workflowSkill.deleteLocalSkill(skill.id)
+      deleted = await window.workflowSkill.deleteLocalSkill(skill.id, mode)
     }
+    if (!deleted) throw new Error('Skill deletion failed')
     setSkills((prev) => prev.filter((s) => s.id !== skill.id))
     if (activeDetail?.skill?.id === skill.id) {
       setActiveDetail(null)
     }
-    setToast(`已彻底删除 “${skill.name}”`)
+    setToast(mode === 'trash' ? t.skills.trashedToast(skill.name) : t.skills.deletedToast(skill.name))
   }
 
   const handleBulkLinkToTarget = async (targetId: string) => {
@@ -3169,7 +4683,10 @@ export function App() {
 
   const [toast, setToast] = useState('')
   const [recorderStatus, setRecorderStatus] = useState<RecorderStatus>()
+  const [browserCaptureStatus, setBrowserCaptureStatus] = useState<BrowserCaptureStatus>()
   const [recentEvents, setRecentEvents] = useState<CaptureEvent[]>([])
+  const [captureSessionId, setCaptureSessionId] = useState('')
+  const pendingCaptureSessionIdRef = useRef('')
 
   const handleChangeThemeMode = (nextMode: ThemeMode) => {
     transitionTheme(() => {
@@ -3208,41 +4725,70 @@ export function App() {
     if (!api) return
 
     let mounted = true
+    const applyRecorderStatus = (status: RecorderStatus) => {
+      if (!mounted) return
+      setRecorderStatus(status)
+    }
+    const applyBrowserCaptureStatus = (status: BrowserCaptureStatus) => {
+      if (!mounted) return
+      setBrowserCaptureStatus(status)
+      setObserving(status.state === 'capturing')
+      if (status.sessionId) setCaptureSessionId(status.sessionId)
+    }
+    const loadCapturedWorkflows = () => {
+      if (!api.loadCapturedWorkflows) return
+      void api
+        .loadCapturedWorkflows()
+        .then((workflows) => {
+          if (!mounted) return
+          setDiscoveries(workflows)
+          const completedSessionId = pendingCaptureSessionIdRef.current
+          const completedWorkflow = completedSessionId
+            ? workflows.find((workflow) => workflow.capture?.sessionIds.includes(completedSessionId))
+            : undefined
+          if (completedWorkflow) {
+            pendingCaptureSessionIdRef.current = ''
+            setSelectedWorkflowId(completedWorkflow.id)
+            return
+          }
+          setSelectedWorkflowId((current) => (
+            workflows.some((workflow) => workflow.id === current) ? current : workflows[0]?.id || ''
+          ))
+        })
+        .catch(() => {})
+    }
+    const loadCapturedEvents = () => {
+      if (!api.loadCapturedEvents) return
+      void api
+        .loadCapturedEvents(200)
+        .then((events) => {
+          if (mounted) setRecentEvents(events)
+        })
+        .catch(() => {})
+    }
+
+    loadCapturedWorkflows()
+    loadCapturedEvents()
     api
       .getRecorderStatus()
       .then((status) => {
-        if (!mounted) return
-        setRecorderStatus(status)
-        setObserving(status.state === 'observing')
-        if (
-          status.permissions.screenRecording &&
-          status.permissions.accessibility &&
-          status.state === 'idle' &&
-          !autoStartRequestedRef.current
-        ) {
-          autoStartRequestedRef.current = true
-          void api.sendRecorderCommand({ type: 'start', sessionId: crypto.randomUUID() })
-        } else {
-          void api.sendRecorderCommand({ type: 'status' })
-        }
+        applyRecorderStatus(status)
+        void api.sendRecorderCommand({ type: 'status' })
       })
       .catch(() => setToast(t.toast.nativeNotReady))
+    if (api.getBrowserCaptureStatus && api.sendBrowserCaptureCommand) {
+      void api.getBrowserCaptureStatus().then((status) => {
+        applyBrowserCaptureStatus(status)
+        void api.sendBrowserCaptureCommand?.({ type: 'status' })
+      }).catch(() => setToast(t.toast.nativeNotReady))
+    }
 
     const unsubscribe = api.onRecorderMessage((message: RecorderEnvelope) => {
       if (message.type === 'status') {
-        setRecorderStatus(message.payload)
-        setObserving(message.payload.state === 'observing')
-        if (
-          message.payload.permissions.screenRecording &&
-          message.payload.permissions.accessibility &&
-          message.payload.state === 'idle' &&
-          !autoStartRequestedRef.current
-        ) {
-          autoStartRequestedRef.current = true
-          void api.sendRecorderCommand({ type: 'start', sessionId: crypto.randomUUID() })
-        }
+        applyRecorderStatus(message.payload)
       } else if (message.type === 'capture-event') {
-        setRecentEvents((events) => [message.payload, ...events].slice(0, 20))
+        setCaptureSessionId(message.payload.sessionId)
+        setRecentEvents((events) => [message.payload, ...events.filter((event) => event.id !== message.payload.id)].slice(0, 200))
         setRecorderStatus((status) =>
           status
             ? {
@@ -3267,9 +4813,33 @@ export function App() {
         setToast(message.payload.message)
       }
     })
+    const unsubscribeBrowser = api.onBrowserCaptureMessage?.((message: BrowserCaptureEnvelope) => {
+      if (message.type === 'status') {
+        applyBrowserCaptureStatus(message.payload)
+      } else if (message.type === 'capture-event') {
+        setCaptureSessionId(message.payload.sessionId)
+        setRecentEvents((events) => [message.payload, ...events.filter((event) => event.id !== message.payload.id)].slice(0, 200))
+        setBrowserCaptureStatus((status) => status ? {
+          ...status,
+          eventCount: status.eventCount + 1,
+          requestCount: status.requestCount + (message.payload.eventType === 'network-request' ? 1 : 0),
+          pageUrl: message.payload.page?.url || status.pageUrl,
+          pageTitle: message.payload.page?.title || status.pageTitle,
+          timestamp: message.timestamp,
+        } : status)
+      } else if (message.type === 'error') {
+        setToast(message.payload.message)
+      }
+    })
+    const unsubscribeWorkflows = api.onCapturedWorkflowsChanged?.(() => {
+      loadCapturedWorkflows()
+      loadCapturedEvents()
+    })
     return () => {
       mounted = false
       unsubscribe()
+      unsubscribeBrowser?.()
+      unsubscribeWorkflows?.()
     }
   }, [])
 
@@ -3299,6 +4869,10 @@ export function App() {
           setNewSkillOpen(false)
           return
         }
+        if (browserCaptureOpen && !browserCaptureStarting) {
+          setBrowserCaptureOpen(false)
+          return
+        }
         // Priority 2: Detail Page
         if (activeDetail) {
           setActiveDetail(null)
@@ -3313,7 +4887,7 @@ export function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [commandOpen, exportState.open, newSkillOpen, activeDetail, inSettings])
+  }, [commandOpen, exportState.open, newSkillOpen, browserCaptureOpen, browserCaptureStarting, activeDetail, inSettings])
 
   useEffect(() => {
     if (!toast) return
@@ -3321,23 +4895,68 @@ export function App() {
     return () => window.clearTimeout(timer)
   }, [toast])
 
-  const toggleObserving = () => {
+  const toggleObserving = async () => {
     const api = window.workflowSkill
-    if (!api) {
-      setObserving((v) => !v)
-      setToast(observing ? t.toast.observePaused : t.toast.observeResumed)
+    if (!api?.sendBrowserCaptureCommand) {
+      setToast(t.toast.nativeNotReady)
       return
     }
     if (observing) {
-      void api.sendRecorderCommand({ type: 'pause' })
+      const sessionId = captureSessionId || browserCaptureStatus?.sessionId || ''
+      pendingCaptureSessionIdRef.current = sessionId
+      try {
+        await api.sendBrowserCaptureCommand({ type: 'stop' })
+      } catch {
+        pendingCaptureSessionIdRef.current = ''
+        setToast(t.toast.nativeNotReady)
+      }
     } else {
-      void api.sendRecorderCommand({ type: 'resume' })
+      setBrowserCaptureOpen(true)
     }
   }
 
-  const handleSaveWorkflow = (wf: Workflow) => {
-    setSavedWorkflowIds((prev) => ({ ...prev, [wf.id]: true }))
+  const startBrowserCapture = async (url: string) => {
+    const api = window.workflowSkill
+    if (!api?.sendBrowserCaptureCommand) {
+      setToast(t.toast.nativeNotReady)
+      return false
+    }
+    const sessionId = crypto.randomUUID()
+    setBrowserCaptureStarting(true)
+    setCaptureSessionId(sessionId)
+    setRecentEvents((events) => events.filter((event) => event.sessionId !== sessionId))
+    try {
+      await api.sendBrowserCaptureCommand({ type: 'start', sessionId, url })
+      setBrowserCaptureOpen(false)
+      return true
+    } catch (error) {
+      setCaptureSessionId('')
+      setToast(error instanceof Error ? error.message : t.toast.nativeNotReady)
+      return false
+    } finally {
+      setBrowserCaptureStarting(false)
+    }
+  }
 
+  const handleUpdateCapturedWorkflow = async (workflow: Workflow) => {
+    const api = window.workflowSkill
+    if (!api?.updateCapturedWorkflow) {
+      setToast(t.toast.nativeNotReady)
+      return false
+    }
+    try {
+      const updated = await api.updateCapturedWorkflow(workflow)
+      if (updated) {
+        setDiscoveries((current) => current.map((item) => item.id === workflow.id ? workflow : item))
+      }
+      return updated
+    } catch {
+      setToast(t.toast.nativeNotReady)
+      return false
+    }
+  }
+
+  const handleSaveWorkflow = async (wf: Workflow) => {
     const appList = Array.from(new Set(wf.nodes.map((n) => n.app).filter((a): a is string => Boolean(a))))
     const newSk: Skill = {
       id: wf.id,
@@ -3348,18 +4967,22 @@ export function App() {
       pinned: true,
       sourceRuns: wf.repeatCount || 1,
       workflow: wf,
+      skillMarkdown: workflowSkillMarkdown(wf, resolvedLocale === 'zh-CN'),
       updatedLabel: '刚刚',
     }
 
-    setSkills((prev) => {
-      const existing = prev.find((s) => s.id === wf.id)
-      if (existing) return prev
-      return [newSk, ...prev]
-    })
-
     if (window.workflowSkill?.saveLocalSkill) {
-      void window.workflowSkill.saveLocalSkill(newSk)
+      const saved = await window.workflowSkill.saveLocalSkill(newSk)
+      if (!saved) {
+        setToast(t.toast.nativeNotReady)
+        return
+      }
     }
+
+    setSavedWorkflowIds((prev) => ({ ...prev, [wf.id]: true }))
+    setSkills((prev) => {
+      return [newSk, ...prev.filter((skill) => skill.id !== wf.id)]
+    })
 
     setToast(t.workflows.savedToast(wf.name))
   }
@@ -3436,14 +5059,17 @@ export function App() {
   }
 
   return (
-    <div className="app-shell" data-theme={resolvedTheme}>
+    <div className={`app-shell ${inSettings ? 'is-settings' : ''}`} data-theme={resolvedTheme}>
       {/* Global Top Window Drag Strip for macOS */}
       <div className="app-window-drag-strip" />
 
-      {/* Dynamic Sidebar Rail: App Navigation vs Settings Mode */}
+      {/* Column 1: Sidebar Rail */}
       <AppSidebar
         view={view}
-        setView={setView}
+        setView={(v) => {
+          setInSettings(false)
+          setView(v)
+        }}
         inSettings={inSettings}
         settingsTab={settingsTab}
         setSettingsTab={setSettingsTab}
@@ -3453,13 +5079,17 @@ export function App() {
           setInSettings(true)
         }}
         onExitSettings={() => setInSettings(false)}
-        onBackToOverview={() => setActiveDetail(null)}
+        onBackToOverview={() => {
+          setActiveDetail(null)
+          setInSettings(false)
+        }}
       />
 
-      {/* Floating Liquid Glass Main Canvas Stage */}
-      <main className="app-main-stage" ref={stageRef}>
-        {inSettings ? (
-          /* Dedicated Settings Main Content View */
+      {!inSettings ? <MasterColumnResizeHandle /> : null}
+
+      {/* Settings Mode: Clean 2-Pane Architecture (Sidebar + Full Width Settings Stage) */}
+      {inSettings ? (
+        <main className="app-main-stage view-enter">
           <SettingsMainPage
             tab={settingsTab}
             themeMode={themeMode}
@@ -3471,64 +5101,50 @@ export function App() {
             onRequestPermissions={requestRecorderPermissions}
             onShowToast={setToast}
           />
-        ) : activeDetail ? (
-          /* Level 2 Dedicated Workflow Detail Page */
-          <WorkflowDetailPage
-            detailState={activeDetail}
-            isSaved={Boolean(savedWorkflowIds[activeDetail.workflow.id])}
-            onBack={() => setActiveDetail(null)}
-            onSaveSkill={handleSaveWorkflow}
-            onExportCode={(wf, name) => setExportState({ open: true, skillName: name, workflow: wf })}
-            notify={setToast}
-          />
-        ) : (
-          /* Level 1 Overview Pages */
-          <>
-            {view === 'skills' ? (
-              <SkillsOverviewPage
-                skills={skills}
-                aiTools={aiTools}
-                onOpenDetail={(skill) =>
-                  setActiveDetail({ workflow: skill.workflow, source: 'skill', skill })
-                }
-                onNewSkill={() => setNewSkillOpen(true)}
-                onToggleLinkTarget={handleToggleLinkTarget}
-                onDeleteSkill={handleDeleteSkillCompletely}
-                onDetectTools={handleDetectTools}
-                onBulkLink={handleBulkLinkToTarget}
-                onBulkUnlink={handleBulkUnlinkFromTarget}
-                notify={setToast}
-              />
-            ) : null}
-
-            {view === 'workflows' ? (
-              <WorkflowsOverviewPage
-                items={discoveries}
-                savedMap={savedWorkflowIds}
-                onOpenDetail={(wf) => setActiveDetail({ workflow: wf, source: 'workflow' })}
-                onSaveSkill={handleSaveWorkflow}
-                onDismiss={(wfId) => {
-                  setDiscoveries((prev) => prev.filter((i) => i.id !== wfId))
-                  setToast(t.workflows.dismissedToast)
-                }}
-                observing={observing}
-              />
-            ) : null}
-
-            {view === 'environments' ? (
-              <AIEnvironmentsPage
-                aiTools={aiTools}
-                skills={skills}
-                onDetectTools={handleDetectTools}
-                onToggleLinkTarget={handleToggleLinkTarget}
-                onBulkLink={handleBulkLinkToTarget}
-                onBulkUnlink={handleBulkUnlinkFromTarget}
-                notify={setToast}
-              />
-            ) : null}
-          </>
-        )}
-      </main>
+        </main>
+      ) : view === 'environments' ? (
+        <AIEnvironmentsThreeColumn
+          aiTools={aiTools}
+          skills={skills}
+          selectedEnvId={selectedEnvId}
+          onSelectEnvId={setSelectedEnvId}
+          onDetectTools={handleDetectTools}
+          onToggleLinkTarget={handleToggleLinkTarget}
+          onBulkLink={handleBulkLinkToTarget}
+          onBulkUnlink={handleBulkUnlinkFromTarget}
+          notify={setToast}
+        />
+      ) : view === 'skills' ? (
+        <SkillsThreeColumn
+          skills={skills}
+          aiTools={aiTools}
+          selectedSkillId={selectedSkillId}
+          onSelectSkillId={setSelectedSkillId}
+          onNewSkill={() => setNewSkillOpen(true)}
+          onToggleLinkTarget={handleToggleLinkTarget}
+          onDeleteSkill={handleDeleteSkillCompletely}
+          onDetectTools={handleDetectTools}
+          onExportCode={(wf, name) => setExportState({ open: true, skillName: name, workflow: wf })}
+          notify={setToast}
+        />
+      ) : (
+        <WorkflowsThreeColumn
+          items={discoveries}
+          savedMap={savedWorkflowIds}
+          selectedWorkflowId={selectedWorkflowId}
+          onSelectWorkflowId={setSelectedWorkflowId}
+          onSaveSkill={handleSaveWorkflow}
+          observing={observing}
+          recorderStatus={recorderStatus}
+          browserCaptureStatus={browserCaptureStatus}
+          recentEvents={recentEvents}
+          captureSessionId={captureSessionId}
+          onToggleCapture={() => void toggleObserving()}
+          onUpdateWorkflow={handleUpdateCapturedWorkflow}
+          onExportCode={(wf, name) => setExportState({ open: true, skillName: name, workflow: wf })}
+          notify={setToast}
+        />
+      )}
 
       {/* Modals & Dialogs */}
       <AppCommandPalette
@@ -3558,6 +5174,13 @@ export function App() {
         open={newSkillOpen}
         onClose={() => setNewSkillOpen(false)}
         onCreate={handleCreateNewSkill}
+      />
+
+      <BrowserCaptureDialog
+        open={browserCaptureOpen}
+        starting={browserCaptureStarting}
+        onClose={() => setBrowserCaptureOpen(false)}
+        onStart={startBrowserCapture}
       />
 
       <ExportSkillDialog
