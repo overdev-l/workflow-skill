@@ -32,6 +32,7 @@ import {
   validateAccountId,
 } from '../../../packages/workflow-model/src/accounts.ts'
 import type { AccountStore } from './account-store.ts'
+import { inspectClaudeCredential } from './account-credential-format.ts'
 
 export const MAX_RESPONSE_BYTES = 1024 * 1024 // 1 MiB
 export const HTTP_TIMEOUT_MS = 10_000 // 10 seconds
@@ -326,8 +327,8 @@ async function queryClaudeQuota(
   fetchFn: typeof globalThis.fetch,
   now: number
 ): Promise<ProviderQueryResult> {
-  const token = typeof record.credential === 'string' ? record.credential.trim() : ''
-  if (!token || !/^sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,}$/.test(token)) {
+  let token: string
+  try { token = inspectClaudeCredential(record.credential).access } catch {
     return { status: 'unavailable', windows: [] }
   }
 
@@ -681,9 +682,9 @@ export class AccountQuotaService {
     const secrets: string[] = [initialRecord.credential]
     try {
       const payload = JSON.parse(initialRecord.credential)
-      for (const fields of [payload, payload?.tokens, payload?.token]) {
+      for (const fields of [payload, payload?.tokens, payload?.token, payload?.claudeAiOauth]) {
         if (!fields || typeof fields !== 'object') continue
-        for (const key of ['access_token', 'refresh_token', 'id_token']) {
+        for (const key of ['access_token', 'refresh_token', 'id_token', 'accessToken', 'refreshToken']) {
           if (typeof fields[key] === 'string' && fields[key].length >= 4) secrets.push(fields[key])
         }
       }

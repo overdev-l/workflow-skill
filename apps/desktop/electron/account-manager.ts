@@ -5,7 +5,7 @@
  * across AI developer tools (Google Antigravity, OpenAI Codex, Claude Code).
  */
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   chmodSync,
   existsSync,
@@ -20,12 +20,16 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   type AccountActionResult,
+  type AccountDiscoveryResult,
+  type AccountDiscoveryStatus,
   type AccountManagementAPI,
   type AccountMetadata,
+  type AccountOAuthAPI,
   type AccountTool,
   type AccountToolCapability,
   type AccountToolState,
   type AccountsOverview,
+  type StoredAccountRecord,
   ACCOUNT_TOOLS,
   AccountError,
   sanitizeErrorMessage,
@@ -38,6 +42,7 @@ import { AccountQuotaService } from './account-quota.ts'
 import {
   type AccountAdapter,
   type AccountProjection,
+  type InspectedCredential,
   createAccountAdapters,
 } from './account-adapters.ts'
 
@@ -48,6 +53,52 @@ export const KNOWN_SLOTS: Record<AccountTool, readonly string[]> = {
   'claude-code': ['oauth'],
   antigravity: ['oauth'],
 } as const
+
+interface AccountAdapterWithMatching extends AccountAdapter {
+  readCurrentCredential?(): string | null
+  matchesIdentity?(leftCredential: string, rightCredential: string): boolean
+  mergeCredential?(incomingCredential: string, storedCredential: string): string
+}
+
+function matchesAccountIdentity(
+  adapter: AccountAdapter,
+  leftCredential: string,
+  rightCredential: string
+): boolean {
+  const ext = adapter as AccountAdapterWithMatching
+  if (typeof ext.matchesIdentity === 'function') {
+    return ext.matchesIdentity(leftCredential, rightCredential)
+  }
+  const leftInspected = adapter.inspect(leftCredential)
+  const rightInspected = adapter.inspect(rightCredential)
+  return leftInspected.identityKey === rightInspected.identityKey
+}
+
+const TOOL_DEFAULT_LABELS: Record<AccountTool, string> = {
+  antigravity: 'Google Antigravity',
+  codex: 'OpenAI Codex',
+  'claude-code': 'Claude Code',
+}
+
+function deriveDefaultAccountName(tool: AccountTool, email?: string, accountId?: string): string {
+  const candidate = email?.trim() || accountId?.trim()
+  if (candidate) {
+    let sanitized = candidate
+      .replace(/[/\\:]/g, '_')
+      .replace(/[\x00-\x1f\x7f]/g, '')
+      .replace(/\.\./g, '__')
+      .trim()
+    if (sanitized.length > 100) {
+      sanitized = sanitized.slice(0, 100).trim()
+    }
+    try {
+      return validateAccountName(sanitized)
+    } catch {
+      // Fall through to stable tool label
+    }
+  }
+  return TOOL_DEFAULT_LABELS[tool] || tool
+}
 
 export interface AccountTransactionJournal {
   version: 1
@@ -73,7 +124,7 @@ export interface AccountManagerOptions {
   beforeWrite?: (tool: AccountTool, slot: string, index: number) => void
 }
 
-export class AccountManager implements AccountManagementAPI {
+export class AccountManager implements Omit<AccountManagementAPI, keyof AccountOAuthAPI> {
   public readonly homeDir: string
   public readonly traceHome: string
   public readonly transactionsDir: string
@@ -342,8 +393,21 @@ export class AccountManager implements AccountManagementAPI {
       let activeIdentity: string | undefined
 
       try {
-        const currentProj = adapter.read()
-        const currentCred = adapter.credentialFrom(currentProj)
+        let currentCred: string | null = null
+
+        if (cap.available) {
+          try {
+            const ext = adapter as AccountAdapterWithMatching
+            if (typeof ext.readCurrentCredential === 'function') {
+              currentCred = ext.readCurrentCredential()
+            } else {
+              currentCred = adapter.credentialFrom(adapter.read())
+            }
+          } catch {
+            // Independent tool read errors or non-file modes leave currentCred null
+          }
+        }
+
         if (currentCred) {
           const inspected = adapter.inspect(currentCred)
 
@@ -352,7 +416,7 @@ export class AccountManager implements AccountManagementAPI {
           if (journalInfo.journal?.selectedAccountId) {
             try {
               const sel = await this.store.get(journalInfo.journal.selectedAccountId)
-              if (adapter.inspect(sel.credential).identityKey === inspected.identityKey) {
+              if (matchesAccountIdentity(adapter, sel.credential, currentCred)) {
                 matchedAccount = sel.metadata
               }
             } catch {}
@@ -363,7 +427,7 @@ export class AccountManager implements AccountManagementAPI {
               if (acc.tool === tool) {
                 try {
                   const rec = await this.store.get(acc.id)
-                  if (adapter.inspect(rec.credential).identityKey === inspected.identityKey) {
+                  if (matchesAccountIdentity(adapter, rec.credential, currentCred)) {
                     matchedAccount = rec.metadata
                     break
                   }
@@ -401,6 +465,130 @@ export class AccountManager implements AccountManagementAPI {
     return this.quotas.refreshAccount(validateAccountId(id))
   }
 
+  /**
+   * Consolidated locked upsert logic for captureAccount, importAccount, and saveAuthenticatedAccount.
+   * Clears suppression, matches existing accounts via matchesAccountIdentity,
+   * merges via optional mergeCredential, preserves custom names, and updates atomically.
+   */
+  private async upsertAccountInternal(
+    tool: AccountTool,
+    incomingCredential: string,
+    customName?: string,
+    actionLabel = 'save'
+  ): Promise<AccountMetadata> {
+    const validTool = validateAccountTool(tool)
+    if (typeof incomingCredential !== 'string' || incomingCredential.length === 0) {
+      throw new AccountError('Credential payload must be a non-empty string.')
+    }
+    let validatedCustomName: string | undefined
+    if (customName !== undefined) {
+      validatedCustomName = validateAccountName(customName)
+    }
+
+    const adapter = this.adapters[validTool]
+    if (!adapter) throw new AccountError(`Tool adapter not available for ${validTool}.`)
+
+    const incomingInspected = adapter.inspect(incomingCredential)
+    if (incomingInspected.expiresAt && incomingInspected.expiresAt <= Date.now()) {
+      throw new AccountError(`Cannot ${actionLabel} expired credential.`)
+    }
+
+    const fingerprint = createHash('sha256').update(incomingInspected.credential).digest('hex')
+    await this.store.clearSuppression(validTool, fingerprint)
+
+    let currentRaw: string | null = null
+    try {
+      const ext = adapter as AccountAdapterWithMatching
+      if (typeof ext.readCurrentCredential === 'function') {
+        currentRaw = ext.readCurrentCredential()
+      } else {
+        currentRaw = adapter.credentialFrom(adapter.read())
+      }
+    } catch {}
+
+    if (currentRaw) {
+      try {
+        if (matchesAccountIdentity(adapter, currentRaw, incomingCredential)) {
+          const currentInspected = adapter.inspect(currentRaw)
+          const currentFingerprint = createHash('sha256').update(currentInspected.credential).digest('hex')
+          if (currentFingerprint !== fingerprint) {
+            await this.store.clearSuppression(validTool, currentFingerprint)
+          }
+        }
+      } catch {}
+    }
+
+    const existingList = await this.store.list(validTool)
+    let matchingAccount: StoredAccountRecord | null = null
+    for (const meta of existingList) {
+      const rec = await this.store.get(meta.id)
+      try {
+        adapter.inspect(rec.credential)
+      } catch {
+        throw new AccountError('Account corrupted: failed to inspect stored credential.')
+      }
+      let doesMatch = false
+      try {
+        doesMatch = matchesAccountIdentity(adapter, incomingCredential, rec.credential)
+      } catch {
+        throw new AccountError('Account corrupted: failed to inspect stored credential.')
+      }
+      if (doesMatch) {
+        matchingAccount = rec
+        break
+      }
+    }
+
+    if (matchingAccount) {
+      let effectiveCredential = incomingCredential
+      const ext = adapter as AccountAdapterWithMatching
+      if (typeof ext.mergeCredential === 'function') {
+        try {
+          effectiveCredential = ext.mergeCredential(incomingCredential, matchingAccount.credential)
+        } catch (err) {
+          throw new AccountError(sanitizeErrorMessage(err))
+        }
+      }
+
+      let effectiveInspected: InspectedCredential
+      try {
+        effectiveInspected = adapter.inspect(effectiveCredential)
+      } catch (err) {
+        throw new AccountError(sanitizeErrorMessage(err))
+      }
+
+      if (effectiveInspected.expiresAt && effectiveInspected.expiresAt <= Date.now()) {
+        throw new AccountError(`Cannot ${actionLabel} expired credential.`)
+      }
+
+      if (matchingAccount.credential !== effectiveInspected.credential) {
+        const updated = await this.store.updateCredential(matchingAccount.metadata.id, {
+          credential: effectiveInspected.credential,
+          email: effectiveInspected.email,
+          accountId: effectiveInspected.accountId,
+          expiresAt: effectiveInspected.expiresAt,
+        })
+        this.quotas.invalidate(matchingAccount.metadata.id)
+        this.notifyChanged()
+        return updated
+      }
+      // Unchanged does no write/notify
+      return matchingAccount.metadata
+    }
+
+    const name = validatedCustomName ?? deriveDefaultAccountName(validTool, incomingInspected.email, incomingInspected.accountId)
+    const saved = await this.store.save({
+      tool: validTool,
+      name,
+      credential: incomingInspected.credential,
+      email: incomingInspected.email,
+      accountId: incomingInspected.accountId,
+      expiresAt: incomingInspected.expiresAt,
+    })
+    this.notifyChanged()
+    return saved
+  }
+
   async captureAccount(input: { tool: AccountTool; name: string }): Promise<AccountMetadata> {
     if (!input || typeof input !== 'object') throw new AccountError('Invalid account input: must be an object.')
     const tool = validateAccountTool(input.tool)
@@ -420,21 +608,7 @@ export class AccountManager implements AccountManagementAPI {
         )
       }
 
-      const inspected = adapter.inspect(rawCredential)
-      if (inspected.expiresAt && inspected.expiresAt <= Date.now()) {
-        throw new AccountError('Cannot capture expired credential.')
-      }
-
-      const metadata = await this.store.save({
-        tool,
-        name,
-        credential: inspected.credential,
-        email: inspected.email,
-        accountId: inspected.accountId,
-        expiresAt: inspected.expiresAt,
-      })
-      this.notifyChanged()
-      return metadata
+      return await this.upsertAccountInternal(tool, rawCredential, name, 'capture')
     })
   }
 
@@ -447,24 +621,185 @@ export class AccountManager implements AccountManagementAPI {
     }
 
     return await this.withMutationLock(async () => {
-      const adapter = this.adapters[tool]
-      if (!adapter) throw new AccountError(`Tool adapter not available for ${tool}.`)
+      return await this.upsertAccountInternal(tool, input.credential, name, 'import')
+    })
+  }
 
-      const inspected = adapter.inspect(input.credential)
-      if (inspected.expiresAt && inspected.expiresAt <= Date.now()) {
-        throw new AccountError('Cannot import expired credential.')
+  /**
+   * Internal manager method for supervisor OAuth callback.
+   * Performs deduplication and upsert by adapter identityKey without writing official tool files.
+   */
+  async saveAuthenticatedAccount(input: {
+    tool: AccountTool
+    credential: string
+    name?: string
+  }): Promise<AccountMetadata> {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      throw new AccountError('Invalid account input: must be an object.')
+    }
+    const tool = validateAccountTool(input.tool)
+    if (typeof input.credential !== 'string' || input.credential.length === 0) {
+      throw new AccountError('Credential payload must be a non-empty string.')
+    }
+
+    return await this.withMutationLock(async () => {
+      return await this.upsertAccountInternal(tool, input.credential, input.name, 'save')
+    })
+  }
+
+  /**
+   * Scans each ACCOUNT_TOOLS independently under mutation lock to discover and sync active credentials.
+   * Never writes to official tool credential/config files.
+   * Returns per-tool AccountDiscoveryResult array.
+   */
+  async syncCurrentAccounts(): Promise<AccountDiscoveryResult[]> {
+    return await this.withMutationLock(async () => {
+      const results: AccountDiscoveryResult[] = []
+      let hasActualChanges = false
+
+      for (const tool of ACCOUNT_TOOLS) {
+        try {
+          const adapter = this.adapters[tool]
+          if (!adapter) {
+            results.push({ tool, status: 'unavailable', message: `Adapter for ${tool} not found.` })
+            continue
+          }
+
+          let rawCredential: string | null = null
+          try {
+            const adapterWithMatching = adapter as AccountAdapterWithMatching
+            if (typeof adapterWithMatching.readCurrentCredential === 'function') {
+              rawCredential = adapterWithMatching.readCurrentCredential()
+            } else {
+              rawCredential = adapter.credentialFrom(adapter.read())
+            }
+          } catch (err) {
+            results.push({ tool, status: 'error', message: sanitizeErrorMessage(err) })
+            continue
+          }
+
+          if (!rawCredential) {
+            results.push({ tool, status: 'not-found' })
+            continue
+          }
+
+          let inspected: InspectedCredential
+          try {
+            inspected = adapter.inspect(rawCredential)
+          } catch (err) {
+            results.push({ tool, status: 'error', message: sanitizeErrorMessage(err) })
+            continue
+          }
+
+          if (inspected.expiresAt && inspected.expiresAt <= Date.now()) {
+            results.push({ tool, status: 'expired', message: 'Current credential has expired.' })
+            continue
+          }
+
+          const fingerprint = createHash('sha256').update(inspected.credential).digest('hex')
+          if (await this.store.isSuppressed(tool, fingerprint)) {
+            results.push({ tool, status: 'dismissed' })
+            continue
+          }
+
+          // Search existing accounts for matching identity
+          const existingList = await this.store.list(tool)
+          let matchingAccount: StoredAccountRecord | null = null
+          for (const meta of existingList) {
+            const rec = await this.store.get(meta.id)
+            try {
+              adapter.inspect(rec.credential)
+            } catch {
+              throw new AccountError('Account corrupted: failed to inspect stored credential.')
+            }
+            let doesMatch = false
+            try {
+              doesMatch = matchesAccountIdentity(adapter, rawCredential, rec.credential)
+            } catch {
+              throw new AccountError('Account corrupted: failed to inspect stored credential.')
+            }
+            if (doesMatch) {
+              matchingAccount = rec
+              break
+            }
+          }
+
+          if (matchingAccount) {
+            let effectiveCredential = rawCredential
+            const ext = adapter as AccountAdapterWithMatching
+            if (typeof ext.mergeCredential === 'function') {
+              try {
+                effectiveCredential = ext.mergeCredential(rawCredential, matchingAccount.credential)
+              } catch (err) {
+                throw new AccountError(sanitizeErrorMessage(err))
+              }
+            }
+
+            let effectiveInspected: InspectedCredential
+            try {
+              effectiveInspected = adapter.inspect(effectiveCredential)
+            } catch (err) {
+              throw new AccountError(sanitizeErrorMessage(err))
+            }
+
+            if (effectiveInspected.expiresAt && effectiveInspected.expiresAt <= Date.now()) {
+              results.push({ tool, status: 'expired', message: 'Current credential has expired.' })
+              continue
+            }
+
+            const existingInspected = adapter.inspect(matchingAccount.credential)
+            const existingExpiresAt = existingInspected.expiresAt ?? matchingAccount.metadata.expiresAt
+            const currentExpiresAt = effectiveInspected.expiresAt
+
+            // Existing valid token should not be replaced by older token
+            if (
+              existingExpiresAt &&
+              currentExpiresAt &&
+              currentExpiresAt < existingExpiresAt &&
+              existingExpiresAt > Date.now()
+            ) {
+              results.push({ tool, status: 'unchanged', accountId: matchingAccount.metadata.id })
+              continue
+            }
+
+            if (matchingAccount.credential === effectiveInspected.credential) {
+              results.push({ tool, status: 'unchanged', accountId: matchingAccount.metadata.id })
+              continue
+            }
+
+            // Same identity changed credential -> replace and invalidate quota
+            const updated = await this.store.updateCredential(matchingAccount.metadata.id, {
+              credential: effectiveInspected.credential,
+              email: effectiveInspected.email,
+              accountId: effectiveInspected.accountId,
+              expiresAt: effectiveInspected.expiresAt,
+            })
+            this.quotas.invalidate(matchingAccount.metadata.id)
+            hasActualChanges = true
+            results.push({ tool, status: 'updated', accountId: updated.id })
+          } else {
+            const defaultName = deriveDefaultAccountName(tool, inspected.email, inspected.accountId)
+            const saved = await this.store.save({
+              tool,
+              name: defaultName,
+              credential: inspected.credential,
+              email: inspected.email,
+              accountId: inspected.accountId,
+              expiresAt: inspected.expiresAt,
+            })
+            hasActualChanges = true
+            results.push({ tool, status: 'imported', accountId: saved.id })
+          }
+        } catch (err) {
+          results.push({ tool, status: 'error', message: sanitizeErrorMessage(err) })
+        }
       }
 
-      const metadata = await this.store.save({
-        tool,
-        name,
-        credential: inspected.credential,
-        email: inspected.email,
-        accountId: inspected.accountId,
-        expiresAt: inspected.expiresAt,
-      })
-      this.notifyChanged()
-      return metadata
+      if (hasActualChanges) {
+        this.notifyChanged()
+      }
+
+      return results
     })
   }
 
@@ -781,6 +1116,58 @@ export class AccountManager implements AccountManagementAPI {
   async deleteAccount(id: string): Promise<void> {
     const validId = validateAccountId(id)
     await this.withMutationLock(async () => {
+      let record: StoredAccountRecord | null = null
+      try {
+        record = await this.store.get(validId)
+      } catch {
+        // If record is not found or corrupted, proceed to store.delete
+      }
+
+      if (record) {
+        const tool = record.metadata.tool
+        const adapter = this.adapters[tool]
+        if (adapter) {
+          try {
+            const inspected = adapter.inspect(record.credential)
+            const fingerprint = createHash('sha256').update(inspected.credential).digest('hex')
+            // Record suppression FIRST; avoid deleting record if recording suppression fails
+            await this.store.recordSuppression(tool, fingerprint)
+
+            // Additionally suppress current discovered credential fingerprint WHEN it matches same account
+            let currentRaw: string | null = null
+            try {
+              const ext = adapter as AccountAdapterWithMatching
+              if (typeof ext.readCurrentCredential === 'function') {
+                currentRaw = ext.readCurrentCredential()
+              } else {
+                currentRaw = adapter.credentialFrom(adapter.read())
+              }
+            } catch {
+              // Independent tool read errors do not block deletion
+            }
+
+            if (currentRaw) {
+              let matches = false
+              let currentFingerprint: string | undefined
+              try {
+                const currentInspected = adapter.inspect(currentRaw)
+                currentFingerprint = createHash('sha256').update(currentInspected.credential).digest('hex')
+                matches = matchesAccountIdentity(adapter, currentRaw, record.credential)
+              } catch {
+                // Tool inspect/match errors on external disk files do not block deletion
+              }
+
+              if (matches && currentFingerprint && currentFingerprint !== fingerprint) {
+                await this.store.recordSuppression(tool, currentFingerprint)
+              }
+            }
+          } catch (err) {
+            if (err instanceof AccountError) throw err
+            throw new AccountError('Failed to record account dismissal suppression.')
+          }
+        }
+      }
+
       await this.store.delete(validId)
       this.quotas.invalidate(validId)
       this.notifyChanged()

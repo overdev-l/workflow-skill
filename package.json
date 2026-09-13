@@ -23,7 +23,7 @@
     "verify:skill-search": "node --experimental-strip-types scripts/verify-skill-repository-search.mjs",
     "verify:skill-deletion": "node --experimental-strip-types scripts/verify-skill-deletion.mjs",
     "verify:mcp": "node --experimental-strip-types scripts/verify-mcp-management.mjs",
-    "verify:accounts": "node --experimental-strip-types scripts/verify-account-store.mjs && node --experimental-strip-types scripts/verify-account-adapters.mjs && node --experimental-strip-types scripts/verify-account-management.mjs && node --experimental-strip-types scripts/verify-account-quota.mjs"
+    "verify:accounts": "node --experimental-strip-types scripts/verify-account-store.mjs && node --experimental-strip-types scripts/verify-account-adapters.mjs && node --experimental-strip-types scripts/verify-account-management.mjs && node --experimental-strip-types scripts/verify-account-quota.mjs && node --experimental-strip-types scripts/verify-account-discovery.mjs && node --experimental-strip-types scripts/verify-account-oauth.mjs && node --experimental-strip-types scripts/verify-account-oauth-providers.mjs"
   },
   "devDependencies": {
     "turbo": "2.10.11",

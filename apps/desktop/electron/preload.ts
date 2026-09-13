@@ -24,6 +24,11 @@ import type {
 
 const accounts: AccountManagementAPI = {
   getOverview: () => ipcRenderer.invoke('accounts:overview'),
+  syncCurrentAccounts: () => ipcRenderer.invoke('accounts:sync'),
+  startOAuth: tool => ipcRenderer.invoke('accounts:oauth-start', tool),
+  getOAuthSession: id => ipcRenderer.invoke('accounts:oauth-status', id),
+  cancelOAuth: id => ipcRenderer.invoke('accounts:oauth-cancel', id),
+  reopenOAuth: id => ipcRenderer.invoke('accounts:oauth-reopen', id),
   refreshQuota: id => ipcRenderer.invoke('accounts:refresh-quota', id),
   captureAccount: input => ipcRenderer.invoke('accounts:capture', input),
   importAccount: input => ipcRenderer.invoke('accounts:import', input),

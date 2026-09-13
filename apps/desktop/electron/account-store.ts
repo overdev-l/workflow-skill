@@ -61,6 +61,28 @@ export interface AccountStoreOptions {
   traceHome?: string
 }
 
+export interface AccountCredentialUpdateInput {
+  credential: string
+  email?: string
+  accountId?: string
+  expiresAt?: number
+  name?: string
+}
+
+export const MAX_SUPPRESSION_FILE_SIZE = 64 * 1024 // 64 KiB
+const SHA256_HEX_REGEX = /^[0-9a-f]{64}$/i
+
+export interface AccountSuppressionEntry {
+  tool: AccountTool
+  fingerprint: string
+  suppressedAt: number
+}
+
+export interface AccountSuppressionFile {
+  version: 1
+  suppressions: AccountSuppressionEntry[]
+}
+
 function pathOrSymlinkExists(targetPath: string): boolean {
   try {
     lstatSync(targetPath)
@@ -629,6 +651,370 @@ export class AccountStore {
       }
 
       rmSync(targetDir, { recursive: true, force: true })
+    })
+  }
+
+  /**
+   * Updates an existing account credential atomically.
+   * Preserves id, name, and createdAt.
+   * Writes new immutable generation credential file, atomically commits updated manifest pointer,
+   * then removes old generation file only after successful manifest commit.
+   * If any failure occurs before manifest commit, old record remains untouched and readable.
+   */
+  async updateCredential(id: string, input: AccountCredentialUpdateInput): Promise<AccountMetadata> {
+    const validId = validateAccountId(id)
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      throw new AccountError('Invalid account input: must be an object.')
+    }
+
+    if (typeof input.credential !== 'string' || input.credential.length === 0) {
+      throw new AccountError('Credential payload must be a non-empty string.')
+    }
+
+    const payloadBuffer = Buffer.from(input.credential, 'utf8')
+    if (payloadBuffer.length > MAX_CREDENTIAL_PAYLOAD_SIZE) {
+      throw new AccountError('Credential payload exceeds maximum permitted size of 5 MiB.')
+    }
+
+    let email: string | undefined
+    if (input.email !== undefined) {
+      if (
+        typeof input.email !== 'string' ||
+        input.email.trim().length === 0 ||
+        input.email.length > 255 ||
+        /[\x00-\x1f\x7f]/.test(input.email)
+      ) {
+        throw new AccountError('Invalid account email: contains invalid characters or length.')
+      }
+      email = input.email.trim()
+    }
+
+    let accountId: string | undefined
+    if (input.accountId !== undefined) {
+      if (
+        typeof input.accountId !== 'string' ||
+        input.accountId.trim().length === 0 ||
+        input.accountId.length > 255 ||
+        /[\x00-\x1f\x7f]/.test(input.accountId)
+      ) {
+        throw new AccountError('Invalid account ID identifier: contains invalid characters or length.')
+      }
+      accountId = input.accountId.trim()
+    }
+
+    let expiresAt: number | undefined
+    if (input.expiresAt !== undefined) {
+      if (typeof input.expiresAt !== 'number' || !Number.isInteger(input.expiresAt) || input.expiresAt <= 0) {
+        throw new AccountError('Invalid expiresAt timestamp: must be a positive integer.')
+      }
+      expiresAt = input.expiresAt
+    }
+
+    return await this.withMutationLock(async () => {
+      const targetDir = path.join(this.accountsDir, validId)
+      this.assertSafePath(targetDir)
+
+      if (!pathOrSymlinkExists(targetDir)) {
+        throw new AccountError('Account not found.')
+      }
+
+      const dirStat = lstatSync(targetDir)
+      if (dirStat.isSymbolicLink()) {
+        throw new AccountError('Security violation: symbolic link detected in account storage path.')
+      }
+      if (!dirStat.isDirectory()) {
+        throw new AccountError('Account corrupted: target path is not a directory.')
+      }
+
+      // Verify existing record is healthy; corrupted accounts throw AccountError and are NEVER overwritten
+      await this.get(validId)
+
+      const manifestPath = path.join(targetDir, 'manifest.json')
+      this.assertSafePath(manifestPath)
+      const currentManifestRaw = readFileSync(manifestPath, 'utf8')
+      const currentManifest = validateAccountManifest(JSON.parse(currentManifestRaw), validId)
+      const oldCredentialFile = currentManifest.credentialFile
+
+      const genId = randomUUID()
+      const newCredentialFilename = `credential.${genId}.utf8`
+      const newCredentialPath = path.join(targetDir, newCredentialFilename)
+      const tempCredPath = path.join(
+        targetDir,
+        `.credential_tmp_${genId}_${Date.now()}_${Math.random().toString(36).substring(2, 10)}.utf8`
+      )
+      const now = Date.now()
+      const tempManifestPath = path.join(
+        targetDir,
+        `.manifest_tmp_${now}_${Math.random().toString(36).substring(2, 10)}.json`
+      )
+
+      this.assertSafePath(tempCredPath)
+      this.assertSafePath(newCredentialPath)
+      this.assertSafePath(tempManifestPath)
+
+      const payloadSha256 = createHash('sha256').update(payloadBuffer).digest('hex')
+      const payloadLength = payloadBuffer.length
+
+      try {
+        // 1. Write new generation credential payload to temp file
+        writeFileSync(tempCredPath, payloadBuffer, { mode: 0o600 })
+        try {
+          chmodSync(tempCredPath, 0o600)
+        } catch (err) {
+          if (process.platform !== 'win32') throw err
+        }
+
+        // 2. Rename temp to immutable generation file
+        renameSync(tempCredPath, newCredentialPath)
+        try {
+          chmodSync(newCredentialPath, 0o600)
+        } catch (err) {
+          if (process.platform !== 'win32') throw err
+        }
+
+        // Check new credential file safety
+        this.assertSafePath(newCredentialPath)
+        const credStat = lstatSync(newCredentialPath)
+        if (!credStat.isFile() || credStat.isSymbolicLink() || (typeof credStat.nlink === 'number' && credStat.nlink > 1)) {
+          throw new AccountError('Security violation: non-regular file or hard link detected.')
+        }
+
+        // 3. Prepare updated manifest with version 2, preserving name, id, createdAt, and tool
+        const updatedManifest: AccountManifest = {
+          version: 2,
+          id: validId,
+          tool: currentManifest.tool,
+          name: currentManifest.name,
+          email: email !== undefined ? email : currentManifest.email,
+          accountId: accountId !== undefined ? accountId : currentManifest.accountId,
+          createdAt: currentManifest.createdAt,
+          updatedAt: now,
+          expiresAt: expiresAt !== undefined ? expiresAt : currentManifest.expiresAt,
+          credentialFile: newCredentialFilename,
+          payloadSha256,
+          payloadLength,
+        }
+
+        // 4. Write staging manifest
+        writeFileSync(tempManifestPath, JSON.stringify(updatedManifest, null, 2), { mode: 0o600 })
+        try {
+          chmodSync(tempManifestPath, 0o600)
+        } catch (err) {
+          if (process.platform !== 'win32') throw err
+        }
+
+        // 5. Atomic pointer commit: rename staging manifest over manifest.json
+        renameSync(tempManifestPath, manifestPath)
+
+        // 6. Clean up old generation file ONLY after successful manifest commit
+        if (oldCredentialFile && oldCredentialFile !== newCredentialFilename) {
+          const oldCredPath = path.join(targetDir, oldCredentialFile)
+          try {
+            this.assertSafePath(oldCredPath)
+            rmSync(oldCredPath, { force: true })
+          } catch {}
+        }
+
+        return {
+          id: validId,
+          tool: updatedManifest.tool,
+          name: updatedManifest.name,
+          email: updatedManifest.email,
+          accountId: updatedManifest.accountId,
+          createdAt: updatedManifest.createdAt,
+          updatedAt: now,
+          expiresAt: updatedManifest.expiresAt,
+        }
+      } catch (err) {
+        // On error, remove newly staged files so old record remains readable
+        try {
+          if (pathOrSymlinkExists(tempCredPath)) rmSync(tempCredPath, { force: true })
+        } catch {}
+        try {
+          if (pathOrSymlinkExists(newCredentialPath)) rmSync(newCredentialPath, { force: true })
+        } catch {}
+        try {
+          if (pathOrSymlinkExists(tempManifestPath)) rmSync(tempManifestPath, { force: true })
+        } catch {}
+
+        if (err instanceof AccountError) throw err
+        throw new AccountError(DEFAULT_ACCOUNT_ERROR_MESSAGE)
+      }
+    })
+  }
+
+  private get suppressionPath(): string {
+    return path.join(this.accountsDir, '.suppressions.json')
+  }
+
+  private readSuppressionFileSafely(): AccountSuppressionFile {
+    const targetPath = this.suppressionPath
+    if (!existsSync(this.accountsDir)) {
+      return { version: 1, suppressions: [] }
+    }
+    this.assertSafePath(this.accountsDir)
+    if (!pathOrSymlinkExists(targetPath)) {
+      return { version: 1, suppressions: [] }
+    }
+
+    this.assertSafePath(targetPath)
+    const stat = lstatSync(targetPath)
+    if (stat.isSymbolicLink()) {
+      throw new AccountError('Security violation: symbolic link detected in account storage path.')
+    }
+    if (!stat.isFile() || (typeof stat.nlink === 'number' && stat.nlink > 1)) {
+      throw new AccountError('Suppression storage corrupted: non-regular file or hard link detected.')
+    }
+    if (stat.size > MAX_SUPPRESSION_FILE_SIZE) {
+      throw new AccountError('Suppression storage corrupted: file size exceeds limit.')
+    }
+
+    let raw: string
+    try {
+      raw = readFileSync(targetPath, 'utf8')
+    } catch {
+      throw new AccountError('Suppression storage corrupted: failed to read file.')
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      throw new AccountError('Suppression storage corrupted: invalid JSON.')
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new AccountError('Suppression storage corrupted: must be an object.')
+    }
+
+    const obj = parsed as Record<string, unknown>
+    if (obj.version !== 1) {
+      throw new AccountError('Suppression storage corrupted: unsupported version.')
+    }
+    if (!Array.isArray(obj.suppressions)) {
+      throw new AccountError('Suppression storage corrupted: suppressions must be an array.')
+    }
+
+    const validEntries: AccountSuppressionEntry[] = []
+    for (const item of obj.suppressions) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new AccountError('Suppression storage corrupted: suppression entry must be an object.')
+      }
+      const entry = item as Record<string, unknown>
+      const tool = validateAccountTool(entry.tool)
+      if (typeof entry.fingerprint !== 'string' || !SHA256_HEX_REGEX.test(entry.fingerprint)) {
+        throw new AccountError('Suppression storage corrupted: invalid fingerprint.')
+      }
+      if (typeof entry.suppressedAt !== 'number' || !Number.isInteger(entry.suppressedAt) || entry.suppressedAt <= 0) {
+        throw new AccountError('Suppression storage corrupted: invalid suppressedAt timestamp.')
+      }
+      validEntries.push({
+        tool,
+        fingerprint: entry.fingerprint.toLowerCase(),
+        suppressedAt: entry.suppressedAt,
+      })
+    }
+
+    return {
+      version: 1,
+      suppressions: validEntries,
+    }
+  }
+
+  private writeSuppressionFileSafely(data: AccountSuppressionFile): void {
+    this.ensureDirectories()
+    const targetPath = this.suppressionPath
+    this.assertSafePath(this.accountsDir)
+
+    // Limit size: keep at most 200 newest entries
+    const sorted = [...data.suppressions].sort((a, b) => b.suppressedAt - a.suppressedAt)
+    const pruned = sorted.slice(0, 200)
+
+    const payload = JSON.stringify({ version: 1, suppressions: pruned }, null, 2)
+    if (Buffer.byteLength(payload, 'utf8') > MAX_SUPPRESSION_FILE_SIZE) {
+      throw new AccountError('Suppression storage exceeds size limit.')
+    }
+
+    const tempPath = path.join(
+      this.accountsDir,
+      `.suppressions_tmp_${Date.now()}_${Math.random().toString(36).substring(2, 10)}.json`
+    )
+    this.assertSafePath(tempPath)
+
+    try {
+      writeFileSync(tempPath, payload, { mode: 0o600 })
+      try {
+        chmodSync(tempPath, 0o600)
+      } catch (err) {
+        if (process.platform !== 'win32') throw err
+      }
+      this.assertSafePath(targetPath)
+      renameSync(tempPath, targetPath)
+      try {
+        chmodSync(targetPath, 0o600)
+      } catch (err) {
+        if (process.platform !== 'win32') throw err
+      }
+    } finally {
+      if (pathOrSymlinkExists(tempPath)) {
+        try {
+          rmSync(tempPath, { force: true })
+        } catch {}
+      }
+    }
+  }
+
+  async isSuppressed(tool: AccountTool, fingerprint: string): Promise<boolean> {
+    validateAccountTool(tool)
+    if (typeof fingerprint !== 'string' || !SHA256_HEX_REGEX.test(fingerprint)) {
+      return false
+    }
+    const lowerFingerprint = fingerprint.toLowerCase()
+    return await this.withMutationLock(async () => {
+      const data = this.readSuppressionFileSafely()
+      return data.suppressions.some((e) => e.tool === tool && e.fingerprint === lowerFingerprint)
+    })
+  }
+
+  async recordSuppression(tool: AccountTool, fingerprint: string): Promise<void> {
+    validateAccountTool(tool)
+    if (typeof fingerprint !== 'string' || !SHA256_HEX_REGEX.test(fingerprint)) {
+      throw new AccountError('Invalid suppression fingerprint.')
+    }
+    const lowerFingerprint = fingerprint.toLowerCase()
+
+    await this.withMutationLock(async () => {
+      const data = this.readSuppressionFileSafely()
+      const remaining = data.suppressions.filter(
+        (e) => !(e.tool === tool && e.fingerprint === lowerFingerprint)
+      )
+      remaining.push({
+        tool,
+        fingerprint: lowerFingerprint,
+        suppressedAt: Date.now(),
+      })
+      this.writeSuppressionFileSafely({ version: 1, suppressions: remaining })
+    })
+  }
+
+  async clearSuppression(tool: AccountTool, fingerprint: string): Promise<void> {
+    validateAccountTool(tool)
+    if (typeof fingerprint !== 'string' || !SHA256_HEX_REGEX.test(fingerprint)) {
+      return
+    }
+    const lowerFingerprint = fingerprint.toLowerCase()
+
+    await this.withMutationLock(async () => {
+      if (!existsSync(this.accountsDir) || !pathOrSymlinkExists(this.suppressionPath)) {
+        return
+      }
+      const data = this.readSuppressionFileSafely()
+      const filtered = data.suppressions.filter(
+        (e) => !(e.tool === tool && e.fingerprint === lowerFingerprint)
+      )
+      if (filtered.length !== data.suppressions.length) {
+        this.writeSuppressionFileSafely({ version: 1, suppressions: filtered })
+      }
     })
   }
 }

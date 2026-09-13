@@ -287,6 +287,26 @@ await test('2. Claude positive query: 5h, 7d, 7d Opus, 7d Sonnet windows, utiliz
   assert.equal(capturedInit.headers['Authorization'], `Bearer ${acc.credential}`)
 })
 
+await test('Claude full OAuth credential queries with access token only and redacts response labels', async () => {
+  const store = new MockStore()
+  const acc = makeClaudeAccount()
+  const access = acc.credential
+  const refresh = 'synthetic-full-claude-refresh'
+  acc.credential = JSON.stringify({ claudeAiOauth: { accessToken: access, refreshToken: refresh, expiresAt: Date.now() + 3600_000, scopes: ['user:profile', 'user:inference'] } })
+  store.set(acc.metadata.id, acc)
+  let authorization
+  const service = new AccountQuotaService({ store, fetch: async (_url, init) => {
+    authorization = init.headers.Authorization
+    return jsonResponse({ five_hour: { utilization: 25 }, plan: refresh })
+  } })
+  const snapshot = await service.refreshAccount(acc.metadata.id)
+  assert.equal(authorization, `Bearer ${access}`)
+  assert.equal(snapshot.status, 'ready')
+  assert.equal(snapshot.windows[0].remainingPercent, 75)
+  assert.ok(!JSON.stringify(snapshot).includes(refresh))
+  assert.ok(!JSON.stringify(snapshot).includes(access))
+})
+
 await test('3. Antigravity positive query: loadCodeAssist, fetchAvailableModels, remainingFraction, and tier', async () => {
   const store = new MockStore()
   const acc = makeAntigravityAccount()

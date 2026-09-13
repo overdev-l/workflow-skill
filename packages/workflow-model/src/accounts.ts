@@ -138,14 +138,51 @@ export interface AccountActionResult {
   recoveryNeeded?: boolean
 }
 
+export type AccountDiscoveryStatus =
+  | 'imported'
+  | 'updated'
+  | 'unchanged'
+  | 'not-found'
+  | 'unavailable'
+  | 'expired'
+  | 'error'
+  | 'dismissed'
+
+export interface AccountDiscoveryResult {
+  tool: AccountTool
+  status: AccountDiscoveryStatus
+  accountId?: string
+  message?: string
+}
+
+export type AccountOAuthPhase = 'waiting' | 'exchanging' | 'succeeded' | 'cancelled' | 'expired' | 'error'
+
+/** Public login progress; OAuth codes, tokens, state and URLs stay in the main process. */
+export interface AccountOAuthSession {
+  id: string
+  tool: AccountTool
+  phase: AccountOAuthPhase
+  expiresAt: number
+  accountId?: string
+  error?: string
+}
+
+export interface AccountOAuthAPI {
+  startOAuth(tool: AccountTool): Promise<AccountOAuthSession>
+  getOAuthSession(id: string): Promise<AccountOAuthSession>
+  cancelOAuth(id: string): Promise<void>
+  reopenOAuth(id: string): Promise<void>
+}
+
 /**
  * IPC and service boundary API for account management.
  */
-export interface AccountManagementAPI {
+export interface AccountManagementAPI extends AccountOAuthAPI {
   getOverview(): Promise<AccountsOverview>
   refreshQuota(id: string): Promise<AccountQuotaSnapshot>
   captureAccount(input: { tool: AccountTool; name: string }): Promise<AccountMetadata>
   importAccount(input: { tool: AccountTool; name: string; credential: string }): Promise<AccountMetadata>
+  syncCurrentAccounts(): Promise<AccountDiscoveryResult[]>
   switchAccount(id: string): Promise<AccountActionResult>
   rollbackAccount(tool: AccountTool): Promise<AccountActionResult>
   recoverAccount(tool: AccountTool): Promise<AccountActionResult>
@@ -155,10 +192,11 @@ export interface AccountManagementAPI {
 }
 
 /**
- * Schema version 1 disk manifest stored in ~/.trace/accounts/<id>/manifest.json.
+ * Disk manifest stored in ~/.trace/accounts/<id>/manifest.json.
+ * Version 1 uses 'credential.utf8'; version 2 uses 'credential.<UUID>.utf8'.
  */
 export interface AccountManifest {
-  version: 1
+  version: 1 | 2
   id: string
   tool: AccountTool
   name: string
@@ -167,7 +205,7 @@ export interface AccountManifest {
   createdAt: number
   updatedAt: number
   expiresAt?: number
-  credentialFile: 'credential.utf8'
+  credentialFile: string
   payloadSha256: string
   payloadLength: number
 }
@@ -229,13 +267,15 @@ export function validateAccountId(id: unknown): string {
   return trimmed
 }
 
+const CREDENTIAL_V2_FILE_REGEX = /^credential\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.utf8$/i
+
 export function validateAccountManifest(manifest: unknown, expectedId?: string): AccountManifest {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new AccountError('Account corrupted: manifest must be an object.')
   }
 
   const m = manifest as Record<string, unknown>
-  if (m.version !== 1) {
+  if (m.version !== 1 && m.version !== 2) {
     throw new AccountError('Account corrupted: unsupported manifest version.')
   }
 
@@ -288,8 +328,17 @@ export function validateAccountManifest(manifest: unknown, expectedId?: string):
     }
   }
 
-  if (m.credentialFile !== 'credential.utf8') {
-    throw new AccountError('Account corrupted: manifest credentialFile must be exactly credential.utf8.')
+  if (m.version === 1) {
+    if (m.credentialFile !== 'credential.utf8') {
+      throw new AccountError('Account corrupted: manifest credentialFile must be exactly credential.utf8.')
+    }
+  } else {
+    if (
+      typeof m.credentialFile !== 'string' ||
+      (m.credentialFile !== 'credential.utf8' && !CREDENTIAL_V2_FILE_REGEX.test(m.credentialFile))
+    ) {
+      throw new AccountError('Account corrupted: manifest credentialFile must be a valid credential file pointer.')
+    }
   }
 
   if (typeof m.payloadSha256 !== 'string' || !SHA256_REGEX.test(m.payloadSha256)) {
@@ -306,7 +355,7 @@ export function validateAccountManifest(manifest: unknown, expectedId?: string):
   }
 
   return {
-    version: 1,
+    version: m.version as 1 | 2,
     id: validId,
     tool,
     name,
@@ -315,8 +364,8 @@ export function validateAccountManifest(manifest: unknown, expectedId?: string):
     createdAt: m.createdAt,
     updatedAt: m.updatedAt,
     expiresAt: m.expiresAt as number | undefined,
-    credentialFile: 'credential.utf8',
-    payloadSha256: m.payloadSha256.toLowerCase(),
-    payloadLength: m.payloadLength,
+    credentialFile: m.credentialFile as string,
+    payloadSha256: (m.payloadSha256 as string).toLowerCase(),
+    payloadLength: m.payloadLength as number,
   }
 }

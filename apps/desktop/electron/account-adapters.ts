@@ -5,6 +5,7 @@ import path from 'node:path'
 import { parse as parseToml } from 'smol-toml'
 import { parseTOML } from 'toml-eslint-parser'
 import { AccountError, type AccountTool, type AccountToolCapability } from '../../../packages/workflow-model/src/accounts.ts'
+import { inspectClaudeCredential, inspectAntigravityCredential, matchClaudeCredentials, mergeClaudeCredentials, matchAntigravityCredentials, mergeAntigravityCredentials } from './account-credential-format.ts'
 
 export type AccountProjection = Record<string, string | null>
 export interface InspectedCredential {
@@ -22,6 +23,10 @@ export interface AccountAdapter {
   desired(credential: string): AccountProjection
   writeSlot(slot: string, value: string | null): void
   credentialFrom(state: AccountProjection): string | null
+  /** Read-only discovery, independently of the ability to switch the native tool. */
+  readCurrentCredential?(): string | null
+  matchesIdentity?(left: string, right: string): boolean
+  mergeCredential?(incoming: string, stored: string): string
 }
 export interface AccountAdapterOptions {
   homeDir?: string
@@ -174,6 +179,14 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
       else fail('未知的 Codex 认证字段。')
     },
     credentialFrom: state => state.mode === 'file' || state.mode === null ? state.auth : null,
+    readCurrentCredential() {
+      if (!codex.capability().available) fail('Codex 当前存在认证优先级冲突，无法自动确认文件登录。请通过 OAuth 添加账号。')
+      const current = codex.read()
+      if (current.mode !== null && current.mode !== 'file') fail('Codex 当前未使用明确的文件登录模式，无法自动确认本地登录。请通过 OAuth 添加账号。')
+      const forced = codexSettings().forced_chatgpt_workspace_id
+      if (current.auth && forced !== undefined && forced !== codex.inspect(current.auth).accountId) fail('Codex 本地凭据与限定工作区不一致，无法自动确认文件登录。')
+      return current.auth
+    },
   }
 
   const claudeConflict = (): boolean => {
@@ -186,13 +199,11 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
     tool: 'claude-code',
     capability() {
       const conflict = claudeConflict()
-      return { tool: 'claude-code', available: !conflict, reasonCode: conflict ? 'claude-auth-conflict' : undefined, detailsCode: 'claude-setup-token', reason: conflict ? '检测到环境令牌、API Key、认证辅助程序或其他提供商配置；请先在 Claude 中处理认证优先级冲突。' : undefined, details: '导入 claude setup-token 生成的订阅令牌，写入 settings.json 的 CLAUDE_CODE_OAUTH_TOKEN。支持模型请求和本地 MCP；不支持 Remote Control 与 Claude.ai 连接器。邮箱、有效期和服务端登录状态无法离线确认，请在新会话验证。' }
+      return { tool: 'claude-code', available: !conflict, reasonCode: conflict ? 'claude-auth-conflict' : undefined, detailsCode: 'claude-setup-token', reason: conflict ? '检测到环境令牌、API Key、认证辅助程序或其他提供商配置；请先在 Claude 中处理认证优先级冲突。' : undefined, details: '通过 OAuth 登录或导入订阅凭据保存账号；切换时将访问令牌写入 settings.json 的 CLAUDE_CODE_OAUTH_TOKEN。支持模型请求和本地 MCP；不支持 Remote Control 与 Claude.ai 连接器。新会话仍需验证身份；单独的 setup-token 无法离线确认邮箱或有效期。' }
     },
-    inspect(raw) {
-      const value = typeof raw === 'string' ? raw.trim() : ''
-      if (!/^sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,}$/.test(value) || value.length > LIMIT) fail('请导入 claude setup-token 生成的订阅令牌，不支持 Anthropic API Key。')
-      return { credential: value, identityKey: `claude:${hash(value)}` }
-    },
+    inspect: inspectClaudeCredential,
+    matchesIdentity: matchClaudeCredentials,
+    mergeCredential: mergeClaudeCredentials,
     read() {
       const settings = json(files.read(claudeSettings) ?? '{}')
       if (settings.env !== undefined && !object(settings.env)) fail('Claude settings.json 的 env 格式无效。')
@@ -200,7 +211,7 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
       if (value !== undefined && typeof value !== 'string') fail('Claude 订阅令牌配置无效。')
       return { oauth: value ?? null }
     },
-    desired: credential => ({ oauth: claude.inspect(credential).credential }),
+    desired: credential => ({ oauth: inspectClaudeCredential(credential).access }),
     writeSlot(slot, value) {
       if (slot !== 'oauth') fail('未知的 Claude 认证字段。')
       const settings = json(files.read(claudeSettings) ?? '{}')
@@ -211,6 +222,23 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
       files.write(claudeSettings, Object.keys(settings).length ? `${JSON.stringify(settings, null, 2)}\n` : null)
     },
     credentialFrom: state => state.oauth,
+    readCurrentCredential() {
+      if (claudeConflict()) fail('Claude 当前存在认证优先级冲突，无法自动确认文件登录。请通过 OAuth 添加账号。')
+      const configured = claude.read().oauth
+      const configDir = path.dirname(claudeSettings)
+      if (configured) inspectClaudeCredential(configured)
+      try {
+        const rawFile = files.read(path.join(configDir, '.credentials.json'))
+        if (!rawFile) return configured
+        const inspected = inspectClaudeCredential(rawFile)
+        // Only enrich a configured access token using the exact same token.
+        if (configured && configured !== inspected.access) return configured
+        return inspected.credential
+      } catch (error) {
+        if (configured) return configured
+        throw error
+      }
+    },
   }
 
   // CLI 1.2.2 bypasses keyring in real SSH sessions. Native macOS/desktop file mode
@@ -219,21 +247,20 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
   const antigravity: AccountAdapter = {
     tool: 'antigravity',
     capability: () => ({ tool: 'antigravity', available: fileMode, reasonCode: fileMode ? undefined : 'antigravity-file-mode-required', detailsCode: 'antigravity-ssh-file', reason: fileMode ? undefined : '当前 Antigravity 原生环境默认使用系统凭据库，尚无已验证的强制文件模式。可保存 Google 账号凭据，暂不执行切换。', details: '文件适配仅针对 Antigravity CLI 的 SSH 后备存储；桌面端未通过无 Keychain 账号切换验证。Trace 不读写 Keychain，不使用 Gemini API Key 替代 Google 账号。' }),
-    inspect(raw) {
-      const value = json(raw)
-      if (value.auth_method !== 'consumer' || !object(value.token)) fail('仅支持 Antigravity Google consumer OAuth 文件，不支持 Gemini API Key 或 Gemini CLI 凭据。')
-      const t = value.token
-      const access = token(t.access_token)
-      const refresh = token(t.refresh_token)
-      if (t.token_type !== 'Bearer') fail('Antigravity OAuth 令牌类型无效。')
-      const expiry = typeof t.expiry === 'string' ? Date.parse(t.expiry) : NaN
-      if (!Number.isFinite(expiry)) fail('Antigravity OAuth 凭据缺少有效到期时间。')
-      return { credential: JSON.stringify({ auth_method: 'consumer', token: { access_token: access, token_type: 'Bearer', refresh_token: refresh, expiry: t.expiry } }, null, 2), expiresAt: expiry, identityKey: `antigravity:${hash(refresh)}` }
-    },
+    inspect: inspectAntigravityCredential,
+    matchesIdentity: matchAntigravityCredentials,
+    mergeCredential: mergeAntigravityCredentials,
     read: () => ({ oauth: files.read(agyAuth) }),
-    desired: credential => ({ oauth: antigravity.inspect(credential).credential }),
+    desired: credential => {
+      const { normalized } = inspectAntigravityCredential(credential)
+      return { oauth: JSON.stringify({ auth_method: normalized.auth_method, token: normalized.token }, null, 2) }
+    },
     writeSlot(slot, value) { if (slot !== 'oauth') fail('未知的 Antigravity 认证字段。'); files.write(agyAuth, value) },
     credentialFrom: state => fileMode ? state.oauth : null,
+    readCurrentCredential() {
+      if (env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.JETSKI_APP_DATA_DIR) fail('Antigravity 当前使用其他认证来源，无法自动确认文件登录。请通过 OAuth 添加账号。')
+      return files.read(agyAuth)
+    },
   }
   return { antigravity, codex, 'claude-code': claude }
 }

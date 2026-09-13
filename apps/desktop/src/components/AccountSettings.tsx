@@ -7,7 +7,7 @@
  * Two-Column Workbench Architecture:
  * - Left App navigation (supervisor)
  * - Full right workbench (AccountSettings)
- * - Top-right tool tabs in order Claude / Codex / Antigravity with keyboard navigation
+ * - Top-left tool tabs in order Claude / Codex / Antigravity with keyboard navigation
  * - Auto-fit grid of account cards with real quota windows, reset time, and one-click switch
  * - Bounded concurrency (max 2) quota fetcher with cache TTL and error cooldown
  * - Modals rendered as siblings outside backdrop-filter workbench section
@@ -22,7 +22,9 @@ import {
   Download,
   Eye,
   EyeOff,
+  ExternalLink,
   Info,
+  Loader2,
   Pencil,
   Plus,
   RefreshCw,
@@ -34,7 +36,10 @@ import {
 } from 'lucide-react'
 import type {
   AccountActionResult,
+  AccountDiscoveryResult,
+  AccountDiscoveryStatus,
   AccountManagementAPI,
+  AccountOAuthSession,
   AccountMetadata,
   AccountQuotaSnapshot,
   AccountsOverview,
@@ -51,7 +56,7 @@ export type AccountSettingsAPI = AccountManagementAPI
 
 export interface AccountSettingsProps {
   presentation?: 'settings' | 'workspace'
-  api?: AccountManagementAPI
+  api?: AccountSettingsAPI
   onNotify?: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void
 }
 
@@ -126,8 +131,26 @@ const DICTIONARY = {
     importBtn: '导入凭据',
     addAccountBtn: '添加账号',
     addAccountModalTitle: (brand: string) => `添加 ${brand} 账号`,
-    tabSaveLogin: '保存当前登录',
+    tabOAuthLogin: 'OAuth 登录',
     tabImportCredential: '导入凭据',
+    oauthModalHelp:
+      '点击下方按钮将在系统默认浏览器中打开官方登录页面。完成授权后，Trace 会自动检测并保存您的账号凭据。',
+    signInWithTool: (toolName: string) => `使用 ${toolName} 登录`,
+    oauthStarting: '正在启动官方登录会话…',
+    oauthStatusWaiting: '已在浏览器打开登录页面，等待授权完成…',
+    oauthStatusWaitingDesc:
+      '请在浏览器中完成登录与权限授予。授权成功后，Trace 将自动保存凭据。',
+    oauthStatusExchanging: '正在验证授权并保存凭据…',
+    oauthStatusExchangingDesc:
+      '正在与服务提供商完成令牌交换并安全写入本机凭据副本。',
+    oauthReopenBrowserBtn: '重新打开浏览器',
+    oauthCancelBtn: '取消登录',
+    oauthExpired: '登录会话已过期，请重试。',
+    oauthFailed: '登录失败，请重试。',
+    oauthSuccess: (brand: string) => `已成功保存 ${brand} 账号至 Trace`,
+    discoveryExpiredNotice:
+      '检测到当前工具本地凭据已过期或失效，建议重新通过 OAuth 登录。',
+    discoveryErrorNotice: '自动检测当前工具本地账号时发生异常。',
     capabilityUnavailableTitle: '当前工具运行受限',
     capabilityUnavailableDesc: '该工具在当前 macOS 环境下未满足账号操作条件。',
     toolErrorTitle: '工具运行状态异常',
@@ -139,7 +162,7 @@ const DICTIONARY = {
     savedAccountsTitle: '已保存的账号列表',
     emptyAccountsTitle: '暂无保存的账号',
     emptyAccountsDesc:
-      '可点击「导入凭据」添加账号凭据副本；若工具受支持亦可点击「保存当前登录」保存当前凭据。',
+      '暂未检测到本机凭据文件。您可以通过「OAuth 登录」授权添加账号，或手动「导入凭据」保存副本。',
     switchBtn: '切换',
     switchingBtn: '正在写入…',
     renameBtn: '重命名',
@@ -170,7 +193,7 @@ const DICTIONARY = {
     importCredentialHelpCodex:
       '说明：请粘贴 Codex ChatGPT 的 auth.json 文件内容。',
     importCredentialHelpClaudeCode:
-      '说明：请粘贴通过 claude setup-token 命令生成的 Claude 订阅凭据 Token。',
+      '说明：支持粘贴完整的 claudeAiOauth JSON 认证凭据，或通过 claude setup-token 命令生成的订阅凭据 Token。',
     importCredentialPlaceholder:
       '在此粘贴凭据内容（内容仅在提交时处理，保存后不会在界面中回显）…',
     confirmImportBtn: '确认导入',
@@ -243,8 +266,27 @@ const DICTIONARY = {
     importBtn: 'Import Credential',
     addAccountBtn: 'Add Account',
     addAccountModalTitle: (brand: string) => `Add ${brand} Account`,
-    tabSaveLogin: 'Save Active Account',
+    tabOAuthLogin: 'OAuth Login',
     tabImportCredential: 'Import Credential',
+    oauthModalHelp:
+      'Click the button below to open the official sign-in page in your default browser. After authorization, Trace will automatically detect and save your account credential.',
+    signInWithTool: (toolName: string) => `Sign in with ${toolName}`,
+    oauthStarting: 'Starting official sign-in session…',
+    oauthStatusWaiting: 'Sign-in page opened in your browser. Waiting for authorization…',
+    oauthStatusWaitingDesc:
+      'Please complete authorization in your browser. Trace will automatically save your credential once complete.',
+    oauthStatusExchanging: 'Exchanging authorization token…',
+    oauthStatusExchangingDesc:
+      'Completing token exchange with provider and saving account credential…',
+    oauthReopenBrowserBtn: 'Reopen Browser',
+    oauthCancelBtn: 'Cancel Sign-in',
+    oauthExpired: 'Sign-in session expired. Please try again.',
+    oauthFailed: 'Sign-in failed. Please try again.',
+    oauthSuccess: (brand: string) => `Saved ${brand} account to Trace`,
+    discoveryExpiredNotice:
+      'Local credential for this tool has expired. Please re-authenticate via OAuth.',
+    discoveryErrorNotice:
+      'An error occurred while automatically checking local accounts for this tool.',
     capabilityUnavailableTitle: 'Tool Currently Unavailable',
     capabilityUnavailableDesc:
       'Account management requirements are not met for this tool in the current environment.',
@@ -257,7 +299,7 @@ const DICTIONARY = {
     savedAccountsTitle: 'Saved Accounts',
     emptyAccountsTitle: 'No Saved Accounts Yet',
     emptyAccountsDesc:
-      'Click "Import Credential" to save an account copy, or click "Save Active Account" if the tool is supported.',
+      'No local credential file detected. You can add an account via "OAuth Login" or manually "Import Credential".',
     switchBtn: 'Switch',
     switchingBtn: 'Writing…',
     renameBtn: 'Rename',
@@ -288,7 +330,7 @@ const DICTIONARY = {
     importCredentialHelpCodex:
       'Help: Paste auth.json contents for Codex ChatGPT.',
     importCredentialHelpClaudeCode:
-      'Help: Paste Claude subscription token generated by claude setup-token.',
+      'Help: Paste full claudeAiOauth JSON credentials, or subscription token generated by claude setup-token.',
     importCredentialPlaceholder:
       'Paste credential content here (never displayed after saving)…',
     confirmImportBtn: 'Import Account',
@@ -345,9 +387,11 @@ function formatErrorMessage(error: unknown, fallback: string): string {
   } else if (typeof (error as any)?.error === 'string') {
     message = (error as any).error.trim()
   }
-  if (!message || message === '[object Object]') {
+  if (!message || message === '[object Object]' || message.toLowerCase() === 'expired' || message.toLowerCase() === 'error') {
     message = fallback
   }
+  message = message.replace(/https?:\/\/[^\s]+/gi, '[service]')
+  message = message.replace(/localhost(:\d+)?/gi, '[service]')
   if (message.length > 240) {
     message = message.slice(0, 237) + '…'
   }
@@ -356,43 +400,24 @@ function formatErrorMessage(error: unknown, fallback: string): string {
 
 export function AccountSettings({
   presentation = 'settings',
-  api,
+  api: propApi,
   onNotify,
 }: AccountSettingsProps) {
   const { resolvedLocale } = useI18n()
   const loc = DICTIONARY[resolvedLocale] || DICTIONARY['zh-CN']
+
+  const api: AccountSettingsAPI | undefined =
+    propApi || (typeof window !== 'undefined' ? (window as any).workflowSkill?.accounts : undefined)
+  const apiRef = useRef<AccountSettingsAPI | undefined>(api)
+  useEffect(() => {
+    apiRef.current = api
+  }, [api])
 
   // Tool Selection strictly Claude / Codex / Antigravity
   const [selectedTool, setSelectedTool] = useState<AccountTool>('claude-code')
 
   // Top Tabs Ref for Keyboard Navigation
   const tabButtonRefs = useRef<(HTMLButtonElement | null)[]>([])
-
-  const handleTabKeyDown = (
-    e: React.KeyboardEvent<HTMLButtonElement>,
-    index: number
-  ) => {
-    if (isBusy) return
-    let nextIndex = -1
-    if (e.key === 'ArrowRight') {
-      e.preventDefault()
-      nextIndex = (index + 1) % TOOLS.length
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault()
-      nextIndex = (index - 1 + TOOLS.length) % TOOLS.length
-    } else if (e.key === 'Home') {
-      e.preventDefault()
-      nextIndex = 0
-    } else if (e.key === 'End') {
-      e.preventDefault()
-      nextIndex = TOOLS.length - 1
-    }
-    if (nextIndex >= 0) {
-      setSelectedTool(TOOLS[nextIndex].id)
-      setErrorMessage(null)
-      tabButtonRefs.current[nextIndex]?.focus()
-    }
-  }
 
   // Overview State
   const [overview, setOverview] = useState<AccountsOverview | null>(null)
@@ -414,10 +439,31 @@ export function AccountSettings({
   const quotaFetchQueue = useRef<string[]>([])
   const activeWorkers = useRef<number>(0)
 
+  // OAuth Session State (OPC-48)
+  const [oauthSession, setOauthSession] = useState<AccountOAuthSession | null>(null)
+  const [isStartingOAuth, setIsStartingOAuth] = useState<boolean>(false)
+  const [isCancellingOAuth, setIsCancellingOAuth] = useState(false)
+  const [oauthError, setOauthError] = useState<string | null>(null)
+
+  const activeSessionRef = useRef<{ id: string; tool: AccountTool } | null>(null)
+  const startPendingRef = useRef<boolean>(false)
+  const cancelPendingOnStartRef = useRef<boolean>(false)
+  const sessionGenerationRef = useRef<number>(0)
+  const terminalNotifiedRef = useRef<string | null>(null)
+
+  const isOAuthPending = isStartingOAuth || isCancellingOAuth || Boolean(oauthSession) || startPendingRef.current
+
+  // Auto Account Discovery State (OPC-48)
+  const [discoveryResults, setDiscoveryResults] = useState<
+    Partial<Record<AccountTool, AccountDiscoveryResult>>
+  >({})
+  const [dismissedFeedback, setDismissedFeedback] = useState<Record<string, boolean>>({})
+  const isSyncingAccountsRef = useRef<boolean>(false)
+  const lastAccountSyncTimeRef = useRef<number>(0)
+
   // Modals & Form States
   const [showAddAccountModal, setShowAddAccountModal] = useState<boolean>(false)
-  const [addAccountMethod, setAddAccountMethod] = useState<'capture' | 'import'>('capture')
-  const [captureName, setCaptureName] = useState<string>('')
+  const [addAccountMethod, setAddAccountMethod] = useState<'oauth' | 'import'>('oauth')
   const [importName, setImportName] = useState<string>('')
   const [importCredential, setImportCredential] = useState<string>('')
   const [isCredentialMasked, setIsCredentialMasked] = useState<boolean>(true)
@@ -426,8 +472,18 @@ export function AccountSettings({
   const [renameName, setRenameName] = useState<string>('')
   const [pendingDeleteAccount, setPendingDeleteAccount] = useState<AccountMetadata | null>(null)
 
+  // Stable refs for scan & race-condition guards
+  const isBusyRef = useRef<boolean>(isBusy)
+  isBusyRef.current = isBusy
+  const showAddAccountModalRef = useRef<boolean>(showAddAccountModal)
+  showAddAccountModalRef.current = showAddAccountModal
+  const isStartingOAuthRef = useRef<boolean>(isStartingOAuth)
+  isStartingOAuthRef.current = isStartingOAuth
+  const loadDataRef = useRef<(() => Promise<void>) | null>(null)
+  const enqueueVisibleQuotasRef = useRef<((forceRefresh?: boolean) => void) | null>(null)
+
   // Focus & Accessibility Element Refs
-  const captureInputRef = useRef<HTMLInputElement>(null)
+  const oauthSignInButtonRef = useRef<HTMLButtonElement>(null)
   const importNameInputRef = useRef<HTMLInputElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const confirmDeleteButtonRef = useRef<HTMLButtonElement>(null)
@@ -445,27 +501,78 @@ export function AccountSettings({
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
+      sessionGenerationRef.current++
+      if (startPendingRef.current) {
+        cancelPendingOnStartRef.current = true
+      }
+      const sessionToCancel = activeSessionRef.current
+      activeSessionRef.current = null
+      if (sessionToCancel && apiRef.current && typeof apiRef.current.cancelOAuth === 'function') {
+        apiRef.current.cancelOAuth(sessionToCancel.id).catch(() => {})
+      }
     }
   }, [])
+
+  const handleTabKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    index: number
+  ) => {
+    if (isBusy || isOAuthPending) return
+    let nextIndex = -1
+    if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      nextIndex = (index + 1) % TOOLS.length
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      nextIndex = (index - 1 + TOOLS.length) % TOOLS.length
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      nextIndex = 0
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      nextIndex = TOOLS.length - 1
+    }
+    if (nextIndex >= 0) {
+      setSelectedTool(TOOLS[nextIndex].id)
+      setErrorMessage(null)
+      tabButtonRefs.current[nextIndex]?.focus()
+    }
+  }
 
   // Derived state for the currently selected tool
   const currentCapability = useMemo<AccountToolCapability | undefined>(() => {
     const capability = overview?.capabilities.find((c) => c.tool === selectedTool)
-    if (!capability || resolvedLocale !== 'en-US') return capability
-    const reasons = {
+    if (!capability) return capability
+
+    const reasonsEn: Record<string, string> = {
       'codex-auth-conflict': 'Codex is configured for API sign-in or another provider. Resolve the authentication conflict in Codex first.',
       'claude-auth-conflict': 'An environment token, API key, authentication helper, or another provider takes precedence. Resolve the conflict in Claude first.',
       'antigravity-file-mode-required': 'Native Antigravity file-based switching is not yet verified. You can save accounts and query quotas; switching remains unavailable.',
     }
-    const details = {
+    const reasonsZh: Record<string, string> = {
+      'codex-auth-conflict': 'Codex 已配置为 API 登录或其他提供商。请先在 Codex 中解决认证冲突。',
+      'claude-auth-conflict': '检测到环境令牌、API Key、认证辅助程序或其他提供商配置；请先在 Claude 中处理认证优先级冲突。',
+      'antigravity-file-mode-required': 'Antigravity 原生基于文件的切换尚未验证。可保存账号并查询配额，切换功能暂不可用。',
+    }
+
+    const detailsEn: Record<string, string> = {
       'codex-file': 'Uses ChatGPT auth.json with file credential storage. Verify identity in a new Codex session; project configuration and launch arguments can override global settings.',
-      'claude-setup-token': 'Imports a subscription token from claude setup-token into settings.json. Supports model requests and local MCP; Remote Control and Claude.ai connectors are unavailable. Email, expiry and usage permissions require separate verification.',
+      'claude-setup-token': 'Stores full OAuth login or imported subscription credentials; switching projects the access token into settings.json env. Supports model requests and local MCP; Remote Control and Claude.ai connectors remain unchanged and unavailable. Verify identity in a new session; setup-token alone cannot confirm email or expiry offline.',
       'antigravity-ssh-file': 'File switching is limited to the CLI fallback in a real SSH session. Native desktop switching without Keychain is unverified. Trace does not access Keychain or substitute Gemini API keys.',
     }
+    const detailsZh: Record<string, string> = {
+      'codex-file': '使用 ChatGPT auth.json 文件凭据存储。请在新 Codex 会话中确认身份；项目配置和启动参数可能会覆盖全局设置。',
+      'claude-setup-token': '完整保存 OAuth 官方登录凭据或导入的订阅凭据；切换时仍向 settings.json 环境变量投影 access token。支持模型请求与本地 MCP；Remote Control 与 Claude.ai 连接器保持不变且不可用。请在新会话中确认身份；单独的 setup-token 无法离线验证邮箱或有效期。',
+      'antigravity-ssh-file': '文件切换仅限于真实 SSH 会话中的 CLI 回退机制。无 Keychain 的原生桌面切换尚未验证。Trace 不访问系统钥匙串，也不替代 Gemini API Key。',
+    }
+
+    const reasons = resolvedLocale === 'en-US' ? reasonsEn : reasonsZh
+    const details = resolvedLocale === 'en-US' ? detailsEn : detailsZh
+
     return {
       ...capability,
-      reason: capability.reasonCode ? reasons[capability.reasonCode] : capability.reason,
-      details: capability.detailsCode ? details[capability.detailsCode] : capability.details,
+      reason: capability.reasonCode && reasons[capability.reasonCode] ? reasons[capability.reasonCode] : capability.reason,
+      details: capability.detailsCode && details[capability.detailsCode] ? details[capability.detailsCode] : capability.details,
     }
   }, [overview, selectedTool, resolvedLocale])
 
@@ -607,6 +714,7 @@ export function AccountSettings({
     },
     [api, toolSavedAccounts, quotas, processQuotaQueue]
   )
+  enqueueVisibleQuotasRef.current = enqueueVisibleQuotas
 
   // Trigger quota fetching when selected tool changes or accounts list loaded
   const lastToolRunRef = useRef<string>('')
@@ -678,6 +786,7 @@ export function AccountSettings({
       }
     }
   }, [api, loc.loadError])
+  loadDataRef.current = loadData
 
   useEffect(() => {
     void loadData()
@@ -697,8 +806,8 @@ export function AccountSettings({
   // Focus management when modals open
   useEffect(() => {
     if (showAddAccountModal) {
-      if (addAccountMethod === 'capture') {
-        captureInputRef.current?.focus()
+      if (addAccountMethod === 'oauth') {
+        oauthSignInButtonRef.current?.focus()
       } else {
         importNameInputRef.current?.focus()
       }
@@ -727,17 +836,13 @@ export function AccountSettings({
         } else if (pendingDeleteAccount) {
           setPendingDeleteAccount(null)
         } else if (showAddAccountModal) {
-          setShowAddAccountModal(false)
-          setCaptureName('')
-          setImportName('')
-          setImportCredential('')
-          setIsCredentialMasked(true)
+          void closeAddAccountModal()
         }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isBusy, pendingRenameAccount, pendingDeleteAccount, showAddAccountModal])
+  }, [isBusy, pendingRenameAccount, pendingDeleteAccount, showAddAccountModal, isStartingOAuth, oauthSession])
 
   // Focus Trap within Modal Dialogs
   const handleModalTrapKeyDown = (
@@ -775,39 +880,361 @@ export function AccountSettings({
     await loadData()
   }
 
-  // Capture Account Submit
-  const handleCaptureSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!api || isBusy || !isAvailable) return
+  // OAuth Session Handlers (OPC-48)
+  const handleOAuthSuccess = useCallback(
+    async (session: AccountOAuthSession, tool: AccountTool) => {
+      const notifyKey = `success:${session.id}`
+      if (terminalNotifiedRef.current === notifyKey) {
+        return
+      }
+      terminalNotifiedRef.current = notifyKey
 
-    const trimmed = captureName.trim()
-    if (!trimmed) {
-      setErrorMessage(loc.nameRequired)
+      activeSessionRef.current = null
+      setOauthSession(null)
+      setShowAddAccountModal(false)
+
+      // Clear import state and reset mask toggle even after switching tabs
+      setImportName('')
+      setImportCredential('')
+      setIsCredentialMasked(true)
+
+      const toolDef = TOOLS.find((t) => t.id === tool) || currentToolDefinition
+      onNotify?.(loc.oauthSuccess(toolDef.brand), 'success')
+
+      await loadData()
+
+      if (session.accountId) {
+        handleRefreshAccountQuota(session.accountId)
+      } else {
+        enqueueVisibleQuotas(true)
+      }
+    },
+    [currentToolDefinition, enqueueVisibleQuotas, handleRefreshAccountQuota, loadData, loc, onNotify]
+  )
+
+  const handleOAuthTerminal = useCallback(
+    (session: AccountOAuthSession) => {
+      const notifyKey = `terminal:${session.id}:${session.phase}`
+      if (terminalNotifiedRef.current === notifyKey) {
+        return
+      }
+      terminalNotifiedRef.current = notifyKey
+
+      activeSessionRef.current = null
+      setOauthSession(null)
+      if (session.phase === 'expired') {
+        setOauthError(loc.oauthExpired)
+      } else if (session.phase === 'error') {
+        setOauthError(
+          session.error ? formatErrorMessage(session.error, loc.oauthFailed) : loc.oauthFailed
+        )
+      } else if (session.phase === 'cancelled') {
+        setOauthError(null)
+      }
+    },
+    [loc.oauthExpired, loc.oauthFailed]
+  )
+
+  const handleStartOAuth = async () => {
+    if (
+      !api ||
+      typeof api.startOAuth !== 'function' ||
+      isBusy ||
+      isStartingOAuth ||
+      isCancellingOAuth ||
+      startPendingRef.current ||
+      Boolean(activeSessionRef.current) ||
+      Boolean(oauthSession)
+    ) {
       return
     }
 
+    const targetTool = selectedTool
+    const generation = ++sessionGenerationRef.current
+
+    setIsStartingOAuth(true)
+    setOauthError(null)
+    startPendingRef.current = true
+    cancelPendingOnStartRef.current = false
+
     try {
-      setIsBusy(true)
-      setErrorMessage(null)
-      const created = await api.captureAccount({
-        tool: selectedTool,
-        name: trimmed,
-      })
-      setCaptureName('')
-      setShowAddAccountModal(false)
-      onNotify?.(loc.captureSuccess(created.name), 'success')
-      await loadData()
+      const session = await api.startOAuth(targetTool)
+
+      if (
+        !isMountedRef.current ||
+        generation !== sessionGenerationRef.current ||
+        cancelPendingOnStartRef.current
+      ) {
+        cancelPendingOnStartRef.current = false
+        if (session?.id && apiRef.current && typeof apiRef.current.cancelOAuth === 'function') {
+          try {
+            await apiRef.current.cancelOAuth(session.id).catch(() => {})
+            if (typeof apiRef.current.getOAuthSession === 'function') {
+              const terminal = await apiRef.current.getOAuthSession(session.id)
+              if (isMountedRef.current && terminal && terminal.phase === 'succeeded') {
+                await handleOAuthSuccess(terminal, targetTool)
+                return
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+        return
+      }
+
+      if (!session || !session.id) {
+        throw new Error(loc.oauthFailed)
+      }
+
+      activeSessionRef.current = { id: session.id, tool: targetTool }
+      setOauthSession(session)
+
+      if (session.phase === 'succeeded') {
+        await handleOAuthSuccess(session, targetTool)
+      } else if (
+        session.phase === 'cancelled' ||
+        session.phase === 'expired' ||
+        session.phase === 'error'
+      ) {
+        handleOAuthTerminal(session)
+      }
     } catch (err: unknown) {
-      await handleFailure(err, 'Failed to capture account.')
+      if (!isMountedRef.current || generation !== sessionGenerationRef.current) return
+      setOauthError(formatErrorMessage(err, loc.oauthFailed))
     } finally {
-      setIsBusy(false)
+      startPendingRef.current = false
+      cancelPendingOnStartRef.current = false
+      if (isMountedRef.current) {
+        setIsStartingOAuth(false)
+      }
     }
   }
+
+  // OAuth Session Polling (OPC-48)
+  useEffect(() => {
+    if (!oauthSession || !api || typeof api.getOAuthSession !== 'function') return
+    if (oauthSession.phase !== 'waiting' && oauthSession.phase !== 'exchanging') return
+
+    const sessionId = oauthSession.id
+    const sessionTool = oauthSession.tool
+    const generation = sessionGenerationRef.current
+    const expiresAt = oauthSession.expiresAt
+
+    let isPolling = false
+    let consecutiveErrors = 0
+    let stopped = false
+    const isCurrent = () => !stopped && isMountedRef.current && generation === sessionGenerationRef.current && activeSessionRef.current?.id === sessionId
+    const interval = setInterval(async () => {
+      if (!isCurrent() || isPolling) return
+      isPolling = true
+      try {
+        let updated = await api.getOAuthSession(sessionId)
+        if (!isCurrent()) return
+        if (!updated || updated.id !== sessionId || updated.tool !== sessionTool) throw new Error(loc.oauthFailed)
+        // Ask the backend for the commit result before displaying a local timeout.
+        if ((updated.phase === 'waiting' || updated.phase === 'exchanging') && Date.now() >= expiresAt) {
+          await api.cancelOAuth(sessionId)
+          updated = await api.getOAuthSession(sessionId)
+          if (!isCurrent()) return
+          if (updated.phase !== 'succeeded' && updated.phase !== 'error') updated = { ...updated, phase: 'expired' }
+        }
+        consecutiveErrors = 0
+        if (updated.phase === 'succeeded') {
+          clearInterval(interval)
+          await handleOAuthSuccess(updated, sessionTool)
+        } else if (updated.phase === 'cancelled' || updated.phase === 'expired' || updated.phase === 'error') {
+          clearInterval(interval)
+          handleOAuthTerminal(updated)
+        } else {
+          setOauthSession(updated)
+        }
+      } catch (err: unknown) {
+        if (!isCurrent()) return
+        if (++consecutiveErrors >= 3 || Date.now() >= expiresAt) {
+          clearInterval(interval)
+          activeSessionRef.current = null
+          setOauthSession(null)
+          setOauthError(Date.now() >= expiresAt ? loc.oauthExpired : formatErrorMessage(err, loc.oauthFailed))
+          void api.cancelOAuth(sessionId).catch(() => {})
+        }
+      } finally {
+        isPolling = false
+      }
+    }, 1000)
+    return () => { stopped = true; clearInterval(interval) }
+  }, [oauthSession?.id, oauthSession?.phase, oauthSession?.tool, oauthSession?.expiresAt, api, handleOAuthSuccess, handleOAuthTerminal, loc.oauthExpired, loc.oauthFailed])
+
+  const handleReopenBrowser = async () => {
+    if (!api || typeof api.reopenOAuth !== 'function' || !oauthSession) return
+    try {
+      await api.reopenOAuth(oauthSession.id)
+    } catch (err: unknown) {
+      setOauthError(formatErrorMessage(err, loc.oauthFailed))
+    }
+  }
+
+  const closeAddAccountModal = async () => {
+    if (isBusy || isCancellingOAuth) return
+    setIsCancellingOAuth(true)
+    try {
+
+      if (startPendingRef.current) {
+        cancelPendingOnStartRef.current = true
+        sessionGenerationRef.current++
+      }
+
+      const sessionToCancel = activeSessionRef.current
+      activeSessionRef.current = null
+      setOauthSession(null)
+      setOauthError(null)
+
+      if (sessionToCancel && apiRef.current) {
+        try {
+          if (typeof apiRef.current.cancelOAuth === 'function') {
+            await apiRef.current.cancelOAuth(sessionToCancel.id).catch(() => {})
+          }
+        } catch {
+          // ignore cancel error
+        }
+        try {
+          if (typeof apiRef.current.getOAuthSession === 'function') {
+            const terminal = await apiRef.current.getOAuthSession(sessionToCancel.id)
+            if (isMountedRef.current && terminal && terminal.phase === 'succeeded') {
+              await handleOAuthSuccess(terminal, sessionToCancel.tool)
+              return
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      setShowAddAccountModal(false)
+      setImportName('')
+      setImportCredential('')
+      setIsCredentialMasked(true)
+    } finally {
+      if (isMountedRef.current) setIsCancellingOAuth(false)
+    }
+  }
+
+  // Auto Account Discovery (OPC-48)
+  const runAutoScan = useCallback(async (force = false) => {
+    if (!apiRef.current || typeof apiRef.current.syncCurrentAccounts !== 'function' || !isMountedRef.current) return
+    if (isBusyRef.current || showAddAccountModalRef.current || isStartingOAuthRef.current || Boolean(activeSessionRef.current)) return
+    if (isSyncingAccountsRef.current) return
+
+    const now = Date.now()
+    if (!force && now - lastAccountSyncTimeRef.current < 30_000) {
+      return
+    }
+
+    isSyncingAccountsRef.current = true
+    lastAccountSyncTimeRef.current = now
+
+    try {
+      const results = await apiRef.current.syncCurrentAccounts()
+      if (!isMountedRef.current) return
+
+      if (Array.isArray(results)) {
+        const nextResults: Partial<Record<AccountTool, AccountDiscoveryResult>> = {}
+        let hasNewOrUpdated = false
+
+        for (const res of results) {
+          if (!res || !res.tool) continue
+          nextResults[res.tool] = res
+          if (res.status === 'imported' || res.status === 'updated') {
+            hasNewOrUpdated = true
+          }
+        }
+
+        setDiscoveryResults((prev) => ({ ...prev, ...nextResults }))
+
+        if (hasNewOrUpdated) {
+          await loadDataRef.current?.()
+          enqueueVisibleQuotasRef.current?.(false)
+        }
+      }
+    } catch {
+      // Silently catch scan errors
+    } finally {
+      isSyncingAccountsRef.current = false
+    }
+  }, [])
+
+  // Mount sync
+  useEffect(() => {
+    void runAutoScan(true)
+  }, [runAutoScan])
+
+  // Window focus sync with 30s throttle
+  useEffect(() => {
+    const handleFocus = () => {
+      void runAutoScan(false)
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [runAutoScan])
+
+  const currentDiscoveryNotice = useMemo(() => {
+    const res = discoveryResults[selectedTool]
+    if (!res) return null
+    if (res.status !== 'expired' && res.status !== 'error' && res.status !== 'unavailable') {
+      return null
+    }
+    const key = `${selectedTool}:${res.status}`
+    if (dismissedFeedback[key]) return null
+    return res
+  }, [discoveryResults, selectedTool, dismissedFeedback])
+
+  const getDiscoveryNoticeText = (notice: AccountDiscoveryResult): string => {
+    if (notice.status === 'expired') {
+      return loc.discoveryExpiredNotice
+    }
+    if (notice.status === 'unavailable') {
+      return loc.capabilityUnavailableDesc
+    }
+    if (notice.status === 'error') {
+      if (notice.message && notice.message !== 'error' && notice.message !== 'expired' && notice.message !== 'unavailable') {
+        return formatErrorMessage(notice.message, loc.discoveryErrorNotice)
+      }
+      return loc.discoveryErrorNotice
+    }
+    return notice.message ? formatErrorMessage(notice.message, loc.discoveryErrorNotice) : loc.discoveryErrorNotice
+  }
+
+  const contextualNoticeNode = currentDiscoveryNotice ? (
+    <div
+      className={`account-contextual-callout account-contextual-callout--${currentDiscoveryNotice.status}`}
+      role="status"
+    >
+      <div className="account-contextual-callout-body">
+        <Info size={12} className="account-contextual-callout-icon" />
+        <span>{getDiscoveryNoticeText(currentDiscoveryNotice)}</span>
+      </div>
+      <button
+        type="button"
+        className="account-contextual-callout-dismiss"
+        onClick={() =>
+          setDismissedFeedback((prev) => ({
+            ...prev,
+            [`${selectedTool}:${currentDiscoveryNotice.status}`]: true,
+          }))
+        }
+        aria-label={loc.closeBtn}
+      >
+        <X size={10} />
+      </button>
+    </div>
+  ) : null
 
   // Import Credential Submit
   const handleImportSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!api || isBusy) return
+    if (!api || isBusy || isOAuthPending) return
 
     const trimmedName = importName.trim()
     if (!trimmedName) {
@@ -844,7 +1271,7 @@ export function AccountSettings({
 
   // One-click Switch: invokes API directly without confirmation modal
   const handleDirectSwitch = async (account: AccountMetadata) => {
-    if (!api || isBusy || !isAvailable || isRecoveryNeeded) return
+    if (!api || isBusy || isOAuthPending || !isAvailable || isRecoveryNeeded) return
     if (account.id === activeAccountId) return
 
     try {
@@ -869,7 +1296,7 @@ export function AccountSettings({
 
   // Rollback Action
   const handleRollback = async () => {
-    if (!api || isBusy || !canRollback) return
+    if (!api || isBusy || isOAuthPending || !canRollback) return
 
     try {
       setIsBusy(true)
@@ -890,7 +1317,7 @@ export function AccountSettings({
 
   // Emergency Recovery Action
   const handleEmergencyRecovery = async () => {
-    if (!api || isBusy) return
+    if (!api || isBusy || isOAuthPending) return
 
     try {
       setIsBusy(true)
@@ -912,7 +1339,7 @@ export function AccountSettings({
   // Rename Action
   const handleRenameSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!api || !pendingRenameAccount || isBusy) return
+    if (!api || !pendingRenameAccount || isBusy || isOAuthPending) return
 
     const trimmed = renameName.trim()
     if (!trimmed) {
@@ -938,7 +1365,7 @@ export function AccountSettings({
 
   // Delete Action
   const handleDeleteConfirmed = async () => {
-    if (!api || !pendingDeleteAccount || isBusy) return
+    if (!api || !pendingDeleteAccount || isBusy || isOAuthPending) return
     const target = pendingDeleteAccount
 
     try {
@@ -958,6 +1385,7 @@ export function AccountSettings({
 
   // Refresh visible accounts and overview
   const handleRefreshAll = async () => {
+    if (loading || isBusy || isOAuthPending) return
     setErrorMessage(null)
     await loadData()
     enqueueVisibleQuotas(true)
@@ -987,15 +1415,14 @@ export function AccountSettings({
     }
   }
 
-  // Open Add Account modal with specific method
-  const openAddAccount = (method: 'capture' | 'import' = 'capture') => {
-    if (isBusy) return
-    const targetMethod = !isAvailable && method === 'capture' ? 'import' : method
-    setAddAccountMethod(targetMethod)
-    setCaptureName('')
+  // Open Add Account modal with specific method (default: oauth)
+  const openAddAccount = (method: 'oauth' | 'import' = 'oauth') => {
+    if (isBusy || isOAuthPending || startPendingRef.current) return
+    setAddAccountMethod(method)
     setImportName('')
     setImportCredential('')
     setIsCredentialMasked(true)
+    setOauthError(null)
     setShowAddAccountModal(true)
   }
 
@@ -1023,7 +1450,7 @@ export function AccountSettings({
   // Modals Node: rendered as siblings outside workbench section to cover all columns
   const modalsNode = (
     <>
-      {/* Unified Add Account Modal (Save Active Login & Import Credential) */}
+      {/* Unified Add Account Modal (OAuth Login & Import Credential) */}
       {showAddAccountModal && (
         <div
           className="account-modal-overlay"
@@ -1032,11 +1459,11 @@ export function AccountSettings({
           aria-labelledby={addAccountModalTitleId}
           onClick={(e) => {
             if (e.target === e.currentTarget && !isBusy) {
-              setShowAddAccountModal(false)
+              void closeAddAccountModal()
             }
           }}
           onKeyDown={(e) =>
-            handleModalTrapKeyDown(e, () => setShowAddAccountModal(false))
+            handleModalTrapKeyDown(e, () => void closeAddAccountModal())
           }
         >
           <div
@@ -1050,7 +1477,7 @@ export function AccountSettings({
               <button
                 type="button"
                 className="account-btn account-btn--sm"
-                onClick={() => setShowAddAccountModal(false)}
+                onClick={() => void closeAddAccountModal()}
                 disabled={isBusy}
                 aria-label={loc.closeBtn}
               >
@@ -1067,17 +1494,22 @@ export function AccountSettings({
               <button
                 type="button"
                 role="tab"
-                aria-selected={addAccountMethod === 'capture'}
+                aria-selected={addAccountMethod === 'oauth'}
                 className={`account-modal-tab-btn ${
-                  addAccountMethod === 'capture'
+                  addAccountMethod === 'oauth'
                     ? 'account-modal-tab-btn--active'
                     : ''
                 }`}
-                onClick={() => setAddAccountMethod('capture')}
-                disabled={isBusy}
+                onClick={() => {
+                  if (!isOAuthPending) {
+                    setAddAccountMethod('oauth')
+                    setOauthError(null)
+                  }
+                }}
+                disabled={isBusy || isOAuthPending}
               >
-                <Download size={11} />
-                <span>{loc.tabSaveLogin}</span>
+                <ExternalLink size={11} />
+                <span>{loc.tabOAuthLogin}</span>
               </button>
               <button
                 type="button"
@@ -1088,69 +1520,108 @@ export function AccountSettings({
                     ? 'account-modal-tab-btn--active'
                     : ''
                 }`}
-                onClick={() => setAddAccountMethod('import')}
-                disabled={isBusy}
+                onClick={() => {
+                  if (!isOAuthPending) {
+                    setAddAccountMethod('import')
+                  }
+                }}
+                disabled={isBusy || isOAuthPending}
               >
                 <Upload size={11} />
                 <span>{loc.tabImportCredential}</span>
               </button>
             </div>
 
-            {addAccountMethod === 'capture' ? (
-              <form onSubmit={handleCaptureSubmit} className="account-modal-body">
-                <span className="account-modal-help">{loc.captureModalHelp}</span>
+            {addAccountMethod === 'oauth' ? (
+              <div className="account-modal-body">
+                <span className="account-modal-help">{loc.oauthModalHelp}</span>
 
-                {!isAvailable && (
-                  <div className="account-tool-error-callout" role="alert">
-                    <AlertTriangle size={13} className="account-tool-error-icon" />
-                    <div className="account-tool-error-body">
-                      <strong>{loc.capabilityUnavailableTitle}</strong>
-                      <span>
-                        {currentCapability?.reason || loc.capabilityUnavailableDesc}
-                      </span>
-                    </div>
+                {oauthError && (
+                  <div className="account-modal-error-callout" role="alert">
+                    <span>{oauthError}</span>
+                    <button
+                      type="button"
+                      className="account-btn account-btn--sm"
+                      onClick={() => setOauthError(null)}
+                      aria-label={loc.closeBtn}
+                    >
+                      <X size={10} />
+                    </button>
                   </div>
                 )}
 
-                <div className="account-field-group">
-                  <label
-                    htmlFor="account-capture-name-input"
-                    className="account-label"
-                  >
-                    {loc.captureNameLabel} *
-                  </label>
-                  <input
-                    id="account-capture-name-input"
-                    ref={captureInputRef}
-                    type="text"
-                    className="account-input"
-                    value={captureName}
-                    onChange={(e) => setCaptureName(e.target.value)}
-                    placeholder={loc.captureNamePlaceholder}
-                    disabled={isBusy || !isAvailable}
-                    maxLength={100}
-                    required
-                  />
-                </div>
-
-                <div className="account-modal-actions">
-                  <button
-                    type="button"
-                    className="account-btn"
-                    onClick={() => setShowAddAccountModal(false)}
-                    disabled={isBusy}
-                  >
-                    {loc.cancelBtn}
-                  </button>
-                  <button
-                    type="submit"
-                    className="account-btn account-btn--primary"
-                    disabled={isBusy || !isAvailable || !captureName.trim()}
-                  >
-                    {isBusy ? loc.capturingBtn : loc.confirmCaptureBtn}
-                  </button>
-                </div>
-              </form>
+                {isStartingOAuth ? (
+                  <div className="account-oauth-status-box" role="status">
+                    <Loader2 size={18} className="animate-spin account-oauth-spinner" />
+                    <strong className="account-oauth-status-title">{loc.oauthStarting}</strong>
+                    <div className="account-oauth-actions">
+                      <button
+                        type="button"
+                        className="account-btn account-btn--sm"
+                        onClick={() => void closeAddAccountModal()}
+                      >
+                        {loc.cancelBtn}
+                      </button>
+                    </div>
+                  </div>
+                ) : oauthSession ? (
+                  <div className="account-oauth-status-box" role="status">
+                    <Loader2 size={18} className="animate-spin account-oauth-spinner" />
+                    <strong className="account-oauth-status-title">
+                      {oauthSession.phase === 'exchanging'
+                        ? loc.oauthStatusExchanging
+                        : loc.oauthStatusWaiting}
+                    </strong>
+                    <p className="account-oauth-status-desc">
+                      {oauthSession.phase === 'exchanging'
+                        ? loc.oauthStatusExchangingDesc
+                        : loc.oauthStatusWaitingDesc}
+                    </p>
+                    <div className="account-oauth-actions">
+                      {oauthSession.phase === 'waiting' && (
+                        <button
+                          type="button"
+                          className="account-btn account-btn--sm"
+                          onClick={() => void handleReopenBrowser()}
+                        >
+                          <ExternalLink size={10} />
+                          <span>{loc.oauthReopenBrowserBtn}</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="account-btn account-btn--sm"
+                        onClick={() => void closeAddAccountModal()}
+                      >
+                        {loc.oauthCancelBtn}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="account-oauth-start-wrap">
+                    <button
+                      ref={oauthSignInButtonRef}
+                      type="button"
+                      className="account-btn account-btn--primary account-btn--oauth-signin"
+                      onClick={() => void handleStartOAuth()}
+                      disabled={isBusy || isStartingOAuth || startPendingRef.current}
+                    >
+                      <AIToolLogo toolId={selectedTool} size={14} color />
+                      <span>{loc.signInWithTool(currentToolDefinition.pureName)}</span>
+                      <ExternalLink size={11} />
+                    </button>
+                    <div className="account-modal-actions">
+                      <button
+                        type="button"
+                        className="account-btn"
+                        onClick={() => void closeAddAccountModal()}
+                      >
+                        {loc.cancelBtn}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
               <form onSubmit={handleImportSubmit} className="account-modal-body">
                 <span className="account-modal-help">
@@ -1220,7 +1691,7 @@ export function AccountSettings({
                   <button
                     type="button"
                     className="account-btn"
-                    onClick={() => setShowAddAccountModal(false)}
+                    onClick={() => void closeAddAccountModal()}
                     disabled={isBusy}
                   >
                     {loc.cancelBtn}
@@ -1461,7 +1932,7 @@ export function AccountSettings({
                 account={account}
                 isActive={isActive}
                 isAvailable={isAvailable}
-                isBusy={isBusy}
+                isBusy={isBusy || isOAuthPending}
                 isSwitching={isSwitching}
                 isRecoveryNeeded={isRecoveryNeeded}
                 unsupportedReason={currentCapability?.reason}
@@ -1489,26 +1960,21 @@ export function AccountSettings({
             <div className="account-empty-actions">
               <button
                 type="button"
-                className="account-btn"
-                onClick={() => openAddAccount('capture')}
-                disabled={!isAvailable || isBusy || isRecoveryNeeded}
-                title={
-                  !isAvailable
-                    ? currentCapability?.reason || loc.capabilityStatusLimited
-                    : loc.captureBtn
-                }
+                className="account-btn account-btn--primary"
+                onClick={() => openAddAccount('oauth')}
+                disabled={isBusy || isOAuthPending}
               >
-                <Download size={11} />
-                <span>{loc.captureBtn}</span>
+                <ExternalLink size={11} />
+                <span>{loc.tabOAuthLogin}</span>
               </button>
               <button
                 type="button"
-                className="account-btn account-btn--primary"
+                className="account-btn"
                 onClick={() => openAddAccount('import')}
-                disabled={isBusy}
+                disabled={isBusy || isOAuthPending}
               >
                 <Upload size={11} />
-                <span>{loc.importBtn}</span>
+                <span>{loc.tabImportCredential}</span>
               </button>
             </div>
           </div>
@@ -1548,13 +2014,13 @@ export function AccountSettings({
                         isSelected ? 'account-tool-tab-btn--active' : ''
                       }`}
                       onClick={() => {
-                        if (!isBusy && selectedTool !== tool.id) {
+                        if (!isBusy && !isOAuthPending && selectedTool !== tool.id) {
                           setSelectedTool(tool.id)
                           setErrorMessage(null)
                         }
                       }}
                       onKeyDown={(e) => handleTabKeyDown(e, index)}
-                      disabled={isBusy}
+                      disabled={isBusy || isOAuthPending}
                     >
                       <AIToolLogo toolId={tool.id} size={13} color />
                       <span>{loc[tool.pureLabelKey] || tool.pureName}</span>
@@ -1568,7 +2034,7 @@ export function AccountSettings({
                     type="button"
                     className="account-btn account-btn--sm"
                     onClick={handleRollback}
-                    disabled={isBusy}
+                    disabled={isBusy || isOAuthPending}
                     title={loc.rollbackBtn}
                   >
                     <RotateCcw size={11} />
@@ -1578,8 +2044,8 @@ export function AccountSettings({
                 <button
                   type="button"
                   className="account-btn account-btn--primary"
-                  onClick={() => openAddAccount(isAvailable ? 'capture' : 'import')}
-                  disabled={isBusy}
+                  onClick={() => openAddAccount('oauth')}
+                  disabled={isBusy || isOAuthPending}
                 >
                   <Plus size={12} />
                   <span>{loc.addAccountBtn}</span>
@@ -1616,7 +2082,7 @@ export function AccountSettings({
                   type="button"
                   className="account-btn account-btn--danger account-btn--sm"
                   onClick={handleEmergencyRecovery}
-                  disabled={isBusy}
+                  disabled={isBusy || isOAuthPending}
                 >
                   <RotateCcw size={12} />
                   <span>{isBusy ? loc.recoveringBtn : loc.emergencyRecoverBtn}</span>
@@ -1634,6 +2100,9 @@ export function AccountSettings({
                 </div>
               </div>
             )}
+
+            {/* Contextual Discovery Notice */}
+            {contextualNoticeNode}
 
             {/* Account Cards Grid */}
             {gridContentNode}
@@ -1703,13 +2172,13 @@ export function AccountSettings({
                   isSelected ? 'account-tool-tab-btn--active' : ''
                 }`}
                 onClick={() => {
-                  if (!isBusy && selectedTool !== tool.id) {
+                  if (!isBusy && !isOAuthPending && selectedTool !== tool.id) {
                     setSelectedTool(tool.id)
                     setErrorMessage(null)
                   }
                 }}
                 onKeyDown={(e) => handleTabKeyDown(e, index)}
-                disabled={isBusy}
+                disabled={isBusy || isOAuthPending}
               >
                 <AIToolLogo toolId={tool.id} size={13} color />
                 <span>{loc[tool.pureLabelKey] || tool.pureName}</span>
@@ -1721,6 +2190,9 @@ export function AccountSettings({
         {/* Selected Tool Stage */}
         <div className="account-tool-stage">
           {capabilityStripNode}
+
+          {/* Contextual Discovery Notice */}
+          {contextualNoticeNode}
 
           {currentToolState?.error && (
             <div className="account-tool-error-callout" role="alert">
@@ -1745,7 +2217,7 @@ export function AccountSettings({
                 type="button"
                 className="account-btn account-btn--danger account-btn--sm"
                 onClick={handleEmergencyRecovery}
-                disabled={isBusy}
+                disabled={isBusy || isOAuthPending}
               >
                 <RotateCcw size={12} />
                 <span>{isBusy ? loc.recoveringBtn : loc.emergencyRecoverBtn}</span>
@@ -1782,7 +2254,7 @@ export function AccountSettings({
                 type="button"
                 className="account-btn account-btn--sm"
                 onClick={handleRefreshAll}
-                disabled={loading || isBusy}
+                disabled={loading || isBusy || isOAuthPending}
                 title={loc.refreshBtn}
               >
                 <RefreshCw
@@ -1797,7 +2269,7 @@ export function AccountSettings({
                   type="button"
                   className="account-btn account-btn--sm"
                   onClick={handleRollback}
-                  disabled={isBusy}
+                  disabled={isBusy || isOAuthPending}
                   title={loc.rollbackBtn}
                 >
                   <RotateCcw size={12} />
@@ -1808,8 +2280,8 @@ export function AccountSettings({
               <button
                 type="button"
                 className="account-btn account-btn--primary account-btn--sm"
-                onClick={() => openAddAccount(isAvailable ? 'capture' : 'import')}
-                disabled={isBusy}
+                onClick={() => openAddAccount('oauth')}
+                disabled={isBusy || isOAuthPending}
               >
                 <Plus size={12} />
                 <span>{loc.addAccountBtn}</span>

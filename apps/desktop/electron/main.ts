@@ -24,6 +24,8 @@ import {
   toggleMCPServer,
 } from './mcp-manager'
 import { AccountManager } from './account-manager'
+import { AccountOAuthService } from './account-oauth'
+import { createAccountOAuthProviders } from './account-oauth-providers'
 import { AccountError, sanitizeErrorMessage, type AccountTool } from '@workflow-skill/workflow-model/accounts'
 
 const defaultTraceHome = path.join(os.homedir(), '.trace')
@@ -1713,10 +1715,21 @@ ${skill.description || ''}
   let accountManager: AccountManager | undefined
   let accountStorageRoot = ''
   let accountMutationInProgress = false
+  let accountOAuth: AccountOAuthService | undefined
+  let accountOAuthOwner: Electron.WebContents | undefined
+  let detachOAuthOwner: (() => void) | undefined
+  function disposeAccountOAuth() {
+    accountOAuth?.dispose()
+    accountOAuth = undefined
+    detachOAuthOwner?.()
+    detachOAuthOwner = undefined
+    accountOAuthOwner = undefined
+  }
   function getAccountManager() {
     const root = getStoredTraceHome()
     if (!accountManager || accountStorageRoot !== root) {
       if (accountMutationInProgress) throw new AccountError('账号操作进行中，请稍后重试。')
+      disposeAccountOAuth()
       accountManager = new AccountManager({
         traceHome: root,
         onAccountsChanged: () => {
@@ -1729,6 +1742,42 @@ ${skill.description || ''}
     }
     return accountManager
   }
+  function assertAccountSender(event: Electron.IpcMainInvokeEvent) {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== event.sender.mainFrame) {
+      throw new AccountError('账号请求来源无效。')
+    }
+  }
+  function getAccountOAuth(event: Electron.IpcMainInvokeEvent) {
+    assertAccountSender(event)
+    const manager = getAccountManager()
+    if (accountOAuth && accountOAuthOwner !== event.sender) disposeAccountOAuth()
+    if (!accountOAuth) {
+      const root = accountStorageRoot
+      const owner = event.sender
+      accountOAuthOwner = owner
+      accountOAuth = new AccountOAuthService({
+        providers: createAccountOAuthProviders(),
+        openExternal: url => shell.openExternal(url),
+        saveAccount: input => accountCall(current => {
+          if (owner.isDestroyed() || current !== manager || getStoredTraceHome() !== root) {
+            throw new AccountError('账号存储位置或窗口已变更，请重新登录。')
+          }
+          return current.saveAuthenticatedAccount(input)
+        }, true),
+      })
+      const onNavigation = (_event: unknown, _url: string, isInPlace: boolean, isMainFrame: boolean) => {
+        if (isMainFrame && !isInPlace) disposeAccountOAuth()
+      }
+      owner.once('destroyed', disposeAccountOAuth)
+      owner.on('did-start-navigation', onNavigation)
+      detachOAuthOwner = () => {
+        owner.removeListener('destroyed', disposeAccountOAuth)
+        owner.removeListener('did-start-navigation', onNavigation)
+      }
+    }
+    return accountOAuth
+  }
+  app.on('before-quit', disposeAccountOAuth)
   async function accountCall<T>(operation: (manager: AccountManager) => Promise<T>, mutation = false): Promise<T> {
     try {
       if (mutation && accountMutationInProgress) throw new AccountError('账号操作进行中，请稍后重试。')
@@ -1743,6 +1792,14 @@ ${skill.description || ''}
   // The old profiles:* handlers are intentionally not registered: whole-environment
   // snapshots must never remain an alternate path to change model/MCP settings.
   ipcMain.handle('accounts:overview', () => accountCall(manager => manager.getOverview()))
+  ipcMain.handle('accounts:sync', event => {
+    assertAccountSender(event)
+    return accountCall(manager => manager.syncCurrentAccounts(), true)
+  })
+  ipcMain.handle('accounts:oauth-start', (event, tool: AccountTool) => getAccountOAuth(event).begin(tool))
+  ipcMain.handle('accounts:oauth-status', (event, id: string) => getAccountOAuth(event).get(id))
+  ipcMain.handle('accounts:oauth-cancel', (event, id: string) => getAccountOAuth(event).cancel(id))
+  ipcMain.handle('accounts:oauth-reopen', (event, id: string) => getAccountOAuth(event).reopen(id))
   ipcMain.handle('accounts:refresh-quota', (_event, id: string) => accountCall(manager => manager.refreshQuota(id)))
   ipcMain.handle('accounts:capture', (_event, input) => accountCall(manager => manager.captureAccount(input), true))
   ipcMain.handle('accounts:import', (_event, input) => accountCall(manager => manager.importAccount(input), true))
