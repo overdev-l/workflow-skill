@@ -34,6 +34,7 @@ import {
   validateAccountTool,
 } from '../../../packages/workflow-model/src/accounts.ts'
 import { AccountStore, hasLegacyProfiles } from './account-store.ts'
+import { AccountQuotaService } from './account-quota.ts'
 import {
   type AccountAdapter,
   type AccountProjection,
@@ -67,6 +68,8 @@ export interface AccountManagerOptions {
   antigravityFileMode?: boolean
   adapters?: Record<AccountTool, AccountAdapter>
   onAccountsChanged?: () => void
+  /** Override only for isolated quota verification; production uses the native fetch. */
+  quotaFetch?: typeof globalThis.fetch
   beforeWrite?: (tool: AccountTool, slot: string, index: number) => void
 }
 
@@ -76,6 +79,7 @@ export class AccountManager implements AccountManagementAPI {
   public readonly transactionsDir: string
   public readonly store: AccountStore
   public readonly adapters: Record<AccountTool, AccountAdapter>
+  private readonly quotas: AccountQuotaService
   private readonly onAccountsChangedOption?: () => void
   private readonly beforeWrite?: (tool: AccountTool, slot: string, index: number) => void
   private readonly changeListeners: Set<() => void> = new Set()
@@ -94,6 +98,11 @@ export class AccountManager implements AccountManagementAPI {
     this.store = new AccountStore({ homeDir: this.homeDir, traceHome: this.traceHome })
     this.onAccountsChangedOption = options?.onAccountsChanged
     this.beforeWrite = options?.beforeWrite
+    this.quotas = new AccountQuotaService({
+      store: this.store,
+      fetch: options?.quotaFetch,
+      onChanged: () => this.notifyChanged(),
+    })
 
     this.adapters = options?.adapters ?? createAccountAdapters({
       homeDir: this.homeDir,
@@ -385,7 +394,11 @@ export class AccountManager implements AccountManagementAPI {
       })
     }
 
-    return { accounts, tools, capabilities, legacyProfilesPresent }
+    return { accounts, quotas: this.quotas.getCached(accounts), tools, capabilities, legacyProfilesPresent }
+  }
+
+  async refreshQuota(id: string) {
+    return this.quotas.refreshAccount(validateAccountId(id))
   }
 
   async captureAccount(input: { tool: AccountTool; name: string }): Promise<AccountMetadata> {
@@ -769,6 +782,7 @@ export class AccountManager implements AccountManagementAPI {
     const validId = validateAccountId(id)
     await this.withMutationLock(async () => {
       await this.store.delete(validId)
+      this.quotas.invalidate(validId)
       this.notifyChanged()
     })
   }

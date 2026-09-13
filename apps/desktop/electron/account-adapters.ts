@@ -146,7 +146,7 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
     capability: () => {
       const config = codexSettings()
       const conflict = config.forced_login_method === 'api' || (config.model_provider !== undefined && config.model_provider !== 'openai')
-      return { tool: 'codex', available: !conflict, reason: conflict ? 'Codex 当前限定 API 登录或使用其他模型提供商。请先在 Codex 中处理认证冲突；Trace 不修改模型配置。' : undefined, details: '使用 ChatGPT auth.json 和 file 存储模式。请重启 Codex，在新会话确认身份；项目配置或启动参数可能覆盖全局设置。' }
+      return { tool: 'codex', available: !conflict, reasonCode: conflict ? 'codex-auth-conflict' : undefined, detailsCode: 'codex-file', reason: conflict ? 'Codex 当前限定 API 登录或使用其他模型提供商。请先在 Codex 中处理认证冲突；Trace 不修改模型配置。' : undefined, details: '使用 ChatGPT auth.json 和 file 存储模式。请重启 Codex，在新会话确认身份；项目配置或启动参数可能覆盖全局设置。' }
     },
     inspect(raw) {
       const value = json(raw)
@@ -186,7 +186,7 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
     tool: 'claude-code',
     capability() {
       const conflict = claudeConflict()
-      return { tool: 'claude-code', available: !conflict, reason: conflict ? '检测到环境令牌、API Key、认证辅助程序或其他提供商配置；请先在 Claude 中处理认证优先级冲突。' : undefined, details: '导入 claude setup-token 生成的订阅令牌，写入 settings.json 的 CLAUDE_CODE_OAUTH_TOKEN。支持模型请求和本地 MCP；不支持 Remote Control 与 Claude.ai 连接器。邮箱、有效期和服务端登录状态无法离线确认，请在新会话验证。' }
+      return { tool: 'claude-code', available: !conflict, reasonCode: conflict ? 'claude-auth-conflict' : undefined, detailsCode: 'claude-setup-token', reason: conflict ? '检测到环境令牌、API Key、认证辅助程序或其他提供商配置；请先在 Claude 中处理认证优先级冲突。' : undefined, details: '导入 claude setup-token 生成的订阅令牌，写入 settings.json 的 CLAUDE_CODE_OAUTH_TOKEN。支持模型请求和本地 MCP；不支持 Remote Control 与 Claude.ai 连接器。邮箱、有效期和服务端登录状态无法离线确认，请在新会话验证。' }
     },
     inspect(raw) {
       const value = typeof raw === 'string' ? raw.trim() : ''
@@ -218,7 +218,7 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
   const fileMode = (options.antigravityFileMode ?? !!(env.SSH_TTY || env.SSH_CLIENT || env.SSH_CONNECTION)) && !env.GEMINI_API_KEY && !env.GOOGLE_API_KEY && !env.JETSKI_APP_DATA_DIR
   const antigravity: AccountAdapter = {
     tool: 'antigravity',
-    capability: () => ({ tool: 'antigravity', available: fileMode, reason: fileMode ? undefined : '当前 Antigravity 原生环境默认使用系统凭据库，尚无已验证的强制文件模式。可保存 Google 账号凭据，暂不执行切换。', details: '文件适配仅针对 Antigravity CLI 的 SSH 后备存储；桌面端未通过无 Keychain 账号切换验证。Trace 不读写 Keychain，不使用 Gemini API Key 替代 Google 账号。' }),
+    capability: () => ({ tool: 'antigravity', available: fileMode, reasonCode: fileMode ? undefined : 'antigravity-file-mode-required', detailsCode: 'antigravity-ssh-file', reason: fileMode ? undefined : '当前 Antigravity 原生环境默认使用系统凭据库，尚无已验证的强制文件模式。可保存 Google 账号凭据，暂不执行切换。', details: '文件适配仅针对 Antigravity CLI 的 SSH 后备存储；桌面端未通过无 Keychain 账号切换验证。Trace 不读写 Keychain，不使用 Gemini API Key 替代 Google 账号。' }),
     inspect(raw) {
       const value = json(raw)
       if (value.auth_method !== 'consumer' || !object(value.token)) fail('仅支持 Antigravity Google consumer OAuth 文件，不支持 Gemini API Key 或 Gemini CLI 凭据。')

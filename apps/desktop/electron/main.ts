@@ -1743,6 +1743,7 @@ ${skill.description || ''}
   // The old profiles:* handlers are intentionally not registered: whole-environment
   // snapshots must never remain an alternate path to change model/MCP settings.
   ipcMain.handle('accounts:overview', () => accountCall(manager => manager.getOverview()))
+  ipcMain.handle('accounts:refresh-quota', (_event, id: string) => accountCall(manager => manager.refreshQuota(id)))
   ipcMain.handle('accounts:capture', (_event, input) => accountCall(manager => manager.captureAccount(input), true))
   ipcMain.handle('accounts:import', (_event, input) => accountCall(manager => manager.importAccount(input), true))
   ipcMain.handle('accounts:switch', (_event, id: string) => accountCall(manager => manager.switchAccount(id), true))

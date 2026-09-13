@@ -24,6 +24,7 @@ import type {
 
 const accounts: AccountManagementAPI = {
   getOverview: () => ipcRenderer.invoke('accounts:overview'),
+  refreshQuota: id => ipcRenderer.invoke('accounts:refresh-quota', id),
   captureAccount: input => ipcRenderer.invoke('accounts:capture', input),
   importAccount: input => ipcRenderer.invoke('accounts:import', input),
   switchAccount: id => ipcRenderer.invoke('accounts:switch', id),

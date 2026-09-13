@@ -308,7 +308,8 @@ body.is-resizing-master-column * {
   user-select: none !important;
 }
 
-.app-shell.is-settings {
+.app-shell.is-settings,
+.app-shell.is-accounts {
   grid-template-columns: 160px minmax(0, 1fr);
 }
 

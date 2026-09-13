@@ -877,6 +877,46 @@ async function main() {
     assert.equal(listenerFired, beforeCount, 'Unsubscribed listener must not fire')
   })
 
+  await runTest('quota refresh uses the saved account without changing active credentials', async ({ testHome, env, codexHome }) => {
+    const requests = []
+    const manager = new AccountManager({ homeDir: testHome, env, codexHome,
+      quotaFetch: async (url, options) => {
+        requests.push({ url, headers: new Headers(options.headers) })
+        return Response.json({ plan_type: 'plus', rate_limit: { primary_window: {
+          used_percent: 25, limit_window_seconds: 18000, reset_at: Math.floor(Date.now() / 1000) + 3600,
+        } } })
+      },
+    })
+    const active = await manager.importAccount({ tool: 'codex', name: 'Active', credential: createCodexCredential({ accountId: 'quota-active' }) })
+    const other = await manager.importAccount({ tool: 'codex', name: 'Other', credential: createCodexCredential({ accountId: 'quota-other' }) })
+    await manager.switchAccount(active.id)
+    const authPath = path.join(codexHome, 'auth.json')
+    const configPath = path.join(codexHome, 'config.toml')
+    const originalAuth = readFileSync(authPath, 'utf8')
+    const originalConfig = readFileSync(configPath, 'utf8')
+    await manager.getOverview()
+    assert.equal(requests.length, 0, 'Overview must not trigger network requests')
+    let notifications = 0
+    manager.onAccountsChanged(() => { notifications++ })
+    const snapshot = await manager.refreshQuota(other.id)
+    assert.equal(snapshot.status, 'ready')
+    assert.equal(snapshot.accountId, other.id)
+    assert.equal(snapshot.windows[0].remainingPercent, 75)
+    assert.equal(requests[0].headers.get('ChatGPT-Account-Id'), 'quota-other')
+    assert.ok(notifications > 0)
+    const overview = await manager.getOverview()
+    assert.equal(overview.tools.find(tool => tool.tool === 'codex').activeAccountId, active.id)
+    assert.equal(overview.quotas.find(quota => quota.accountId === other.id).status, 'ready')
+    assert.equal(readFileSync(authPath, 'utf8'), originalAuth)
+    assert.equal(readFileSync(configPath, 'utf8'), originalConfig)
+    const serialized = JSON.stringify(overview)
+    const saved = await manager.store.get(other.id)
+    assert.ok(!serialized.includes(JSON.parse(saved.credential).tokens.access_token))
+    await manager.deleteAccount(other.id)
+    assert.equal((await manager.getOverview()).quotas.some(quota => quota.accountId === other.id), false)
+    assert.equal(readFileSync(authPath, 'utf8'), originalAuth)
+  })
+
   console.log(`\nAccountManager suite finished: ${passed} passed, ${failed} failed.`)
 
   try {

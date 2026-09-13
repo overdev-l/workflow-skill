@@ -5083,7 +5083,7 @@ export function App() {
   }
 
   return (
-    <div className={`app-shell ${inSettings ? 'is-settings' : ''}`} data-theme={resolvedTheme}>
+    <div className={`app-shell ${inSettings ? 'is-settings' : view === 'accounts' ? 'is-accounts' : ''}`} data-theme={resolvedTheme}>
       {/* Global Top Window Drag Strip for macOS */}
       <div className="app-window-drag-strip" />
 
@@ -5109,7 +5109,7 @@ export function App() {
         }}
       />
 
-      {!inSettings ? <MasterColumnResizeHandle /> : null}
+      {!inSettings && view !== 'accounts' ? <MasterColumnResizeHandle /> : null}
 
       {/* Settings Mode: Clean 2-Pane Architecture (Sidebar + Full Width Settings Stage) */}
       {inSettings ? (
