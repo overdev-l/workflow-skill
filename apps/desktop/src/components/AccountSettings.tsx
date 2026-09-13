@@ -547,23 +547,29 @@ export function AccountSettings({
     const reasonsEn: Record<string, string> = {
       'codex-auth-conflict': 'Codex is configured for API sign-in or another provider. Resolve the authentication conflict in Codex first.',
       'claude-auth-conflict': 'An environment token, API key, authentication helper, or another provider takes precedence. Resolve the conflict in Claude first.',
-      'antigravity-file-mode-required': 'Native Antigravity file-based switching is not yet verified. You can save accounts and query quotas; switching remains unavailable.',
+      'antigravity-file-mode-required': 'This environment does not support native Antigravity switching.',
+      'antigravity-helper-unavailable': 'The Antigravity authentication helper is missing. Rebuild the app.',
+      'antigravity-auth-conflict': 'Another Antigravity authentication source takes precedence. Resolve it before switching.',
     }
     const reasonsZh: Record<string, string> = {
       'codex-auth-conflict': 'Codex 已配置为 API 登录或其他提供商。请先在 Codex 中解决认证冲突。',
       'claude-auth-conflict': '检测到环境令牌、API Key、认证辅助程序或其他提供商配置；请先在 Claude 中处理认证优先级冲突。',
-      'antigravity-file-mode-required': 'Antigravity 原生基于文件的切换尚未验证。可保存账号并查询配额，切换功能暂不可用。',
+      'antigravity-file-mode-required': '当前环境不支持 Antigravity 原生账号切换。',
+      'antigravity-helper-unavailable': 'Antigravity 认证助手未安装，请重新构建应用。',
+      'antigravity-auth-conflict': 'Antigravity 存在其他优先认证来源，请先处理冲突。',
     }
 
     const detailsEn: Record<string, string> = {
       'codex-file': 'Uses ChatGPT auth.json with file credential storage. Verify identity in a new Codex session; project configuration and launch arguments can override global settings.',
       'claude-setup-token': 'Stores full OAuth login or imported subscription credentials; switching projects the access token into settings.json env. Supports model requests and local MCP; Remote Control and Claude.ai connectors remain unchanged and unavailable. Verify identity in a new session; setup-token alone cannot confirm email or expiry offline.',
-      'antigravity-ssh-file': 'File switching is limited to the CLI fallback in a real SSH session. Native desktop switching without Keychain is unverified. Trace does not access Keychain or substitute Gemini API keys.',
+      'antigravity-ssh-file': 'Uses only the CLI fallback file in a real SSH session; native desktop authentication is unchanged.',
+      'antigravity-native-keychain': 'Antigravity CLI and desktop share native credentials. Quit both before switching or rolling back, then start a new session. Only the Antigravity Keychain item is accessed; saved accounts remain in local files.',
     }
     const detailsZh: Record<string, string> = {
       'codex-file': '使用 ChatGPT auth.json 文件凭据存储。请在新 Codex 会话中确认身份；项目配置和启动参数可能会覆盖全局设置。',
       'claude-setup-token': '完整保存 OAuth 官方登录凭据或导入的订阅凭据；切换时仍向 settings.json 环境变量投影 access token。支持模型请求与本地 MCP；Remote Control 与 Claude.ai 连接器保持不变且不可用。请在新会话中确认身份；单独的 setup-token 无法离线验证邮箱或有效期。',
-      'antigravity-ssh-file': '文件切换仅限于真实 SSH 会话中的 CLI 回退机制。无 Keychain 的原生桌面切换尚未验证。Trace 不访问系统钥匙串，也不替代 Gemini API Key。',
+      'antigravity-ssh-file': '仅使用真实 SSH 会话中的 CLI 后备文件，不改变原生客户端认证。',
+      'antigravity-native-keychain': 'Antigravity CLI 与客户端共享原生认证。切换或回滚前请退出两端，再开启新会话。仅访问 Antigravity 钥匙串项，账号库仍保存在本地文件。',
     }
 
     const reasons = resolvedLocale === 'en-US' ? reasonsEn : reasonsZh
@@ -1206,6 +1212,31 @@ export function AccountSettings({
     return notice.message ? formatErrorMessage(notice.message, loc.discoveryErrorNotice) : loc.discoveryErrorNotice
   }
 
+  const authorizeNativeAccount = async () => {
+    if (!api?.authorizeAntigravityKeychain || isBusy || isOAuthPending) return
+    setIsBusy(true)
+    try {
+      await api.authorizeAntigravityKeychain()
+      setErrorMessage(null)
+    } catch (error) {
+      setErrorMessage(formatErrorMessage(error, loc.discoveryErrorNotice))
+    } finally {
+      setIsBusy(false)
+      isBusyRef.current = false
+      await runAutoScan(true)
+      await loadDataRef.current?.()
+    }
+  }
+
+  const nativeAccessButton = selectedTool === 'antigravity' &&
+    currentCapability?.detailsCode === 'antigravity-native-keychain' &&
+    /Keychain|钥匙串/.test(`${currentToolState?.error ?? ''} ${currentDiscoveryNotice?.message ?? ''}`) &&
+    api?.authorizeAntigravityKeychain ? (
+      <button type="button" className="account-btn account-btn--sm" onClick={() => void authorizeNativeAccount()} disabled={isBusy || isOAuthPending}>
+        {resolvedLocale === 'en-US' ? 'Allow account access' : '允许读取账号'}
+      </button>
+    ) : null
+
   const contextualNoticeNode = currentDiscoveryNotice ? (
     <div
       className={`account-contextual-callout account-contextual-callout--${currentDiscoveryNotice.status}`}
@@ -1281,7 +1312,9 @@ export function AccountSettings({
 
       const res: AccountActionResult = await api.switchAccount(account.id)
       if (res && res.success) {
-        onNotify?.(loc.switchSuccess(account.name), 'success')
+        onNotify?.(account.tool === 'antigravity' && currentCapability?.detailsCode === 'antigravity-native-keychain'
+          ? (resolvedLocale === 'en-US' ? 'Antigravity credentials updated. Start a new CLI or desktop session.' : 'Antigravity 认证已更新，请重新启动 CLI 或客户端会话。')
+          : loc.switchSuccess(account.name), 'success')
         await loadData()
       } else {
         await handleFailure(res?.error, 'Failed to switch account.')
@@ -1867,7 +1900,7 @@ export function AccountSettings({
     </>
   )
 
-  // Capability strip: concise tool-level notice preserving unsupported switch reason (no Keychain)
+  // Tool-level capability details.
   const capabilityStripNode = (
     <div className="account-capability-strip">
       <div className="account-capability-strip-left">
@@ -2103,6 +2136,7 @@ export function AccountSettings({
 
             {/* Contextual Discovery Notice */}
             {contextualNoticeNode}
+            {nativeAccessButton}
 
             {/* Account Cards Grid */}
             {gridContentNode}
@@ -2193,6 +2227,7 @@ export function AccountSettings({
 
           {/* Contextual Discovery Notice */}
           {contextualNoticeNode}
+          {nativeAccessButton}
 
           {currentToolState?.error && (
             <div className="account-tool-error-callout" role="alert">

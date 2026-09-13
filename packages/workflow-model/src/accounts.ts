@@ -101,9 +101,9 @@ export interface AccountToolCapability {
   tool: AccountTool
   available: boolean
   reason?: string
-  reasonCode?: 'codex-auth-conflict' | 'claude-auth-conflict' | 'antigravity-file-mode-required'
+  reasonCode?: 'codex-auth-conflict' | 'claude-auth-conflict' | 'antigravity-file-mode-required' | 'antigravity-auth-conflict' | 'antigravity-helper-unavailable'
   details?: string
-  detailsCode?: 'codex-file' | 'claude-setup-token' | 'antigravity-ssh-file'
+  detailsCode?: 'codex-file' | 'claude-setup-token' | 'antigravity-ssh-file' | 'antigravity-native-keychain'
 }
 
 /**
@@ -178,6 +178,7 @@ export interface AccountOAuthAPI {
  * IPC and service boundary API for account management.
  */
 export interface AccountManagementAPI extends AccountOAuthAPI {
+  authorizeAntigravityKeychain?(): Promise<void>
   getOverview(): Promise<AccountsOverview>
   refreshQuota(id: string): Promise<AccountQuotaSnapshot>
   captureAccount(input: { tool: AccountTool; name: string }): Promise<AccountMetadata>

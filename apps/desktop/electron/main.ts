@@ -1791,6 +1791,10 @@ ${skill.description || ''}
   }
   // The old profiles:* handlers are intentionally not registered: whole-environment
   // snapshots must never remain an alternate path to change model/MCP settings.
+  ipcMain.handle('accounts:authorize-antigravity', event => {
+    assertAccountSender(event)
+    return accountCall(manager => manager.authorizeAntigravityKeychain(), true)
+  })
   ipcMain.handle('accounts:overview', () => accountCall(manager => manager.getOverview()))
   ipcMain.handle('accounts:sync', event => {
     assertAccountSender(event)

@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
+import { createAntigravityKeychain, decodeAntigravityKeychainSecret, encodeAntigravityKeychainSecret, type AntigravityKeychain } from './antigravity-keychain.ts'
+import { assertAntigravityStopped } from './antigravity-runtime.ts'
+import { enrichAntigravityIdentity } from './account-oauth-providers.ts'
 import path from 'node:path'
 import { parse as parseToml } from 'smol-toml'
 import { parseTOML } from 'toml-eslint-parser'
@@ -17,6 +20,10 @@ export interface InspectedCredential {
 }
 export interface AccountAdapter {
   tool: AccountTool
+  journalKey?: 'antigravity-native'
+  assertCanWrite?(): void
+  authorizeAccess?(): void
+  enrichCredential?(credential: string): Promise<string>
   capability(): AccountToolCapability
   inspect(credential: string): InspectedCredential
   read(): AccountProjection
@@ -34,6 +41,9 @@ export interface AccountAdapterOptions {
   codexHome?: string
   /** Inject only in isolated tests after establishing a compatible file-mode environment. */
   antigravityFileMode?: boolean
+  antigravityKeychain?: AntigravityKeychain
+  antigravityAssertStopped?: () => void
+  antigravityIdentityFetch?: typeof globalThis.fetch
 }
 
 const LIMIT = 5 * 1024 * 1024
@@ -241,26 +251,62 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
     },
   }
 
-  // CLI 1.2.2 bypasses keyring in real SSH sessions. Native macOS/desktop file mode
-  // is deliberately unavailable; do not manufacture SSH variables or timeout markers.
-  const fileMode = (options.antigravityFileMode ?? !!(env.SSH_TTY || env.SSH_CLIENT || env.SSH_CONNECTION)) && !env.GEMINI_API_KEY && !env.GOOGLE_API_KEY && !env.JETSKI_APP_DATA_DIR
+  // Alternate homes are isolated file environments; never read the host Keychain for a fixture.
+  const nativeHome = home === path.resolve(os.homedir())
+  const fileMode = options.antigravityFileMode ?? !!(env.SSH_TTY || env.SSH_CLIENT || env.SSH_CONNECTION)
+  const native = !fileMode && (options.antigravityKeychain !== undefined || (nativeHome && process.platform === 'darwin'))
+  const keychain = options.antigravityKeychain ?? (native ? createAntigravityKeychain() : undefined)
+  const conflict = !!(env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.JETSKI_APP_DATA_DIR)
+  const assertStopped = options.antigravityAssertStopped ?? assertAntigravityStopped
+  const available = () => !conflict && (native ? !!keychain?.available() : fileMode)
+  const identityCache = new Map<string, string>()
   const antigravity: AccountAdapter = {
     tool: 'antigravity',
-    capability: () => ({ tool: 'antigravity', available: fileMode, reasonCode: fileMode ? undefined : 'antigravity-file-mode-required', detailsCode: 'antigravity-ssh-file', reason: fileMode ? undefined : '当前 Antigravity 原生环境默认使用系统凭据库，尚无已验证的强制文件模式。可保存 Google 账号凭据，暂不执行切换。', details: '文件适配仅针对 Antigravity CLI 的 SSH 后备存储；桌面端未通过无 Keychain 账号切换验证。Trace 不读写 Keychain，不使用 Gemini API Key 替代 Google 账号。' }),
+    ...(native ? { journalKey: 'antigravity-native' as const, authorizeAccess() { keychain!.read(true) } } : {}),
+    capability: () => ({
+      tool: 'antigravity', available: available(),
+      reasonCode: conflict ? 'antigravity-auth-conflict' : available() ? undefined : native ? 'antigravity-helper-unavailable' : 'antigravity-file-mode-required',
+      detailsCode: native ? 'antigravity-native-keychain' : 'antigravity-ssh-file',
+      reason: conflict ? 'Antigravity 存在其他认证来源，无法确认原生账号。' : available() ? undefined : native ? 'Antigravity 原生认证助手未安装，请重新构建应用。' : '当前环境不支持 Antigravity 原生账号切换。',
+      details: native ? 'Antigravity CLI 与客户端共享原生认证项。切换前请退出客户端并结束 CLI 会话；新会话生效。仅访问 Antigravity 认证项，账号库保存在本地文件。' : '仅支持真实 SSH 环境中的 Antigravity CLI 后备文件；不影响原生客户端。',
+    }),
+    assertCanWrite() {
+      if (!available()) fail('Antigravity 当前认证环境不可切换。')
+      if (native) assertStopped()
+    },
     inspect: inspectAntigravityCredential,
     matchesIdentity: matchAntigravityCredentials,
     mergeCredential: mergeAntigravityCredentials,
-    read: () => ({ oauth: files.read(agyAuth) }),
+    read: () => ({ oauth: native ? keychain!.read() : files.read(agyAuth) }),
     desired: credential => {
       const { normalized } = inspectAntigravityCredential(credential)
-      return { oauth: JSON.stringify({ auth_method: normalized.auth_method, token: normalized.token }, null, 2) }
+      const payload = JSON.stringify({ auth_method: normalized.auth_method, token: normalized.token }, null, 2)
+      return { oauth: native ? encodeAntigravityKeychainSecret(payload) : payload }
     },
-    writeSlot(slot, value) { if (slot !== 'oauth') fail('未知的 Antigravity 认证字段。'); files.write(agyAuth, value) },
-    credentialFrom: state => fileMode ? state.oauth : null,
+    writeSlot(slot, value) {
+      if (slot !== 'oauth') fail('未知的 Antigravity 认证字段。')
+      antigravity.assertCanWrite!()
+      if (native) keychain!.write(value)
+      else files.write(agyAuth, value)
+    },
+    credentialFrom: state => native ? (state.oauth === null ? null : decodeAntigravityKeychainSecret(state.oauth)) : fileMode ? state.oauth : null,
     readCurrentCredential() {
-      if (env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.JETSKI_APP_DATA_DIR) fail('Antigravity 当前使用其他认证来源，无法自动确认文件登录。请通过 OAuth 添加账号。')
-      return files.read(agyAuth)
+      if (conflict) fail('Antigravity 当前使用其他认证来源，无法自动确认原生登录。')
+      if (!native) return files.read(agyAuth)
+      if (!available()) fail('Antigravity 原生认证不可用；请检查认证助手或使用 OAuth 添加账号。')
+      return antigravity.credentialFrom(antigravity.read())
     },
+    ...(native ? { async enrichCredential(raw: string) {
+      const inspected = inspectAntigravityCredential(raw)
+      if (inspected.accountId) return inspected.credential
+      const fingerprint = hash(inspected.credential)
+      const cached = identityCache.get(fingerprint)
+      if (cached) return cached
+      const enriched = await enrichAntigravityIdentity(raw, options.antigravityIdentityFetch)
+      identityCache.clear()
+      identityCache.set(fingerprint, enriched)
+      return enriched
+    } } : {}),
   }
   return { antigravity, codex, 'claude-code': claude }
 }

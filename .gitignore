@@ -12,3 +12,5 @@ recorders/windows/**/obj
 .env
 .env.*
 !.env.example
+
+apps/desktop/native-bin/

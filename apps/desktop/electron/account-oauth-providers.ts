@@ -16,6 +16,7 @@
  */
 
 import { AccountError, type AccountTool } from '../../../packages/workflow-model/src/accounts.ts'
+import { inspectAntigravityCredential } from './account-credential-format.ts'
 import type { AccountOAuthProvider } from './account-oauth.ts'
 
 export const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
@@ -523,4 +524,21 @@ export function createAccountOAuthProviders(
     'claude-code': claudeProvider,
     antigravity: antigravityProvider,
   }
+}
+
+/** Enrich only a discovered Antigravity credential; never refresh or modify the native login. */
+export async function enrichAntigravityIdentity(raw: string, fetchFn?: typeof globalThis.fetch): Promise<string> {
+  const inspected = inspectAntigravityCredential(raw)
+  if (inspected.accountId) return inspected.credential
+  const profile = await executeBoundedRequest(ANTIGRAVITY_PROFILE_URL, {
+    method: 'GET', headers: { Authorization: `Bearer ${inspected.access}` },
+    signal: new AbortController().signal, fetchFn,
+  })
+  const id = safeMetadataString(profile.id)
+  const email = safeMetadataString(profile.email)
+  const name = safeMetadataString(profile.name)
+  if (!id || !email || profile.verified_email !== true) throw new AccountError('无法确认 Antigravity 当前账号身份，请重新登录。')
+  const result = inspectAntigravityCredential(JSON.stringify({ ...inspected.normalized, account: { id, email, ...(name ? { name } : {}) } }))
+  if (!result.accountId || !result.email) throw new AccountError('Antigravity 返回的账号身份无效。')
+  return result.credential
 }

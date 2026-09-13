@@ -281,12 +281,19 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
     }
   }
 
+  private journalPath(tool: AccountTool): string {
+    // Never replay legacy CLI-file transactions into the native credential item.
+    const key = tool === 'antigravity' && this.adapters[tool]?.journalKey === 'antigravity-native'
+      ? 'antigravity-native' : tool
+    return path.join(this.transactionsDir, `${key}.json`)
+  }
+
   private readJournalSafely(tool: AccountTool): {
     journal?: AccountTransactionJournal
     corrupted: boolean
     error?: string
   } {
-    const targetPath = path.join(this.transactionsDir, `${tool}.json`)
+    const targetPath = this.journalPath(tool)
     try {
       this.assertSafePath(targetPath)
       const stat = lstatSync(targetPath)
@@ -358,6 +365,15 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
     return () => this.changeListeners.delete(listener)
   }
 
+  async authorizeAntigravityKeychain(): Promise<void> {
+    return this.withMutationLock(() => {
+      const adapter = this.adapters.antigravity
+      if (!adapter.authorizeAccess) throw new AccountError('此环境不使用 Antigravity 原生钥匙串。')
+      adapter.authorizeAccess()
+      this.notifyChanged()
+    })
+  }
+
   async getOverview(): Promise<AccountsOverview> {
     const accounts = await this.store.list()
     const legacyProfilesPresent = hasLegacyProfiles(this.traceHome)
@@ -403,8 +419,8 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
             } else {
               currentCred = adapter.credentialFrom(adapter.read())
             }
-          } catch {
-            // Independent tool read errors or non-file modes leave currentCred null
+          } catch (readError) {
+            error ||= sanitizeErrorMessage(readError)
           }
         }
 
@@ -696,6 +712,11 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
             continue
           }
 
+          if (adapter.enrichCredential) {
+            rawCredential = await adapter.enrichCredential(rawCredential)
+            inspected = adapter.inspect(rawCredential)
+          }
+
           const fingerprint = createHash('sha256').update(inspected.credential).digest('hex')
           if (await this.store.isSuppressed(tool, fingerprint)) {
             results.push({ tool, status: 'dismissed' })
@@ -836,6 +857,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
       const priorCompleteJournal =
         journalInfo.journal?.phase === 'complete' ? journalInfo.journal : undefined
 
+      adapter.assertCanWrite?.()
       const beforeState = adapter.read()
       const desiredState = adapter.desired(record.credential)
       const slotKeys = KNOWN_SLOTS[tool]
@@ -850,7 +872,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         selectedAccountId: validId,
         previousComplete: priorCompleteJournal,
       }
-      this.atomicWrite(path.join(this.transactionsDir, `${tool}.json`), pendingJournal)
+      this.atomicWrite(this.journalPath(tool), pendingJournal)
 
       let writeError: unknown = null
 
@@ -892,7 +914,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
           previousAccountId: priorCompleteJournal?.selectedAccountId,
           selectedAccountId: validId,
         }
-        this.atomicWrite(path.join(this.transactionsDir, `${tool}.json`), completeJournal)
+        this.atomicWrite(this.journalPath(tool), completeJournal)
         this.notifyChanged()
         return { success: true }
       } catch (err) {
@@ -939,9 +961,9 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
       }
 
       if (priorCompleteJournal) {
-        this.atomicWrite(path.join(this.transactionsDir, `${tool}.json`), priorCompleteJournal)
+        this.atomicWrite(this.journalPath(tool), priorCompleteJournal)
       } else {
-        this.removeFileSafely(path.join(this.transactionsDir, `${tool}.json`))
+        this.removeFileSafely(this.journalPath(tool))
       }
 
       this.notifyChanged()
@@ -972,6 +994,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         return { success: false, error: 'A pending transaction exists for this tool. Recovery is needed.', recoveryNeeded: true }
       }
 
+      adapter.assertCanWrite?.()
       const journal = journalInfo.journal
       const slotKeys = KNOWN_SLOTS[tool]
 
@@ -989,7 +1012,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         ...journal,
         phase: 'pending',
       }
-      this.atomicWrite(path.join(this.transactionsDir, `${tool}.json`), rollbackPending)
+      this.atomicWrite(this.journalPath(tool), rollbackPending)
 
       try {
         for (let i = 0; i < slotKeys.length; i++) {
@@ -1018,7 +1041,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
           }
         }
 
-        this.removeFileSafely(path.join(this.transactionsDir, `${tool}.json`))
+        this.removeFileSafely(this.journalPath(tool))
         this.notifyChanged()
         return { success: true }
       } catch (err) {
@@ -1047,6 +1070,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         return { success: true }
       }
 
+      adapter.assertCanWrite?.()
       const journal = journalInfo.journal
       const slotKeys = KNOWN_SLOTS[tool]
 
@@ -1093,9 +1117,9 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
       }
 
       if (journal.previousComplete) {
-        this.atomicWrite(path.join(this.transactionsDir, `${tool}.json`), journal.previousComplete)
+        this.atomicWrite(this.journalPath(tool), journal.previousComplete)
       } else {
-        this.removeFileSafely(path.join(this.transactionsDir, `${tool}.json`))
+        this.removeFileSafely(this.journalPath(tool))
       }
 
       this.notifyChanged()

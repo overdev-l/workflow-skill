@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "predev": "node ../../scripts/build-account-keychain.mjs",
+    "prebuild": "node ../../scripts/build-account-keychain.mjs"
   },
   "dependencies": {
     "@lobehub/icons": "^5.16.0",

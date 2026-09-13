@@ -23,6 +23,7 @@ import type {
 } from '@workflow-skill/workflow-model'
 
 const accounts: AccountManagementAPI = {
+  authorizeAntigravityKeychain: () => ipcRenderer.invoke('accounts:authorize-antigravity'),
   getOverview: () => ipcRenderer.invoke('accounts:overview'),
   syncCurrentAccounts: () => ipcRenderer.invoke('accounts:sync'),
   startOAuth: tool => ipcRenderer.invoke('accounts:oauth-start', tool),
