@@ -328,7 +328,12 @@ export function AccountQuotaCard({
 
         {/* Quota Windows List */}
         {snapshot && snapshot.windows && snapshot.windows.length > 0 ? (
-          <div className="account-quota-windows">
+          <div
+            className="account-quota-windows"
+            tabIndex={0}
+            role="region"
+            aria-label={`${account.name} · ${locale.startsWith('zh') ? '模型配额' : 'Model quotas'}`}
+          >
             {snapshot.windows.map((win: AccountQuotaWindow) => {
               const hasPercent =
                 typeof win.remainingPercent === 'number' &&
