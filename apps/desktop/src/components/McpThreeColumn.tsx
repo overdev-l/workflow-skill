@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   Check,
@@ -36,6 +36,64 @@ interface KeyValuePair {
   value: string
 }
 
+const TOOL_TAB_NAMES: Record<MCPSourceTool, string> = {
+  'claude-code': 'Claude Code',
+  cursor: 'Cursor',
+  gemini: 'Gemini',
+  codex: 'Codex',
+}
+
+interface FormBaseline {
+  serverId: string
+  revision?: string
+  transport: MCPTransportType
+  command: string
+  args: string[]
+  cwd: string
+  envPairs: KeyValuePair[]
+  url: string
+  headerPairs: KeyValuePair[]
+  envHeaderPairs: KeyValuePair[]
+}
+
+type PendingNavigationAction =
+  | { type: 'switch_tool'; tool: MCPSourceTool }
+  | { type: 'switch_scope'; scope: MCPScope }
+  | { type: 'switch_row'; serverId: string }
+  | { type: 'change_query'; query: string }
+  | { type: 'open_create' }
+
+function areStringArraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+function areKeyValuePairsEqual(a: KeyValuePair[], b: KeyValuePair[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].key !== b[i].key || a[i].value !== b[i].value) return false
+  }
+  return true
+}
+
+function testServerMatchesQuery(s: MCPServerDefinition, q: string): boolean {
+  const toolName = s.sourceTool.toLowerCase()
+  const name = s.name.toLowerCase()
+  const transport = s.transport.toLowerCase()
+  const cmd = (s.command || '').toLowerCase()
+  const url = (s.url || '').toLowerCase()
+  return (
+    name.includes(q) ||
+    toolName.includes(q) ||
+    transport.includes(q) ||
+    cmd.includes(q) ||
+    url.includes(q)
+  )
+}
+
 export function McpThreeColumn({
   notify,
 }: {
@@ -43,6 +101,7 @@ export function McpThreeColumn({
 }) {
   const { t } = useI18n()
 
+  const [activeTool, setActiveTool] = useState<MCPSourceTool>('claude-code')
   const [activeTab, setActiveTab] = useState<MCPScope>('global')
   const [query, setQuery] = useState('')
   const [servers, setServers] = useState<{ global: MCPServerDefinition[]; project: MCPServerDefinition[] }>({
@@ -65,12 +124,51 @@ export function McpThreeColumn({
   const [formSaving, setFormSaving] = useState(false)
   const [toggling, setToggling] = useState(false)
   const [formBaseRevision, setFormBaseRevision] = useState<string | undefined>(undefined)
+  const [formBaseline, setFormBaseline] = useState<FormBaseline | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const lastLoadedIdRef = React.useRef<string | null>(null)
+  const lastLoadedIdRef = useRef<string | null>(null)
+
+  // Unsaved Changes Confirmation State
+  const [unsavedModalOpen, setUnsavedModalOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<PendingNavigationAction | null>(null)
+  const unsavedDialogRef = useRef<HTMLDivElement>(null)
+  const cancelUnsavedRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!unsavedModalOpen) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    cancelUnsavedRef.current?.focus()
+    const handleDialogKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        setUnsavedModalOpen(false)
+        setPendingAction(null)
+      } else if (event.key === 'Tab') {
+        const buttons = unsavedDialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+        if (!buttons?.length) return
+        const first = buttons[0]
+        const last = buttons[buttons.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleDialogKey, true)
+    return () => {
+      window.removeEventListener('keydown', handleDialogKey, true)
+      previousFocus?.focus()
+    }
+  }, [unsavedModalOpen])
 
   // Distribution State
   const [selectedTargets, setSelectedTargets] = useState<Record<string, boolean>>({})
   const [distributing, setDistributing] = useState(false)
+  const [preflighting, setPreflighting] = useState(false)
   const [preflightResult, setPreflightResult] = useState<MCPDistributionPreflightResult | null>(null)
   const [preflightModalOpen, setPreflightModalOpen] = useState(false)
   const [frozenServer, setFrozenServer] = useState<MCPServerDefinition | null>(null)
@@ -91,7 +189,7 @@ export function McpThreeColumn({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const isBusy = formSaving || toggling || deleting || distributing || loading
+  const isBusy = formSaving || toggling || deleting || distributing || preflighting || loading || createSaving
 
   // Load MCP Servers
   const loadServers = async () => {
@@ -124,46 +222,79 @@ export function McpThreeColumn({
     return unsubscribe
   }, [])
 
-  // Current scope server list
+  // Dirty detection for all editable fields
+  const isDirty = useMemo(() => {
+    if (!formBaseline || !selectedServerId) return false
+    if (formBaseline.serverId !== selectedServerId) return false
+    if (formTransport !== formBaseline.transport) return true
+
+    if (formTransport === 'stdio') {
+      if (formCommand !== formBaseline.command) return true
+      if (formCwd !== formBaseline.cwd) return true
+      if (!areStringArraysEqual(formArgs, formBaseline.args)) return true
+      if (!areKeyValuePairsEqual(formEnvPairs, formBaseline.envPairs)) return true
+    } else {
+      if (formUrl !== formBaseline.url) return true
+      if (!areKeyValuePairsEqual(formHeaderPairs, formBaseline.headerPairs)) return true
+      if (!areKeyValuePairsEqual(formEnvHeaderPairs, formBaseline.envHeaderPairs)) return true
+    }
+
+    return false
+  }, [
+    formBaseline,
+    selectedServerId,
+    formTransport,
+    formCommand,
+    formCwd,
+    formArgs,
+    formEnvPairs,
+    formUrl,
+    formHeaderPairs,
+    formEnvHeaderPairs,
+  ])
+
+  // Current tool and scope server list
   const currentList = useMemo(() => {
-    return activeTab === 'global' ? servers.global : servers.project
-  }, [activeTab, servers])
+    const scopeList = activeTab === 'global' ? servers.global : servers.project
+    return scopeList.filter((s) => s.sourceTool === activeTool)
+  }, [activeTab, activeTool, servers])
 
   // Filtered servers by query
   const filteredServers = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return currentList
-    return currentList.filter((s) => {
-      const toolName = s.sourceTool.toLowerCase()
-      const name = s.name.toLowerCase()
-      const transport = s.transport.toLowerCase()
-      const cmd = (s.command || '').toLowerCase()
-      const url = (s.url || '').toLowerCase()
-      return (
-        name.includes(q) ||
-        toolName.includes(q) ||
-        transport.includes(q) ||
-        cmd.includes(q) ||
-        url.includes(q)
-      )
-    })
+    return currentList.filter((s) => testServerMatchesQuery(s, q))
   }, [currentList, query])
 
-  // Active Selected Server
+  // Active Selected Server - MUST ONLY be an item in filtered visible list
   const selectedServer = useMemo(() => {
-    if (!selectedServerId) return filteredServers[0] || null
-    return (
-      filteredServers.find((s) => s.id === selectedServerId) ||
-      currentList.find((s) => s.id === selectedServerId) ||
-      filteredServers[0] ||
-      null
-    )
-  }, [filteredServers, currentList, selectedServerId])
+    if (filteredServers.length === 0) return null
+    if (!selectedServerId) return filteredServers[0]
+    return filteredServers.find((s) => s.id === selectedServerId) || null
+  }, [filteredServers, selectedServerId])
+
+  // Keep selectedServerId synchronized with filteredServers without loops
+  useEffect(() => {
+    // A newly created ID is selected before the refreshed list arrives.
+    // Keep that intent while loading instead of replacing it with an old row.
+    if (loading || createSaving) return
+    if (filteredServers.length === 0) {
+      if (selectedServerId !== null) {
+        setSelectedServerId(null)
+      }
+      return
+    }
+    const exists = filteredServers.some((s) => s.id === selectedServerId)
+    if (!exists) {
+      setSelectedServerId(filteredServers[0].id)
+    }
+  }, [filteredServers, selectedServerId, loading, createSaving])
 
   // Populate editor form when active server changes
   useEffect(() => {
     if (!selectedServer) {
       lastLoadedIdRef.current = null
+      setFormBaseline(null)
       return
     }
     // Only repopulate if selectedServer ID changed to avoid wiping user dirty input
@@ -176,36 +307,41 @@ export function McpThreeColumn({
     setFormName(selectedServer.name)
     setFormTransport(selectedServer.transport)
     setFormCommand(selectedServer.command || '')
-    setFormArgs(selectedServer.args ? [...selectedServer.args] : [])
+    const args = selectedServer.args ? [...selectedServer.args] : []
+    setFormArgs(args)
     setFormCwd(selectedServer.cwd || '')
     setFormUrl(selectedServer.url || '')
 
     // Env pairs
-    if (selectedServer.env) {
-      setFormEnvPairs(
-        Object.entries(selectedServer.env).map(([k, v]) => ({ key: k, value: v }))
-      )
-    } else {
-      setFormEnvPairs([])
-    }
+    const envPairs = selectedServer.env
+      ? Object.entries(selectedServer.env).map(([k, v]) => ({ key: k, value: v }))
+      : []
+    setFormEnvPairs(envPairs)
 
     // Headers
-    if (selectedServer.headers) {
-      setFormHeaderPairs(
-        Object.entries(selectedServer.headers).map(([k, v]) => ({ key: k, value: v }))
-      )
-    } else {
-      setFormHeaderPairs([])
-    }
+    const headerPairs = selectedServer.headers
+      ? Object.entries(selectedServer.headers).map(([k, v]) => ({ key: k, value: v }))
+      : []
+    setFormHeaderPairs(headerPairs)
 
     // Env Headers (Codex)
-    if (selectedServer.envHeaders) {
-      setFormEnvHeaderPairs(
-        Object.entries(selectedServer.envHeaders).map(([k, v]) => ({ key: k, value: v }))
-      )
-    } else {
-      setFormEnvHeaderPairs([])
-    }
+    const envHeaderPairs = selectedServer.envHeaders
+      ? Object.entries(selectedServer.envHeaders).map(([k, v]) => ({ key: k, value: v }))
+      : []
+    setFormEnvHeaderPairs(envHeaderPairs)
+
+    setFormBaseline({
+      serverId: selectedServer.id,
+      revision: selectedServer.revision,
+      transport: selectedServer.transport,
+      command: selectedServer.command || '',
+      args,
+      cwd: selectedServer.cwd || '',
+      envPairs,
+      url: selectedServer.url || '',
+      headerPairs,
+      envHeaderPairs,
+    })
 
     // Reset target selections: select all other tools by default
     const defaults: Record<string, boolean> = {}
@@ -215,6 +351,9 @@ export function McpThreeColumn({
       }
     }
     setSelectedTargets(defaults)
+    setPreflightResult(null)
+    setFrozenServer(null)
+    setFrozenTargets([])
   }, [selectedServer])
 
   // Helper to convert KeyValuePair array to Record with duplicate key guard
@@ -232,6 +371,198 @@ export function McpThreeColumn({
       record[k] = p.value
     }
     return { record, hasDuplicates }
+  }
+
+  // Handle Switch Tool Tab
+  const handleSwitchTool = (newTool: MCPSourceTool) => {
+    if (isBusy || newTool === activeTool) return
+    if (isDirty) {
+      setPendingAction({ type: 'switch_tool', tool: newTool })
+      setUnsavedModalOpen(true)
+      return
+    }
+    executeSwitchTool(newTool)
+  }
+
+  const executeSwitchTool = (newTool: MCPSourceTool) => {
+    setActiveTool(newTool)
+    setPreflightResult(null)
+    setFrozenServer(null)
+    setFrozenTargets([])
+    const scopeList = activeTab === 'global' ? servers.global : servers.project
+    const toolList = scopeList.filter((s) => s.sourceTool === newTool)
+    const q = query.trim().toLowerCase()
+    const matching = q ? toolList.filter((s) => testServerMatchesQuery(s, q)) : toolList
+    setSelectedServerId(matching[0]?.id ?? null)
+    lastLoadedIdRef.current = null
+  }
+
+  // Handle Switch Scope Tab
+  const handleSwitchScope = (newScope: MCPScope) => {
+    if (isBusy || newScope === activeTab) return
+    if (isDirty) {
+      setPendingAction({ type: 'switch_scope', scope: newScope })
+      setUnsavedModalOpen(true)
+      return
+    }
+    executeSwitchScope(newScope)
+  }
+
+  const executeSwitchScope = (newScope: MCPScope) => {
+    setActiveTab(newScope)
+    setPreflightResult(null)
+    setFrozenServer(null)
+    setFrozenTargets([])
+    const scopeList = newScope === 'global' ? servers.global : servers.project
+    const toolList = scopeList.filter((s) => s.sourceTool === activeTool)
+    const q = query.trim().toLowerCase()
+    const matching = q ? toolList.filter((s) => testServerMatchesQuery(s, q)) : toolList
+    setSelectedServerId(matching[0]?.id ?? null)
+    lastLoadedIdRef.current = null
+  }
+
+  // Handle Select Row
+  const handleSelectRow = (serverId: string) => {
+    if (isBusy || serverId === selectedServer?.id) return
+    if (isDirty) {
+      setPendingAction({ type: 'switch_row', serverId })
+      setUnsavedModalOpen(true)
+      return
+    }
+    executeSelectRow(serverId)
+  }
+
+  const executeSelectRow = (serverId: string) => {
+    setSelectedServerId(serverId)
+    setPreflightResult(null)
+    setFrozenServer(null)
+    setFrozenTargets([])
+    lastLoadedIdRef.current = null
+  }
+
+  // Handle Query Change
+  const handleQueryChange = (newQuery: string) => {
+    if (isBusy) return
+    if (isDirty && selectedServer) {
+      const q = newQuery.trim().toLowerCase()
+      const currentStillMatches = !q || testServerMatchesQuery(selectedServer, q)
+      if (!currentStillMatches) {
+        setPendingAction({ type: 'change_query', query: newQuery })
+        setUnsavedModalOpen(true)
+        return
+      }
+    }
+    executeChangeQuery(newQuery)
+  }
+
+  const executeChangeQuery = (newQuery: string) => {
+    setQuery(newQuery)
+    const q = newQuery.trim().toLowerCase()
+    const scopeList = activeTab === 'global' ? servers.global : servers.project
+    const toolList = scopeList.filter((s) => s.sourceTool === activeTool)
+    const matching = q ? toolList.filter((s) => testServerMatchesQuery(s, q)) : toolList
+
+    if (selectedServerId && !matching.some((s) => s.id === selectedServerId)) {
+      setSelectedServerId(matching[0]?.id ?? null)
+      lastLoadedIdRef.current = null
+    }
+  }
+
+  // Handle Open Create Modal
+  const handleOpenCreate = () => {
+    if (isBusy) return
+    if (isDirty) {
+      setPendingAction({ type: 'open_create' })
+      setUnsavedModalOpen(true)
+      return
+    }
+    executeOpenCreate()
+  }
+
+  const executeOpenCreate = () => {
+    setNewTool(activeTool)
+    setNewScope(activeTab)
+    setNewName('')
+    setNewTransport('stdio')
+    setNewCommand('')
+    setNewArgs([])
+    setNewUrl('')
+    setCreateModalOpen(true)
+  }
+
+  // Cancel Unsaved Modal
+  const handleCancelUnsaved = () => {
+    setUnsavedModalOpen(false)
+    setPendingAction(null)
+  }
+
+  // Confirm Discard Unsaved Changes
+  const handleConfirmDiscard = () => {
+    setUnsavedModalOpen(false)
+    const action = pendingAction
+    setPendingAction(null)
+    if (!action) return
+
+    if (action.type === 'switch_tool') {
+      executeSwitchTool(action.tool)
+    } else if (action.type === 'switch_scope') {
+      executeSwitchScope(action.scope)
+    } else if (action.type === 'switch_row') {
+      executeSelectRow(action.serverId)
+    } else if (action.type === 'change_query') {
+      executeChangeQuery(action.query)
+    } else if (action.type === 'open_create') {
+      executeOpenCreate()
+    }
+  }
+
+  // Keyboard navigation for tool tabs
+  const handleToolTabKeyDown = (e: React.KeyboardEvent, currentToolId: MCPSourceTool) => {
+    const currentIndex = MCP_SOURCE_TOOLS.findIndex((tool) => tool.id === currentToolId)
+    if (currentIndex === -1) return
+
+    let nextIndex = -1
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      nextIndex = (currentIndex + 1) % MCP_SOURCE_TOOLS.length
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      nextIndex = (currentIndex - 1 + MCP_SOURCE_TOOLS.length) % MCP_SOURCE_TOOLS.length
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      nextIndex = 0
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      nextIndex = MCP_SOURCE_TOOLS.length - 1
+    }
+
+    if (nextIndex !== -1) {
+      const targetTool = MCP_SOURCE_TOOLS[nextIndex]
+      handleSwitchTool(targetTool.id)
+      const el = document.getElementById(`mcp-tool-tab-${targetTool.id}`)
+      el?.focus()
+    }
+  }
+
+  // Keyboard navigation for scope tabs
+  const handleScopeTabKeyDown = (e: React.KeyboardEvent, currentScope: MCPScope) => {
+    let nextScope: MCPScope | null = null
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      nextScope = currentScope === 'global' ? 'project' : 'global'
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      nextScope = 'global'
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      nextScope = 'project'
+    }
+
+    if (nextScope && nextScope !== currentScope) {
+      handleSwitchScope(nextScope)
+      const el = document.getElementById(`mcp-scope-tab-${nextScope}`)
+      el?.focus()
+    }
   }
 
   // Handle Save
@@ -274,10 +605,23 @@ export function McpThreeColumn({
 
       if (res.success) {
         notify?.(t.mcp.savedToast(input.name))
+        const newRevision = res.server?.revision || formBaseRevision
         if (res.server?.revision) {
           setFormBaseRevision(res.server.revision)
         }
-        lastLoadedIdRef.current = null
+        // Reset baseline after successful save
+        setFormBaseline({
+          serverId: selectedServer.id,
+          revision: newRevision,
+          transport: formTransport,
+          command: formTransport === 'stdio' ? formCommand : '',
+          args: formTransport === 'stdio' ? [...formArgs] : [],
+          cwd: formTransport === 'stdio' ? formCwd : '',
+          envPairs: formTransport === 'stdio' ? [...formEnvPairs] : [],
+          url: formTransport !== 'stdio' ? formUrl : '',
+          headerPairs: formTransport !== 'stdio' ? [...formHeaderPairs] : [],
+          envHeaderPairs: formTransport !== 'stdio' ? [...formEnvHeaderPairs] : [],
+        })
         await loadServers()
       } else {
         notify?.(res.error || t.mcp.operationFailed)
@@ -308,6 +652,7 @@ export function McpThreeColumn({
         notify?.(nextState ? t.mcp.enabledToast(selectedServer.name) : t.mcp.disabledToast(selectedServer.name))
         if (formBaseRevision === selectedServer.revision && res.server?.revision) {
           setFormBaseRevision(res.server.revision)
+          setFormBaseline((prev) => (prev ? { ...prev, revision: res.server?.revision } : null))
         }
         await loadServers()
       } else {
@@ -335,7 +680,11 @@ export function McpThreeColumn({
         notify?.(t.mcp.deletedToast(selectedServer.name))
         setDeleteConfirmOpen(false)
         setSelectedServerId(null)
+        setFormBaseline(null)
         lastLoadedIdRef.current = null
+        setPreflightResult(null)
+        setFrozenServer(null)
+        setFrozenTargets([])
         await loadServers()
       } else {
         notify?.(res.error || t.mcp.operationFailed)
@@ -373,9 +722,16 @@ export function McpThreeColumn({
         setNewCommand('')
         setNewArgs([])
         setNewUrl('')
+        // Navigate to newly created server destination so it is visible
+        setActiveTool(newTool)
         setActiveTab(newScope)
+        setQuery('')
         setSelectedServerId(res.server.id)
+        setFormBaseline(null)
         lastLoadedIdRef.current = null
+        setPreflightResult(null)
+        setFrozenServer(null)
+        setFrozenTargets([])
         await loadServers()
       } else {
         notify?.(res.error || t.mcp.operationFailed)
@@ -389,7 +745,7 @@ export function McpThreeColumn({
 
   // Handle Distribution Preflight
   const handlePreflight = async () => {
-    if (!selectedServer || !window.workflowSkill?.preflightMCPDistribution) return
+    if (isBusy || !selectedServer || !window.workflowSkill?.preflightMCPDistribution) return
     const targets: MCPDistributionTarget[] = Object.entries(selectedTargets)
       .filter(([, checked]) => checked)
       .map(([key]) => {
@@ -402,6 +758,7 @@ export function McpThreeColumn({
       return
     }
 
+    setPreflighting(true)
     try {
       const result = await window.workflowSkill.preflightMCPDistribution(selectedServer, targets)
       setPreflightResult(result)
@@ -417,6 +774,8 @@ export function McpThreeColumn({
       setPreflightModalOpen(true)
     } catch (err) {
       notify?.(t.mcp.distributeFailToast((err as Error).message))
+    } finally {
+      setPreflighting(false)
     }
   }
 
@@ -454,26 +813,72 @@ export function McpThreeColumn({
           ========================================================================= */}
       <aside className="app-col-master view-enter">
         <div className="master-header">
+          {/* Tool Selector: 4 Tool Tabs - Height: 24px */}
+          <div className="mcp-tool-nav">
+            <div
+              role="tablist"
+              aria-label={t.mcp.toolTabsLabel}
+              className="master-tab-segmented mcp-tool-segmented"
+            >
+              {MCP_SOURCE_TOOLS.map((tool) => {
+                const isSelected = activeTool === tool.id
+                return (
+                  <button
+                    type="button"
+                    role="tab"
+                    id={`mcp-tool-tab-${tool.id}`}
+                    key={tool.id}
+                    aria-selected={isSelected}
+                    aria-label={TOOL_TAB_NAMES[tool.id]}
+                    title={TOOL_TAB_NAMES[tool.id]}
+                    tabIndex={isSelected ? 0 : -1}
+                    className={`master-tab-btn mcp-tool-tab-btn ${isSelected ? 'is-active' : ''}`}
+                    onClick={() => handleSwitchTool(tool.id)}
+                    onKeyDown={(e) => handleToolTabKeyDown(e, tool.id)}
+                    disabled={isBusy}
+                  >
+                    <AIToolLogo toolId={tool.id} size={14} color />
+                  </button>
+                )
+              })}
+            </div>
+            <div className="mcp-selected-tool-label">
+              <span className="mcp-selected-tool-name">{TOOL_TAB_NAMES[activeTool]}</span>
+            </div>
+          </div>
+
           {/* Segmented Tab: [ 全局 | 项目 ] - Height: 24px */}
           <div className="master-header-top">
-            <div className="master-tab-segmented">
+            <div
+              role="tablist"
+              aria-label={t.mcp.scopeTabsLabel}
+              className="master-tab-segmented mcp-scope-segmented"
+            >
               <button
                 type="button"
+                role="tab"
+                id="mcp-scope-tab-global"
+                aria-selected={activeTab === 'global'}
+                aria-label={t.mcp.tabGlobal}
+                tabIndex={activeTab === 'global' ? 0 : -1}
                 className={`master-tab-btn ${activeTab === 'global' ? 'is-active' : ''}`}
-                onClick={() => {
-                  setActiveTab('global')
-                  setQuery('')
-                }}
+                onClick={() => handleSwitchScope('global')}
+                onKeyDown={(e) => handleScopeTabKeyDown(e, 'global')}
+                disabled={isBusy}
               >
                 <span>{t.mcp.tabGlobal}</span>
               </button>
               <button
                 type="button"
+                role="tab"
+                id="mcp-scope-tab-project"
+                aria-selected={activeTab === 'project'}
+                aria-label={t.mcp.tabProject}
+                tabIndex={activeTab === 'project' ? 0 : -1}
                 className={`master-tab-btn ${activeTab === 'project' ? 'is-active' : ''}`}
-                onClick={() => {
-                  setActiveTab('project')
-                  setQuery('')
-                }}
+                onClick={() => handleSwitchScope('project')}
+                onKeyDown={(e) => handleScopeTabKeyDown(e, 'project')}
+                disabled={isBusy}
               >
                 <span>{t.mcp.tabProject}</span>
               </button>
@@ -486,15 +891,17 @@ export function McpThreeColumn({
               <Search size={13} />
               <input
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => handleQueryChange(e.target.value)}
                 placeholder={t.mcp.searchPlaceholder}
+                disabled={isBusy}
               />
               {query ? (
                 <button
                   type="button"
                   className="clear-search-btn"
-                  onClick={() => setQuery('')}
+                  onClick={() => handleQueryChange('')}
                   title={t.mcp.clearSearchBtn}
+                  disabled={isBusy}
                 >
                   <X size={12} />
                 </button>
@@ -538,16 +945,28 @@ export function McpThreeColumn({
           {filteredServers.length === 0 ? (
             <div className="master-list-status">
               <Server size={18} style={{ opacity: 0.6 }} />
-              <span>{query ? t.mcp.emptySearch : activeTab === 'global' ? t.mcp.emptyGlobalTitle : t.mcp.emptyProjectTitle}</span>
+              <span>
+                {query
+                  ? t.mcp.emptySearch
+                  : t.mcp.emptyToolTitle(TOOL_TAB_NAMES[activeTool])}
+              </span>
               {query ? (
                 <button
                   type="button"
                   className="btn btn--capsule-ghost btn--capsule btn--sm"
-                  onClick={() => setQuery('')}
+                  onClick={() => handleQueryChange('')}
+                  disabled={isBusy}
                 >
                   <span>{t.mcp.clearSearchBtn}</span>
                 </button>
-              ) : null}
+              ) : (
+                <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textAlign: 'center', margin: '4px 0 0' }}>
+                  {t.mcp.emptyToolDesc(
+                    TOOL_TAB_NAMES[activeTool],
+                    activeTab === 'global' ? t.mcp.tabGlobal : t.mcp.tabProject
+                  )}
+                </p>
+              )}
             </div>
           ) : (
             filteredServers.map((server) => {
@@ -557,7 +976,7 @@ export function McpThreeColumn({
                   type="button"
                   key={server.id}
                   className={`mcp-master-row master-item-row ${isSelected ? 'is-selected' : ''}`}
-                  onClick={() => setSelectedServerId(server.id)}
+                  onClick={() => handleSelectRow(server.id)}
                   disabled={isBusy}
                 >
                   <div className="mcp-master-row__left">
@@ -585,10 +1004,8 @@ export function McpThreeColumn({
           <button
             type="button"
             className="btn btn--capsule btn--sm"
-            onClick={() => {
-              setNewScope(activeTab)
-              setCreateModalOpen(true)
-            }}
+            onClick={handleOpenCreate}
+            disabled={isBusy}
           >
             <Plus size={12} />
             <span>{t.mcp.newServer}</span>
@@ -604,19 +1021,28 @@ export function McpThreeColumn({
           <div className="detail-empty-wrap" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px' }}>
             <Server size={32} style={{ color: 'var(--color-muted)', opacity: 0.5 }} />
             <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-ink)', margin: 0 }}>
-              {t.mcp.emptyDetailTitle}
+              {query.trim()
+                ? t.mcp.emptySearch
+                : filteredServers.length === 0
+                ? t.mcp.emptyToolTitle(TOOL_TAB_NAMES[activeTool])
+                : t.mcp.emptyDetailTitle}
             </h2>
             <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', maxWidth: 360, textAlign: 'center', margin: 0 }}>
-              {t.mcp.emptyDetailDesc}
+              {query.trim()
+                ? t.mcp.emptySearchDesc(query)
+                : filteredServers.length === 0
+                ? t.mcp.emptyToolDesc(
+                    TOOL_TAB_NAMES[activeTool],
+                    activeTab === 'global' ? t.mcp.tabGlobal : t.mcp.tabProject
+                  )
+                : t.mcp.emptyDetailDesc}
             </p>
             <button
               type="button"
               className="btn btn--capsule"
               style={{ marginTop: 8 }}
-              onClick={() => {
-                setNewScope(activeTab)
-                setCreateModalOpen(true)
-              }}
+              onClick={handleOpenCreate}
+              disabled={isBusy}
             >
               <Plus size={13} />
               <span>{t.mcp.newServer}</span>
@@ -1098,6 +1524,52 @@ export function McpThreeColumn({
           </div>
         )}
       </section>
+
+      {/* =========================================================================
+          Modals: Unsaved Changes Confirmation Dialog
+          ========================================================================= */}
+      {unsavedModalOpen ? (
+        <div className="mcp-dialog-overlay" onClick={handleCancelUnsaved}>
+          <div ref={unsavedDialogRef} role="dialog" aria-modal="true" aria-labelledby="mcp-unsaved-title" className="mcp-dialog-box" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div className="mcp-dialog-header">
+              <h3 id="mcp-unsaved-title" className="mcp-dialog-title">{t.mcp.unsavedTitle}</h3>
+              <button
+                type="button"
+                className="clear-search-btn"
+                aria-label={t.mcp.cancelBtn}
+                onClick={handleCancelUnsaved}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="mcp-dialog-body">
+              <p style={{ fontSize: '0.8125rem', color: 'var(--color-ink)', margin: 0 }}>
+                {t.mcp.unsavedDesc}
+              </p>
+            </div>
+
+            <div className="mcp-dialog-footer">
+              <button
+                type="button"
+                className="btn btn--capsule-ghost btn--sm"
+                ref={cancelUnsavedRef}
+                onClick={handleCancelUnsaved}
+              >
+                <span>{t.mcp.cancelBtn}</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn--capsule btn--sm"
+                style={{ background: '#ef4444', borderColor: '#ef4444', color: '#ffffff' }}
+                onClick={handleConfirmDiscard}
+              >
+                <span>{t.mcp.discardBtn}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* =========================================================================
           Modals: Create New MCP Server Dialog

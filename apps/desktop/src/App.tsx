@@ -71,6 +71,7 @@ import {
   Terminal,
   Trash2,
   Unlink,
+  Users,
   Workflow as WorkflowIcon,
   X,
   Zap,
@@ -103,7 +104,7 @@ import { AccountSettings } from './components/AccountSettings'
 import { AIToolLogo } from './AIToolLogo'
 import { useI18n, type Locale, type TranslationKeys } from './i18n'
 
-export type View = 'skills' | 'workflows' | 'environments' | 'mcp'
+export type View = 'skills' | 'workflows' | 'environments' | 'mcp' | 'accounts'
 type SettingsTab = 'general' | 'shortcuts' | 'permissions' | 'about'
 export type ThemeMode = 'dark' | 'light' | 'system'
 
@@ -261,6 +262,21 @@ function AppSidebar({
               <div className="nav-pill-btn__left">
                 <Server size={15} className="nav-icon" />
                 <span>{t.nav.mcp}</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-pill-btn ${view === 'accounts' ? 'is-active' : ''}`}
+              aria-current={view === 'accounts' ? 'page' : undefined}
+              onClick={() => {
+                setView('accounts')
+                onBackToOverview()
+              }}
+            >
+              <div className="nav-pill-btn__left">
+                <Users size={15} className="nav-icon" />
+                <span>{t.nav.accounts}</span>
               </div>
             </button>
           </nav>
@@ -3898,6 +3914,12 @@ function AppCommandPalette({
         run: () => onSelectView('mcp'),
       },
       {
+        id: 'view-accounts',
+        label: t.command.jumpAccounts,
+        hint: t.command.jumpAccountsHint,
+        run: () => onSelectView('accounts'),
+      },
+      {
         id: 'new-skill',
         label: t.command.newSkill,
         hint: t.command.newSkillHint,
@@ -5106,6 +5128,8 @@ export function App() {
         </main>
       ) : view === 'mcp' ? (
         <McpThreeColumn notify={setToast} />
+      ) : view === 'accounts' ? (
+        <AccountSettings presentation="workspace" api={window.workflowSkill?.accounts} onNotify={setToast} />
       ) : view === 'environments' ? (
         <AIEnvironmentsThreeColumn
           aiTools={aiTools}

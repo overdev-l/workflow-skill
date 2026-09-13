@@ -42,12 +42,14 @@ import type {
   AccountToolCapability,
   AccountToolState,
 } from '@workflow-skill/workflow-model/accounts'
+import { AIToolLogo } from '../AIToolLogo'
 import { useI18n } from '../i18n.tsx'
 import '../accounts.css'
 
 export type AccountSettingsAPI = AccountManagementAPI
 
 export interface AccountSettingsProps {
+  presentation?: 'settings' | 'workspace'
   api?: AccountManagementAPI
   onNotify?: (message: string, type?: 'info' | 'success' | 'warning' | 'error') => void
 }
@@ -55,18 +57,39 @@ export interface AccountSettingsProps {
 interface ToolDefinition {
   id: AccountTool
   labelKey: 'toolAntigravity' | 'toolCodex' | 'toolClaudeCode'
+  pureLabelKey: 'toolPureAntigravity' | 'toolPureCodex' | 'toolPureClaudeCode'
+  pureName: string
   brand: string
 }
 
 const TOOLS: readonly ToolDefinition[] = [
-  { id: 'antigravity', labelKey: 'toolAntigravity', brand: 'Antigravity (Google)' },
-  { id: 'codex', labelKey: 'toolCodex', brand: 'Codex (ChatGPT)' },
-  { id: 'claude-code', labelKey: 'toolClaudeCode', brand: 'Claude Code' },
+  {
+    id: 'antigravity',
+    labelKey: 'toolAntigravity',
+    pureLabelKey: 'toolPureAntigravity',
+    pureName: 'Antigravity',
+    brand: 'Antigravity (Google)',
+  },
+  {
+    id: 'codex',
+    labelKey: 'toolCodex',
+    pureLabelKey: 'toolPureCodex',
+    pureName: 'Codex',
+    brand: 'Codex (ChatGPT)',
+  },
+  {
+    id: 'claude-code',
+    labelKey: 'toolClaudeCode',
+    pureLabelKey: 'toolPureClaudeCode',
+    pureName: 'Claude Code',
+    brand: 'Claude Code',
+  },
 ] as const
 
 const DICTIONARY = {
   'zh-CN': {
     headerTitle: 'AI 账号管理',
+    masterHeading: '账号管理',
     headerDescription:
       '独立管理 Antigravity (Google)、Codex (ChatGPT) 与 Claude Code 的账号凭据。切换前自动备份账号文件，仅供新会话读取。',
     securityNotice:
@@ -77,6 +100,9 @@ const DICTIONARY = {
     toolAntigravity: 'Antigravity (Google)',
     toolCodex: 'Codex (ChatGPT)',
     toolClaudeCode: 'Claude Code',
+    toolPureAntigravity: 'Antigravity',
+    toolPureCodex: 'Codex',
+    toolPureClaudeCode: 'Claude Code',
     capabilityStatusReady: '本地支持',
     capabilityStatusLimited: '功能受限',
     activeIdentityLabel: '当前配置：',
@@ -165,6 +191,7 @@ const DICTIONARY = {
   },
   'en-US': {
     headerTitle: 'Account Manager',
+    masterHeading: 'Accounts',
     headerDescription:
       'Manage independent credentials for Antigravity (Google), Codex (ChatGPT), and Claude Code. Credential files are backed up before switching and take effect in new sessions.',
     securityNotice:
@@ -175,6 +202,9 @@ const DICTIONARY = {
     toolAntigravity: 'Antigravity (Google)',
     toolCodex: 'Codex (ChatGPT)',
     toolClaudeCode: 'Claude Code',
+    toolPureAntigravity: 'Antigravity',
+    toolPureCodex: 'Codex',
+    toolPureClaudeCode: 'Claude Code',
     capabilityStatusReady: 'Supported',
     capabilityStatusLimited: 'Limited / Unsupported',
     activeIdentityLabel: 'Configured Account:',
@@ -287,12 +317,39 @@ function formatErrorMessage(error: unknown, fallback: string): string {
   return message
 }
 
-export function AccountSettings({ api, onNotify }: AccountSettingsProps) {
+export function AccountSettings({
+  presentation = 'settings',
+  api,
+  onNotify,
+}: AccountSettingsProps) {
   const { resolvedLocale } = useI18n()
   const loc = DICTIONARY[resolvedLocale] || DICTIONARY['zh-CN']
 
   // Tool Segmented Selection
   const [selectedTool, setSelectedTool] = useState<AccountTool>('antigravity')
+
+  // Master Tool Buttons Ref for Keyboard Navigation
+  const masterToolButtonRefs = useRef<(HTMLButtonElement | null)[]>([])
+
+  const handleToolKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    index: number
+  ) => {
+    if (isBusy) return
+    let nextIndex = -1
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      nextIndex = (index + 1) % TOOLS.length
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      nextIndex = (index - 1 + TOOLS.length) % TOOLS.length
+    }
+    if (nextIndex >= 0) {
+      setSelectedTool(TOOLS[nextIndex].id)
+      setErrorMessage(null)
+      masterToolButtonRefs.current[nextIndex]?.focus()
+    }
+  }
 
   // Overview State
   const [overview, setOverview] = useState<AccountsOverview | null>(null)
@@ -716,58 +773,126 @@ export function AccountSettings({ api, onNotify }: AccountSettingsProps) {
   }
 
 
+  const masterColumnNode = (
+    <aside className="app-col-master view-enter">
+      <div className="master-header">
+        <div className="master-header-top">
+          <h2 className="master-title account-master-heading">{loc.masterHeading}</h2>
+        </div>
+      </div>
+
+      <div
+        className="master-list-scroll account-master-list"
+        role="tablist"
+        aria-orientation="vertical"
+        aria-label={loc.masterHeading}
+      >
+        {TOOLS.map((tool, index) => {
+          const isSelected = selectedTool === tool.id
+          return (
+            <button
+              key={tool.id}
+              ref={(el) => {
+                masterToolButtonRefs.current[index] = el
+              }}
+              type="button"
+              role="tab"
+              aria-selected={isSelected}
+              tabIndex={isSelected ? 0 : -1}
+              className={`account-master-row master-item-row ${
+                isSelected ? 'is-selected' : ''
+              }`}
+              onClick={() => {
+                if (!isBusy && selectedTool !== tool.id) {
+                  setSelectedTool(tool.id)
+                  setErrorMessage(null)
+                }
+              }}
+              onKeyDown={(e) => handleToolKeyDown(e, index)}
+              disabled={isBusy}
+            >
+              <div className="account-master-row-logo master-item-logo">
+                <AIToolLogo toolId={tool.id} size={15} color />
+              </div>
+              <span className="account-master-row-name master-item-title">
+                {loc[tool.pureLabelKey] || tool.pureName}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </aside>
+  )
+
   if (!api) {
+    const unavailableContent = (
+      <div className="account-card">
+        <div className="account-empty-state">
+          <span className="account-empty-title">{loc.unavailableTitle}</span>
+          <span className="account-empty-desc">{loc.unavailableDesc}</span>
+        </div>
+      </div>
+    )
+
+    if (presentation === 'workspace') {
+      return (
+        <>
+          {masterColumnNode}
+          <section className="app-col-detail view-enter" style={{ overflowY: 'auto' }}>
+            <div className="account-workspace-detail">
+              {unavailableContent}
+            </div>
+          </section>
+        </>
+      )
+    }
+
     return (
       <div className="account-settings-container">
-        <div className="account-card">
-          <div className="account-empty-state">
-            <span className="account-empty-title">{loc.unavailableTitle}</span>
-            <span className="account-empty-desc">{loc.unavailableDesc}</span>
-          </div>
-        </div>
+        {unavailableContent}
       </div>
     )
   }
 
-  return (
-    <div className="account-settings-container">
-      <div className="account-card">
-        {/* Header Title (Clean, no unnecessary badges or icons) */}
-        <div className="account-header-row">
-          <h3 className="account-title">{loc.headerTitle}</h3>
+  const detailCardNode = (
+    <div className="account-card">
+      {/* Header Title (Clean, no unnecessary badges or icons) */}
+      <div className="account-header-row">
+        <h3 className="account-title">{loc.headerTitle}</h3>
+      </div>
+
+      <p className="account-desc">{loc.headerDescription}</p>
+      <p className="account-security-notice">{loc.securityNotice}</p>
+
+      {/* Legacy Profile Notice (when legacy profiles exist) */}
+      {overview?.legacyProfilesPresent && (
+        <div className="account-legacy-notice" role="status">
+          <Info size={14} className="account-legacy-icon" />
+          <div>
+            <strong>{loc.legacyNoticeTitle}：</strong>
+            <span>{loc.legacyNoticeDesc}</span>
+          </div>
         </div>
+      )}
 
-        <p className="account-desc">{loc.headerDescription}</p>
-        <p className="account-security-notice">{loc.securityNotice}</p>
+      {/* Error Callout */}
+      {errorMessage && (
+        <div className="account-error-callout" role="alert">
+          <span>{errorMessage}</span>
+          <button
+            type="button"
+            className="account-btn account-btn--sm"
+            onClick={() => setErrorMessage(null)}
+            aria-label={loc.closeBtn}
+            title={loc.closeBtn}
+          >
+            <X size={10} />
+          </button>
+        </div>
+      )}
 
-        {/* Legacy Profile Notice (when legacy profiles exist) */}
-        {overview?.legacyProfilesPresent && (
-          <div className="account-legacy-notice" role="status">
-            <Info size={14} className="account-legacy-icon" />
-            <div>
-              <strong>{loc.legacyNoticeTitle}：</strong>
-              <span>{loc.legacyNoticeDesc}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Error Callout */}
-        {errorMessage && (
-          <div className="account-error-callout" role="alert">
-            <span>{errorMessage}</span>
-            <button
-              type="button"
-              className="account-btn account-btn--sm"
-              onClick={() => setErrorMessage(null)}
-              aria-label={loc.closeBtn}
-              title={loc.closeBtn}
-            >
-              <X size={10} />
-            </button>
-          </div>
-        )}
-
-        {/* Three Compact Tool Segmented Buttons (Disabled while busy to preserve consistency) */}
+      {/* Three Compact Tool Segmented Buttons (Disabled while busy to preserve consistency - settings mode only) */}
+      {presentation === 'settings' && (
         <div
           className="account-segmented"
           role="tablist"
@@ -798,6 +923,7 @@ export function AccountSettings({ api, onNotify }: AccountSettingsProps) {
             )
           })}
         </div>
+      )}
 
         {/* Selected Tool Stage */}
         <div className="account-tool-stage">
@@ -1062,7 +1188,10 @@ export function AccountSettings({ api, onNotify }: AccountSettingsProps) {
           </div>
         </div>
       </div>
+    )
 
+  const modalsNode = (
+    <>
       {/* Modal: Capture Current Active Account */}
       {showCaptureModal && (
         <div
@@ -1461,6 +1590,27 @@ export function AccountSettings({ api, onNotify }: AccountSettingsProps) {
           </div>
         </div>
       )}
+    </>
+  )
+
+  if (presentation === 'workspace') {
+    return (
+      <>
+        {masterColumnNode}
+        <section className="app-col-detail view-enter" style={{ overflowY: 'auto' }}>
+          <div className="account-workspace-detail">
+            {detailCardNode}
+          </div>
+        </section>
+        {modalsNode}
+      </>
+    )
+  }
+
+  return (
+    <div className="account-settings-container">
+      {detailCardNode}
+      {modalsNode}
     </div>
   )
 }

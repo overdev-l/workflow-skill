@@ -693,3 +693,76 @@
   gap: 8px;
   margin-top: 4px;
 }
+
+/* =========================================================================
+   Account Settings Workspace Mode (Column 2 Master & Column 3 Detail)
+   ========================================================================= */
+
+.account-master-heading {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  color: var(--color-ink, #ffffff);
+  letter-spacing: -0.015em;
+  user-select: none;
+}
+
+.account-master-list {
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.account-master-row {
+  width: 100%;
+  font-family: inherit;
+  color: inherit;
+  border-radius: 8px;
+  outline: none;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.account-master-row:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent, #3b82f6);
+}
+
+.account-master-row:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.account-master-row-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.08));
+  flex-shrink: 0;
+}
+
+.account-master-row-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-ink, #ffffff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-master-row.is-selected .account-master-row-name {
+  color: var(--color-accent, #3b82f6);
+}
+
+.account-workspace-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+}
