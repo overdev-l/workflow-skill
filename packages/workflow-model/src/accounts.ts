@@ -76,6 +76,7 @@ export interface AccountQuotaSnapshot {
   status: AccountQuotaStatus
   windows: AccountQuotaWindow[]
   plan?: string
+  planReason?: 'restricted-age' | 'unavailable'
   fetchedAt?: number
   attemptedAt: number
   stale?: boolean

@@ -944,6 +944,35 @@ await test('23. Deadline aborts both pending fetch and stalled response body', a
   assert.deepEqual(results.map(result => result.status), ['error', 'error'])
 })
 
+await test('Antigravity distinguishes paid entitlement from allowed tiers and age restrictions', async () => {
+  const store = new MockStore(), acc = makeAntigravityAccount()
+  store.set(acc.metadata.id, acc)
+  let body = { paidTier: { id:'g1-pro-tier', name:'Google AI Pro' }, currentTier:{name:'Antigravity'} }, modelsFail = false
+  const service = new AccountQuotaService({store, fetch: async url => url.endsWith(':loadCodeAssist') ? jsonResponse(body) : modelsFail ? jsonResponse({},500) : jsonResponse({models:{model:{quotaInfo:{remainingFraction:1}}}})})
+  const paid = await service.refreshAccount(acc.metadata.id)
+  assert.equal(paid.plan, 'Google AI Pro')
+  assert.equal(paid.planReason, undefined)
+  body = {allowedTiers:[{name:'Google AI Pro'}],ineligibleTiers:[{reasonCode:'RESTRICTED_AGE'}]}
+  modelsFail = true
+  const changedRestriction = await service.refreshAccount(acc.metadata.id)
+  assert.equal(changedRestriction.plan, undefined)
+  assert.equal(changedRestriction.planReason, 'restricted-age')
+  modelsFail = false
+  const restricted = await service.refreshAccount(acc.metadata.id)
+  assert.equal(restricted.status, 'ready')
+  assert.equal(restricted.plan, undefined)
+  assert.equal(restricted.planReason, 'restricted-age')
+  modelsFail = true
+  const stale = await service.refreshAccount(acc.metadata.id)
+  assert.equal(stale.stale, true)
+  assert.equal(stale.planReason, 'restricted-age')
+  assert.equal(stale.plan, undefined)
+  modelsFail = false; body = {allowedTiers:[{name:'Google AI Pro'}]}
+  const unknown = await service.refreshAccount(acc.metadata.id)
+  assert.equal(unknown.plan, undefined)
+  assert.equal(unknown.planReason, 'unavailable')
+})
+
 console.log(`\n========================================`)
 console.log(`Account Quota Verification: ${passed} passed, ${failed} failed`)
 console.log(`========================================`)

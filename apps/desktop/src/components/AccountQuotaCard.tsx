@@ -318,6 +318,11 @@ export function AccountQuotaCard({
                 <span>{snapshot.plan}</span>
               </span>
             )}
+            {!snapshot?.plan && snapshot?.planReason && (
+              <span className="account-quota-plan-badge">
+                {locale.startsWith('zh') ? '权益暂未确认' : 'Plan unconfirmed'}
+              </span>
+            )}
           </div>
           {lastUpdatedTime && (
             <span className="account-quota-updated-time">
@@ -325,6 +330,14 @@ export function AccountQuotaCard({
             </span>
           )}
         </div>
+
+        {snapshot?.planReason === 'restricted-age' && (
+          <p className="account-plan-notice">
+            {locale.startsWith('zh')
+              ? 'Google 返回年龄资格限制，暂无法确认订阅权益。请检查 Google 账号的年龄验证状态。'
+              : 'Google returned an age eligibility restriction. Check age verification in your Google account; subscription benefits could not be confirmed.'}
+          </p>
+        )}
 
         {/* Quota Windows List */}
         {snapshot && snapshot.windows && snapshot.windows.length > 0 ? (

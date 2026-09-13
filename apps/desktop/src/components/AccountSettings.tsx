@@ -120,7 +120,7 @@ const DICTIONARY = {
     capabilityStatusLimited: '功能受限',
     activeIdentityLabel: '当前配置：',
     noActiveIdentity: '未检测到本地账号配置',
-    activeBadge: '当前配置',
+    activeBadge: '当前账号',
     currentAccountInUse: '当前使用中',
     sessionsNotice:
       '提示：切换仅更新本机账号凭证文件，在新终端或工具会话中生效。已有运行中的会话不会自动变更；项目配置或环境变量若存在可能覆盖全局账号。',
@@ -255,7 +255,7 @@ const DICTIONARY = {
     capabilityStatusLimited: 'Limited / Unsupported',
     activeIdentityLabel: 'Configured Account:',
     noActiveIdentity: 'No local account configuration detected',
-    activeBadge: 'Configured',
+    activeBadge: 'Current account',
     currentAccountInUse: 'In Use',
     sessionsNotice:
       'Notice: Swapping only updates local credential files for new sessions. Existing sessions are not altered automatically. Project-level configs or environment variables take precedence if present.',

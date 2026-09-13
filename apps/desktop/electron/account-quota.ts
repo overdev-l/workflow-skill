@@ -69,6 +69,7 @@ interface ProviderQueryResult {
   status: AccountQuotaStatus
   windows: AccountQuotaWindow[]
   plan?: string
+  planReason?: 'restricted-age' | 'unavailable'
 }
 
 function sanitizeSafeString(str: unknown, maxLen = MAX_LABEL_LENGTH): string | undefined {
@@ -423,6 +424,7 @@ async function queryAntigravityQuota(
 
   let project: string | undefined
   let detectedPlan: string | undefined
+  let planReason: 'restricted-age' | 'unavailable' = 'unavailable'
   const loadUrl = 'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist'
 
   try {
@@ -445,6 +447,7 @@ async function queryAntigravityQuota(
       if (typeof p === 'string' && p.trim()) {
         project = sanitizeSafeString(p, 150)
       }
+      if (Array.isArray(loadRes.json.ineligibleTiers) && loadRes.json.ineligibleTiers.some((tier: any) => tier?.reasonCode === 'RESTRICTED_AGE')) planReason = 'restricted-age'
       const tierObj = loadRes.json.paidTier ?? loadRes.json.currentTier ?? loadRes.json.tier
       if (typeof tierObj === 'string') {
         detectedPlan = sanitizeSafeString(tierObj, MAX_PLAN_LENGTH)
@@ -456,6 +459,7 @@ async function queryAntigravityQuota(
     // Project lookup failure may still allow models request without project except auth errors
   }
 
+  const entitlement = detectedPlan ? { plan: detectedPlan } : { planReason }
   const modelsUrl = 'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels'
   let modelsRes: { status: number; json: any; ok: boolean }
 
@@ -486,20 +490,20 @@ async function queryAntigravityQuota(
       })
     }
   } catch {
-    return { status: 'error', windows: [] }
+    return { status: 'error', windows: [], ...entitlement }
   }
 
-  if (modelsRes.status === 401) return { status: 'expired', windows: [] }
-  if (modelsRes.status === 403) return { status: 'forbidden', windows: [] }
-  if (modelsRes.status === 429) return { status: 'rate-limited', windows: [] }
+  if (modelsRes.status === 401) return { status: 'expired', windows: [], ...entitlement }
+  if (modelsRes.status === 403) return { status: 'forbidden', windows: [], ...entitlement }
+  if (modelsRes.status === 429) return { status: 'rate-limited', windows: [], ...entitlement }
   if (modelsRes.status < 200 || modelsRes.status >= 300 || !modelsRes.json || typeof modelsRes.json !== 'object') {
-    return { status: 'error', windows: [] }
+    return { status: 'error', windows: [], ...entitlement }
   }
 
   const body = modelsRes.json
   const rawModels = body.models
   if (!rawModels || typeof rawModels !== 'object' || Array.isArray(rawModels)) {
-    return { status: 'unavailable', windows: [], ...(detectedPlan ? { plan: detectedPlan } : {}) }
+    return { status: 'unavailable', windows: [], ...(detectedPlan ? { plan: detectedPlan } : { planReason }) }
   }
 
   const windows: AccountQuotaWindow[] = []
@@ -532,10 +536,10 @@ async function queryAntigravityQuota(
   }
 
   if (!windows.some(window => window.remainingPercent !== undefined)) {
-    return { status: 'unavailable', windows, ...(detectedPlan ? { plan: detectedPlan } : {}) }
+    return { status: 'unavailable', windows, ...(detectedPlan ? { plan: detectedPlan } : { planReason }) }
   }
 
-  return { status: 'ready', windows, ...(detectedPlan ? { plan: detectedPlan } : {}) }
+  return { status: 'ready', windows, ...(detectedPlan ? { plan: detectedPlan } : { planReason }) }
 }
 
 export class AccountQuotaService {
@@ -702,6 +706,7 @@ export class AccountQuotaService {
       status: providerResult.status,
       windows: providerResult.windows,
       ...(providerResult.plan ? { plan: providerResult.plan } : {}),
+      ...(providerResult.planReason ? { planReason: providerResult.planReason } : {}),
       ...(providerResult.status === 'ready' ? { fetchedAt: this.nowFn() } : {}),
       attemptedAt,
     }
@@ -742,7 +747,7 @@ export class AccountQuotaService {
           tool: initialRecord.metadata.tool,
           status: newSnapshot.status,
           windows: structuredClone(prior.windows),
-          plan: prior.plan ?? newSnapshot.plan,
+          ...(newSnapshot.planReason ? { planReason: newSnapshot.planReason } : { plan: newSnapshot.plan ?? prior.plan, planReason: newSnapshot.plan ? undefined : prior.planReason }),
           fetchedAt: prior.fetchedAt,
           attemptedAt,
           stale: true,

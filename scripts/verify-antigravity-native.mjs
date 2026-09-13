@@ -45,6 +45,10 @@ try {
   assert.equal((await manager.store.get(first.accountId)).metadata.name, 'Custom name')
   assert.equal((await manager.getOverview()).tools.find(t => t.tool === 'antigravity').activeAccountId, first.accountId)
   assert.equal(writes.length, 0)
+  await manager.saveAuthenticatedAccount({tool:'antigravity',credential:JSON.stringify({...JSON.parse(credential('new-grant')),account:{id:'account-a',email:'a@example.invalid'}})})
+  assert.equal((await manager.getOverview()).tools.find(t => t.tool === 'antigravity').activeAccountId, first.accountId, 'same verified identity matches across different OAuth grants')
+  assert.equal(raw, original)
+  await manager.saveAuthenticatedAccount({tool:'antigravity',credential:await native.enrichCredential(native.readCurrentCredential())})
   const b = await manager.importAccount({ tool: 'antigravity', name: 'B', credential: credential('b') })
   // Legacy journals remain untouched and cannot be replayed into the native item.
   mkdirSync(manager.transactionsDir, { recursive: true })

@@ -425,7 +425,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         }
 
         if (currentCred) {
-          const inspected = adapter.inspect(currentCred)
+          let inspected = adapter.inspect(currentCred)
 
           let matchedAccount: AccountMetadata | undefined
 
@@ -449,6 +449,23 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
                   }
                 } catch {}
               }
+            }
+          }
+
+          // A separate OAuth grant for the same Google account has different tokens.
+          // Resolve native identity only when direct credential matching was insufficient.
+          if (!matchedAccount && adapter.enrichCredential) {
+            currentCred = await adapter.enrichCredential(currentCred)
+            inspected = adapter.inspect(currentCred)
+            for (const acc of accounts) {
+              if (acc.tool !== tool) continue
+              try {
+                const rec = await this.store.get(acc.id)
+                if (matchesAccountIdentity(adapter, rec.credential, currentCred)) {
+                  matchedAccount = rec.metadata
+                  break
+                }
+              } catch {}
             }
           }
 
