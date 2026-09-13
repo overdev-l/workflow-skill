@@ -1521,18 +1521,10 @@ export function AccountSettings({
   if (presentation === 'workspace') {
     return (
       <>
-        <section className="app-col-detail account-workbench-stage view-enter">
+        <section className="app-col-detail account-workbench-stage view-enter" aria-label={loc.headerTitle}>
           <div className="account-workbench-wrap">
-            {/* Header: Modest Title on Left + Tool Tabs at TOP RIGHT */}
+            {/* Compact header: tool tabs on the left, account actions on the right. */}
             <div className="account-workbench-header">
-              <div className="account-header-title-group">
-                <h2 className="account-workbench-title">{loc.headerTitle}</h2>
-                <span className="account-workbench-subtitle">
-                  {currentToolDefinition.brand}
-                </span>
-              </div>
-
-              {/* Tool tabs at TOP RIGHT in order Claude / Codex / Antigravity */}
               <div
                 role="tablist"
                 aria-label="AI Tools"
@@ -1569,6 +1561,29 @@ export function AccountSettings({
                     </button>
                   )
                 })}
+              </div>
+              <div className="account-workbench-actions">
+                {canRollback && (
+                  <button
+                    type="button"
+                    className="account-btn account-btn--sm"
+                    onClick={handleRollback}
+                    disabled={isBusy}
+                    title={loc.rollbackBtn}
+                  >
+                    <RotateCcw size={11} />
+                    <span>{isBusy ? loc.rollingBackBtn : loc.rollbackBtn}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="account-btn account-btn--primary"
+                  onClick={() => openAddAccount(isAvailable ? 'capture' : 'import')}
+                  disabled={isBusy}
+                >
+                  <Plus size={12} />
+                  <span>{loc.addAccountBtn}</span>
+                </button>
               </div>
             </div>
 
@@ -1619,89 +1634,6 @@ export function AccountSettings({
                 </div>
               </div>
             )}
-
-            {/* Toolbar Row: Left Identity & Capability Notice, Right Actions */}
-            <div className="account-workbench-toolbar">
-              <div className="account-toolbar-left">
-                {/* Configured Identity Chip */}
-                <div className="account-tool-identity-chip-wrap">
-                  <span className="account-tool-identity-label">
-                    {loc.activeIdentityLabel}
-                  </span>
-                  {activeIdentity || activeAccount ? (
-                    <span className="account-tool-identity-chip">
-                      <User size={11} />
-                      <span>
-                        {activeAccount?.name || activeIdentity}
-                        {activeAccount?.email &&
-                        activeAccount.name !== activeAccount.email
-                          ? ` (${activeAccount.email})`
-                          : ''}
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="account-tool-identity-chip account-tool-identity-chip--empty">
-                      <span>{loc.noActiveIdentity}</span>
-                    </span>
-                  )}
-                </div>
-
-                {/* Capability Strip */}
-                {capabilityStripNode}
-              </div>
-
-              <div className="account-toolbar-right">
-                {/* Rollback Button */}
-                {canRollback && (
-                  <button
-                    type="button"
-                    className="account-btn account-btn--sm"
-                    onClick={handleRollback}
-                    disabled={isBusy}
-                    title={loc.rollbackBtn}
-                  >
-                    <RotateCcw size={11} />
-                    <span>{isBusy ? loc.rollingBackBtn : loc.rollbackBtn}</span>
-                  </button>
-                )}
-
-                {/* Refresh Visible Button */}
-                <button
-                  type="button"
-                  className="account-btn account-btn--sm"
-                  onClick={handleRefreshAll}
-                  disabled={loading || isBusy}
-                  title={loc.refreshBtn}
-                >
-                  <RefreshCw
-                    size={11}
-                    className={loading ? 'animate-spin' : ''}
-                  />
-                  <span>{loc.refreshBtn}</span>
-                </button>
-
-                {/* Primary Add Account Action Button */}
-                <button
-                  type="button"
-                  className="account-btn account-btn--primary account-btn--sm"
-                  onClick={() => openAddAccount(isAvailable ? 'capture' : 'import')}
-                  disabled={isBusy}
-                >
-                  <Plus size={12} />
-                  <span>{loc.addAccountBtn}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Optional Collapsed Capability Details */}
-            {showCapabilityDetails && currentCapability?.details && (
-              <div className="account-capability-details-panel">
-                <code>{currentCapability.details}</code>
-              </div>
-            )}
-
-            {/* Informative Hint */}
-            <p className="account-sessions-hint">{loc.sessionsNotice}</p>
 
             {/* Account Cards Grid */}
             {gridContentNode}

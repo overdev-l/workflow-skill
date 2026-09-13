@@ -571,7 +571,7 @@
   margin: 0;
 }
 
-/* Modest Header with Top-Right Tool Tabs in order Claude / Codex / Antigravity */
+/* Compact header with tool tabs and account actions. */
 .account-workbench-header {
   display: flex;
   align-items: center;
@@ -581,29 +581,7 @@
   padding-bottom: 2px;
 }
 
-.account-header-title-group {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.account-workbench-title {
-  margin: 0;
-  font-size: 0.9375rem;
-  font-weight: 700;
-  color: var(--color-ink, #ffffff);
-  letter-spacing: -0.015em;
-  user-select: none;
-}
-
-.account-workbench-subtitle {
-  font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.5));
-  font-weight: 500;
-}
-
-/* Top-Right Tool Tabs (24px Standard Segmented Pill) */
+/* Tool Tabs (24px Standard Segmented Pill) */
 .account-tool-tabs {
   display: inline-flex;
   align-items: center;
@@ -656,32 +634,12 @@
   cursor: not-allowed;
 }
 
-/* Toolbar Row */
-.account-workbench-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 8px 12px;
-  border-radius: var(--radius-md, 8px);
-  background: rgba(0, 0, 0, 0.18);
-  border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.06));
-}
-
-.account-toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.account-toolbar-right {
+.account-workbench-actions {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .account-tool-identity-chip-wrap {
@@ -1118,7 +1076,6 @@
 }
 
 /* Semantic badges and dialogs retain contrast on the light glass surface. */
-[data-theme='light'] .account-workbench-toolbar,
 [data-theme='light'] .account-card-quota-section,
 [data-theme='light'] .account-capability-details-panel,
 [data-theme='light'] .account-empty-state,
