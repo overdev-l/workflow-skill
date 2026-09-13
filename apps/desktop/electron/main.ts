@@ -23,6 +23,8 @@ import {
   saveMCPServer,
   toggleMCPServer,
 } from './mcp-manager'
+import { ProfileManager } from './profile-manager'
+import { sanitizeErrorMessage, type ProfileCaptureInput } from '@workflow-skill/workflow-model/profiles'
 
 const defaultTraceHome = path.join(os.homedir(), '.trace')
 
@@ -1707,6 +1709,50 @@ ${skill.description || ''}
     notifyMCPChanged()
     return result
   })
+
+  let profileManager: ProfileManager | undefined
+  let profileStorageRoot = ''
+  let profileMutationInProgress = false
+  function getProfileManager() {
+    const root = getStoredTraceHome()
+    if (!profileManager || profileStorageRoot !== root) {
+      if (profileMutationInProgress) throw new Error('Profile operation already in progress.')
+      profileStorageRoot = root
+      profileManager = new ProfileManager({
+        traceHome: root,
+        onProfileChanged: () => {
+          notifyMCPChanged()
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) window.webContents.send('profiles:changed')
+          }
+        },
+      })
+    }
+    return profileManager
+  }
+  async function profileCall<T>(operation: (manager: ProfileManager) => Promise<T>, mutation = false): Promise<T> {
+    if (mutation && profileMutationInProgress) throw new Error('Profile operation already in progress.')
+    const manager = getProfileManager()
+    if (mutation) profileMutationInProgress = true
+    try {
+      return await operation(manager)
+    } catch (error) {
+      throw new Error(sanitizeErrorMessage(error, 'profile operation'))
+    } finally {
+      if (mutation) profileMutationInProgress = false
+    }
+  }
+  ipcMain.handle('profiles:list', () => profileCall(manager => manager.listProfiles()))
+  ipcMain.handle('profiles:status', () => profileCall(manager => manager.getRecoveryStatus()))
+  ipcMain.handle('profiles:capture', (_event, input: ProfileCaptureInput) => profileCall(manager => {
+    if (!input || typeof input.name !== 'string' || (input.description !== undefined && typeof input.description !== 'string')) {
+      throw new Error('Invalid Profile input.')
+    }
+    return manager.captureCurrentProfile(input)
+  }, true))
+  ipcMain.handle('profiles:switch', (_event, id: string) => profileCall(manager => manager.switchProfile(id), true))
+  ipcMain.handle('profiles:rollback', () => profileCall(manager => manager.rollbackLastSwitch(), true))
+  ipcMain.handle('profiles:recover', () => profileCall(manager => manager.performEmergencyRecovery(), true))
 
   createWindow()
 

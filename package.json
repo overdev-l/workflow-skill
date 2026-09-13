@@ -22,7 +22,9 @@
     "verify:browser-capture": "node --experimental-strip-types scripts/verify-browser-capture.mjs",
     "verify:skill-search": "node --experimental-strip-types scripts/verify-skill-repository-search.mjs",
     "verify:skill-deletion": "node --experimental-strip-types scripts/verify-skill-deletion.mjs",
-    "verify:mcp": "node --experimental-strip-types scripts/verify-mcp-management.mjs"
+    "verify:mcp": "node --experimental-strip-types scripts/verify-mcp-management.mjs",
+    "verify:profiles": "node --experimental-strip-types scripts/verify-profile-management.mjs && node --experimental-strip-types scripts/verify-profile-failures.mjs",
+    "verify:profile-keychain": "node --experimental-strip-types scripts/verify-profile-keychain.mjs"
   },
   "devDependencies": {
     "turbo": "2.10.11",

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ProfileManagementAPI } from '@workflow-skill/workflow-model/profiles'
 import type {
   BrowserCaptureCommand,
   BrowserCaptureEnvelope,
@@ -21,7 +22,22 @@ import type {
   Workflow,
 } from '@workflow-skill/workflow-model'
 
+const profiles: ProfileManagementAPI = {
+  listProfiles: () => ipcRenderer.invoke('profiles:list'),
+  captureProfile: input => ipcRenderer.invoke('profiles:capture', input),
+  switchProfile: id => ipcRenderer.invoke('profiles:switch', id),
+  rollbackProfile: () => ipcRenderer.invoke('profiles:rollback'),
+  getProfileRecoveryStatus: () => ipcRenderer.invoke('profiles:status'),
+  recoverProfile: () => ipcRenderer.invoke('profiles:recover'),
+  onProfilesChanged: listener => {
+    const handler = () => listener()
+    ipcRenderer.on('profiles:changed', handler)
+    return () => ipcRenderer.removeListener('profiles:changed', handler)
+  },
+}
+
 contextBridge.exposeInMainWorld('workflowSkill', {
+  profiles,
   getSystemTheme: () => ipcRenderer.invoke('system:theme') as Promise<'light' | 'dark'>,
   setTheme: (theme: 'dark' | 'light' | 'system') => ipcRenderer.invoke('system:set-theme', theme) as Promise<'light' | 'dark'>,
   getRecorderStatus: () => ipcRenderer.invoke('recorder:status') as Promise<RecorderStatus>,

@@ -99,6 +99,7 @@ import type {
 } from '@workflow-skill/capture-protocol'
 import { WorkflowGraph } from './components/WorkflowGraph'
 import { McpThreeColumn } from './components/McpThreeColumn'
+import { ProfileSettings } from './components/ProfileSettings'
 import { AIToolLogo } from './AIToolLogo'
 import { useI18n, type Locale, type TranslationKeys } from './i18n'
 
@@ -3708,6 +3709,7 @@ function SettingsMainPage({
               </div>
             </div>
           </div>
+          <ProfileSettings api={window.workflowSkill?.profiles} onNotify={onShowToast} />
         </>
       ) : null}
 
