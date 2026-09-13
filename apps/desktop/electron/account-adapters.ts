@@ -1,0 +1,239 @@
+import { createHash, randomUUID } from 'node:crypto'
+import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { parse as parseToml } from 'smol-toml'
+import { parseTOML } from 'toml-eslint-parser'
+import { AccountError, type AccountTool, type AccountToolCapability } from '../../../packages/workflow-model/src/accounts.ts'
+
+export type AccountProjection = Record<string, string | null>
+export interface InspectedCredential {
+  credential: string
+  email?: string
+  accountId?: string
+  expiresAt?: number
+  identityKey: string
+}
+export interface AccountAdapter {
+  tool: AccountTool
+  capability(): AccountToolCapability
+  inspect(credential: string): InspectedCredential
+  read(): AccountProjection
+  desired(credential: string): AccountProjection
+  writeSlot(slot: string, value: string | null): void
+  credentialFrom(state: AccountProjection): string | null
+}
+export interface AccountAdapterOptions {
+  homeDir?: string
+  env?: NodeJS.ProcessEnv
+  codexHome?: string
+  /** Inject only in isolated tests after establishing a compatible file-mode environment. */
+  antigravityFileMode?: boolean
+}
+
+const LIMIT = 5 * 1024 * 1024
+const fail = (message: string): never => { throw new AccountError(message) }
+const hash = (value: string) => createHash('sha256').update(value).digest('hex')
+const object = (value: unknown): value is Record<string, any> => !!value && typeof value === 'object' && !Array.isArray(value)
+function json(raw: string): Record<string, any> {
+  if (typeof raw !== 'string' || Buffer.byteLength(raw) > LIMIT) fail('凭据或配置文件过大。')
+  try { const parsed: unknown = JSON.parse(raw); if (object(parsed)) return parsed } catch { /* Never expose parser excerpts. */ }
+  return fail('凭据或配置文件不是有效的 JSON 对象。')
+}
+function token(value: unknown): string {
+  if (typeof value !== 'string' || !value || /\s/.test(value) || value.length > LIMIT) fail('账号凭据缺少有效令牌。')
+  return value as string
+}
+function claims(value: unknown): Record<string, any> {
+  if (typeof value !== 'string') return {}
+  try {
+    const parsed = JSON.parse(Buffer.from(value.split('.')[1] ?? '', 'base64url').toString('utf8'))
+    return object(parsed) ? parsed : {}
+  } catch { return {} }
+}
+function label(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 && value.length <= 255 && !/[\x00-\x1f\x7f]/.test(value) ? value : undefined
+}
+
+/** Auth files are bounded, regular, private files; no links below the selected home. */
+class AuthFiles {
+  private home: string
+  constructor(home: string) { this.home = home }
+  guard(file: string): void {
+    const relative = path.relative(this.home, file)
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) fail('认证路径必须位于当前用户目录内。')
+    let current = this.home
+    for (const part of relative.split(path.sep)) {
+      current = path.join(current, part)
+      let stat
+      try { stat = lstatSync(current) } catch (error: any) { if (error?.code === 'ENOENT') continue; throw error }
+      if (stat.isSymbolicLink() || (!stat.isDirectory() && (!stat.isFile() || stat.nlink !== 1))) fail('认证路径包含链接或非普通文件，未作修改。')
+      if (current !== file && !stat.isDirectory()) fail('认证目录无效。')
+    }
+  }
+  read(file: string): string | null {
+    this.guard(file)
+    try {
+      const stat = lstatSync(file)
+      if (!stat.isFile() || stat.size > LIMIT) fail('认证配置不是普通文件或超过大小限制。')
+      return readFileSync(file, 'utf8')
+    } catch (error: any) { if (error?.code === 'ENOENT') return null; throw error }
+  }
+  write(file: string, content: string | null): void {
+    this.guard(file)
+    if (content === null) { rmSync(file, { force: true }); return }
+    if (Buffer.byteLength(content) > LIMIT) fail('认证配置超过大小限制。')
+    const dir = path.dirname(file)
+    // Make each newly created directory private, without chmod of the user home.
+    let current = this.home
+    for (const part of path.relative(this.home, dir).split(path.sep).filter(Boolean)) {
+      current = path.join(current, part)
+      try { mkdirSync(current, { mode: 0o700 }) } catch (error: any) { if (error?.code !== 'EEXIST') throw error }
+    }
+    if (dir !== this.home) chmodSync(dir, 0o700)
+    const temp = path.join(dir, `.trace-account-${randomUUID()}.tmp`)
+    try {
+      writeFileSync(temp, content, { mode: 0o600, flag: 'wx' })
+      this.guard(file)
+      renameSync(temp, file)
+    } finally { rmSync(temp, { force: true }) }
+  }
+}
+
+const STORE_KEY = 'cli_auth_credentials_store'
+function codexMode(raw: string | null): string | null {
+  if (raw === null) return null
+  try {
+    const value = parseToml(raw)[STORE_KEY]
+    if (value === undefined) return null
+    if (typeof value === 'string' && ['file', 'keyring', 'auto', 'ephemeral'].includes(value)) return value
+  } catch { return fail('Codex config.toml 无法解析，未作修改。') }
+  return fail('Codex 的凭据存储模式无效。')
+}
+/** Edit only the top-level auth value range; preserve comments, tables and model/MCP bytes. */
+function patchCodexMode(raw: string | null, mode: string | null): string | null {
+  if (mode !== null && !['file', 'keyring', 'auto', 'ephemeral'].includes(mode)) fail('不支持的 Codex 凭据存储模式。')
+  const source = raw ?? ''
+  codexMode(raw)
+  let ast: ReturnType<typeof parseTOML>
+  try { ast = parseTOML(source) } catch { return fail('Codex config.toml 无法解析，未作修改。') }
+  const node = ast.body[0].body.find(n => n.type === 'TOMLKeyValue' && n.key.keys.length === 1 && ('name' in n.key.keys[0] ? n.key.keys[0].name : n.key.keys[0].value) === STORE_KEY)
+  if (!node || node.type !== 'TOMLKeyValue') return mode === null ? raw : `${STORE_KEY} = ${JSON.stringify(mode)}\n${source}`
+  if (mode !== null) return source.slice(0, node.value.range[0]) + JSON.stringify(mode) + source.slice(node.value.range[1])
+  // Remove the complete assignment line only when its remainder is whitespace; retain comments.
+  let end = node.range[1]
+  if (/^[ \t]*\r?\n/.test(source.slice(end))) end += source.slice(end).match(/^[ \t]*\r?\n/)![0].length
+  const result = source.slice(0, node.range[0]) + source.slice(end)
+  return result.trim() ? result : null
+}
+
+export function createAccountAdapters(options: AccountAdapterOptions = {}): Record<AccountTool, AccountAdapter> {
+  const home = path.resolve(options.homeDir ?? os.homedir())
+  const env = options.env ?? process.env
+  const files = new AuthFiles(home)
+  const codexHome = path.resolve(options.codexHome ?? env.CODEX_HOME ?? path.join(home, '.codex'))
+  const codexAuth = path.join(codexHome, 'auth.json')
+  const codexConfig = path.join(codexHome, 'config.toml')
+  const claudeSettings = path.join(env.CLAUDE_CONFIG_DIR ? path.resolve(env.CLAUDE_CONFIG_DIR) : path.join(home, '.claude'), 'settings.json')
+  const agyAuth = path.join(home, '.gemini', 'antigravity-cli', 'antigravity-oauth-token')
+  const codexSettings = () => {
+    try { return parseToml(files.read(codexConfig) ?? '') }
+    catch (error) { if (error instanceof AccountError) throw error; return fail('Codex config.toml 无法解析，未作修改。') }
+  }
+
+  const codex: AccountAdapter = {
+    tool: 'codex',
+    capability: () => {
+      const config = codexSettings()
+      const conflict = config.forced_login_method === 'api' || (config.model_provider !== undefined && config.model_provider !== 'openai')
+      return { tool: 'codex', available: !conflict, reason: conflict ? 'Codex 当前限定 API 登录或使用其他模型提供商。请先在 Codex 中处理认证冲突；Trace 不修改模型配置。' : undefined, details: '使用 ChatGPT auth.json 和 file 存储模式。请重启 Codex，在新会话确认身份；项目配置或启动参数可能覆盖全局设置。' }
+    },
+    inspect(raw) {
+      const value = json(raw)
+      if ((value.auth_mode !== undefined && value.auth_mode !== 'chatgpt') || value.OPENAI_API_KEY || !object(value.tokens)) fail('仅支持 Codex ChatGPT 账号 auth.json，不支持 API Key。')
+      const t = value.tokens
+      const idToken = token(t.id_token)
+      const c = claims(idToken)
+      const accountId = label(t.account_id) ?? label(c['https://api.openai.com/auth']?.chatgpt_account_id)
+      if (!accountId || !label(c.sub)) fail('Codex 凭据缺少可识别的 ChatGPT 账号信息。')
+      const access = token(t.access_token)
+      const normalized = { auth_mode: 'chatgpt', OPENAI_API_KEY: null, tokens: { id_token: idToken, access_token: access, refresh_token: token(t.refresh_token), account_id: accountId }, ...(typeof value.last_refresh === 'string' ? { last_refresh: value.last_refresh } : {}) }
+      const expires = claims(access).exp
+      return { credential: JSON.stringify(normalized, null, 2), email: label(c.email), accountId, identityKey: `codex:${accountId}:${c.sub}`, expiresAt: typeof expires === 'number' && Number.isFinite(expires) ? expires * 1000 : undefined }
+    },
+    read: () => ({ auth: files.read(codexAuth), mode: codexMode(files.read(codexConfig)) }),
+    desired: credential => {
+      const inspected = codex.inspect(credential)
+      const forced = codexSettings().forced_chatgpt_workspace_id
+      if (forced !== undefined && forced !== inspected.accountId) fail('目标账号不符合 Codex 已限定的 ChatGPT 工作区。')
+      return { auth: inspected.credential, mode: 'file' }
+    },
+    writeSlot(slot, value) {
+      if (slot === 'auth') files.write(codexAuth, value)
+      else if (slot === 'mode') files.write(codexConfig, patchCodexMode(files.read(codexConfig), value))
+      else fail('未知的 Codex 认证字段。')
+    },
+    credentialFrom: state => state.mode === 'file' || state.mode === null ? state.auth : null,
+  }
+
+  const claudeConflict = (): boolean => {
+    const settings = json(files.read(claudeSettings) ?? '{}')
+    if (settings.env !== undefined && !object(settings.env)) fail('Claude settings.json 的 env 格式无效。')
+    const vars = { ...(settings.env ?? {}), ...env }
+    return !!settings.apiKeyHelper || ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_OAUTH_REFRESH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'].some(k => k === 'CLAUDE_CODE_OAUTH_TOKEN' ? !!env[k] : !!vars[k] && vars[k] !== '0')
+  }
+  const claude: AccountAdapter = {
+    tool: 'claude-code',
+    capability() {
+      const conflict = claudeConflict()
+      return { tool: 'claude-code', available: !conflict, reason: conflict ? '检测到环境令牌、API Key、认证辅助程序或其他提供商配置；请先在 Claude 中处理认证优先级冲突。' : undefined, details: '导入 claude setup-token 生成的订阅令牌，写入 settings.json 的 CLAUDE_CODE_OAUTH_TOKEN。支持模型请求和本地 MCP；不支持 Remote Control 与 Claude.ai 连接器。邮箱、有效期和服务端登录状态无法离线确认，请在新会话验证。' }
+    },
+    inspect(raw) {
+      const value = typeof raw === 'string' ? raw.trim() : ''
+      if (!/^sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,}$/.test(value) || value.length > LIMIT) fail('请导入 claude setup-token 生成的订阅令牌，不支持 Anthropic API Key。')
+      return { credential: value, identityKey: `claude:${hash(value)}` }
+    },
+    read() {
+      const settings = json(files.read(claudeSettings) ?? '{}')
+      if (settings.env !== undefined && !object(settings.env)) fail('Claude settings.json 的 env 格式无效。')
+      const value = settings.env?.CLAUDE_CODE_OAUTH_TOKEN
+      if (value !== undefined && typeof value !== 'string') fail('Claude 订阅令牌配置无效。')
+      return { oauth: value ?? null }
+    },
+    desired: credential => ({ oauth: claude.inspect(credential).credential }),
+    writeSlot(slot, value) {
+      if (slot !== 'oauth') fail('未知的 Claude 认证字段。')
+      const settings = json(files.read(claudeSettings) ?? '{}')
+      if (settings.env !== undefined && !object(settings.env)) fail('Claude settings.json 的 env 格式无效。')
+      if (value === null) {
+        if (settings.env) { delete settings.env.CLAUDE_CODE_OAUTH_TOKEN; if (!Object.keys(settings.env).length) delete settings.env }
+      } else { settings.env = { ...(settings.env ?? {}), CLAUDE_CODE_OAUTH_TOKEN: value } }
+      files.write(claudeSettings, Object.keys(settings).length ? `${JSON.stringify(settings, null, 2)}\n` : null)
+    },
+    credentialFrom: state => state.oauth,
+  }
+
+  // CLI 1.2.2 bypasses keyring in real SSH sessions. Native macOS/desktop file mode
+  // is deliberately unavailable; do not manufacture SSH variables or timeout markers.
+  const fileMode = (options.antigravityFileMode ?? !!(env.SSH_TTY || env.SSH_CLIENT || env.SSH_CONNECTION)) && !env.GEMINI_API_KEY && !env.GOOGLE_API_KEY && !env.JETSKI_APP_DATA_DIR
+  const antigravity: AccountAdapter = {
+    tool: 'antigravity',
+    capability: () => ({ tool: 'antigravity', available: fileMode, reason: fileMode ? undefined : '当前 Antigravity 原生环境默认使用系统凭据库，尚无已验证的强制文件模式。可保存 Google 账号凭据，暂不执行切换。', details: '文件适配仅针对 Antigravity CLI 的 SSH 后备存储；桌面端未通过无 Keychain 账号切换验证。Trace 不读写 Keychain，不使用 Gemini API Key 替代 Google 账号。' }),
+    inspect(raw) {
+      const value = json(raw)
+      if (value.auth_method !== 'consumer' || !object(value.token)) fail('仅支持 Antigravity Google consumer OAuth 文件，不支持 Gemini API Key 或 Gemini CLI 凭据。')
+      const t = value.token
+      const access = token(t.access_token)
+      const refresh = token(t.refresh_token)
+      if (t.token_type !== 'Bearer') fail('Antigravity OAuth 令牌类型无效。')
+      const expiry = typeof t.expiry === 'string' ? Date.parse(t.expiry) : NaN
+      if (!Number.isFinite(expiry)) fail('Antigravity OAuth 凭据缺少有效到期时间。')
+      return { credential: JSON.stringify({ auth_method: 'consumer', token: { access_token: access, token_type: 'Bearer', refresh_token: refresh, expiry: t.expiry } }, null, 2), expiresAt: expiry, identityKey: `antigravity:${hash(refresh)}` }
+    },
+    read: () => ({ oauth: files.read(agyAuth) }),
+    desired: credential => ({ oauth: antigravity.inspect(credential).credential }),
+    writeSlot(slot, value) { if (slot !== 'oauth') fail('未知的 Antigravity 认证字段。'); files.write(agyAuth, value) },
+    credentialFrom: state => fileMode ? state.oauth : null,
+  }
+  return { antigravity, codex, 'claude-code': claude }
+}

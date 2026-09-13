@@ -23,8 +23,8 @@ import {
   saveMCPServer,
   toggleMCPServer,
 } from './mcp-manager'
-import { ProfileManager } from './profile-manager'
-import { sanitizeErrorMessage, type ProfileCaptureInput } from '@workflow-skill/workflow-model/profiles'
+import { AccountManager } from './account-manager'
+import { AccountError, sanitizeErrorMessage, type AccountTool } from '@workflow-skill/workflow-model/accounts'
 
 const defaultTraceHome = path.join(os.homedir(), '.trace')
 
@@ -1710,49 +1710,46 @@ ${skill.description || ''}
     return result
   })
 
-  let profileManager: ProfileManager | undefined
-  let profileStorageRoot = ''
-  let profileMutationInProgress = false
-  function getProfileManager() {
+  let accountManager: AccountManager | undefined
+  let accountStorageRoot = ''
+  let accountMutationInProgress = false
+  function getAccountManager() {
     const root = getStoredTraceHome()
-    if (!profileManager || profileStorageRoot !== root) {
-      if (profileMutationInProgress) throw new Error('Profile operation already in progress.')
-      profileStorageRoot = root
-      profileManager = new ProfileManager({
+    if (!accountManager || accountStorageRoot !== root) {
+      if (accountMutationInProgress) throw new AccountError('账号操作进行中，请稍后重试。')
+      accountManager = new AccountManager({
         traceHome: root,
-        onProfileChanged: () => {
-          notifyMCPChanged()
+        onAccountsChanged: () => {
           for (const window of BrowserWindow.getAllWindows()) {
-            if (!window.isDestroyed()) window.webContents.send('profiles:changed')
+            if (!window.isDestroyed()) window.webContents.send('accounts:changed')
           }
         },
       })
+      accountStorageRoot = root
     }
-    return profileManager
+    return accountManager
   }
-  async function profileCall<T>(operation: (manager: ProfileManager) => Promise<T>, mutation = false): Promise<T> {
-    if (mutation && profileMutationInProgress) throw new Error('Profile operation already in progress.')
-    const manager = getProfileManager()
-    if (mutation) profileMutationInProgress = true
+  async function accountCall<T>(operation: (manager: AccountManager) => Promise<T>, mutation = false): Promise<T> {
     try {
-      return await operation(manager)
+      if (mutation && accountMutationInProgress) throw new AccountError('账号操作进行中，请稍后重试。')
+      const manager = getAccountManager()
+      if (mutation) accountMutationInProgress = true
+      try { return await operation(manager) }
+      finally { if (mutation) accountMutationInProgress = false }
     } catch (error) {
-      throw new Error(sanitizeErrorMessage(error, 'profile operation'))
-    } finally {
-      if (mutation) profileMutationInProgress = false
+      throw new Error(sanitizeErrorMessage(error))
     }
   }
-  ipcMain.handle('profiles:list', () => profileCall(manager => manager.listProfiles()))
-  ipcMain.handle('profiles:status', () => profileCall(manager => manager.getRecoveryStatus()))
-  ipcMain.handle('profiles:capture', (_event, input: ProfileCaptureInput) => profileCall(manager => {
-    if (!input || typeof input.name !== 'string' || (input.description !== undefined && typeof input.description !== 'string')) {
-      throw new Error('Invalid Profile input.')
-    }
-    return manager.captureCurrentProfile(input)
-  }, true))
-  ipcMain.handle('profiles:switch', (_event, id: string) => profileCall(manager => manager.switchProfile(id), true))
-  ipcMain.handle('profiles:rollback', () => profileCall(manager => manager.rollbackLastSwitch(), true))
-  ipcMain.handle('profiles:recover', () => profileCall(manager => manager.performEmergencyRecovery(), true))
+  // The old profiles:* handlers are intentionally not registered: whole-environment
+  // snapshots must never remain an alternate path to change model/MCP settings.
+  ipcMain.handle('accounts:overview', () => accountCall(manager => manager.getOverview()))
+  ipcMain.handle('accounts:capture', (_event, input) => accountCall(manager => manager.captureAccount(input), true))
+  ipcMain.handle('accounts:import', (_event, input) => accountCall(manager => manager.importAccount(input), true))
+  ipcMain.handle('accounts:switch', (_event, id: string) => accountCall(manager => manager.switchAccount(id), true))
+  ipcMain.handle('accounts:rollback', (_event, tool: AccountTool) => accountCall(manager => manager.rollbackAccount(tool), true))
+  ipcMain.handle('accounts:recover', (_event, tool: AccountTool) => accountCall(manager => manager.recoverAccount(tool), true))
+  ipcMain.handle('accounts:rename', (_event, id: string, name: string) => accountCall(manager => manager.renameAccount(id, name), true))
+  ipcMain.handle('accounts:delete', (_event, id: string) => accountCall(manager => manager.deleteAccount(id), true))
 
   createWindow()
 

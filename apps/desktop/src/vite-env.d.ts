@@ -26,7 +26,7 @@ import type {
 declare global {
   interface Window {
     workflowSkill?: {
-      profiles?: import('@workflow-skill/workflow-model/profiles').ProfileManagementAPI
+      accounts?: import('@workflow-skill/workflow-model/accounts').AccountManagementAPI
       getSystemTheme: () => Promise<'light' | 'dark'>
       setTheme?: (theme: 'dark' | 'light' | 'system') => Promise<'light' | 'dark'>
       getRecorderStatus: () => Promise<RecorderStatus>
