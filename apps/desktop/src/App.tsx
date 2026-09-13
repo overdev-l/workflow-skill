@@ -61,6 +61,7 @@ import {
   RotateCcw,
   Save,
   Search,
+  Server,
   Settings,
   ShieldCheck,
   Sliders,
@@ -97,10 +98,11 @@ import type {
   RecorderStatus,
 } from '@workflow-skill/capture-protocol'
 import { WorkflowGraph } from './components/WorkflowGraph'
+import { McpThreeColumn } from './components/McpThreeColumn'
 import { AIToolLogo } from './AIToolLogo'
 import { useI18n, type Locale, type TranslationKeys } from './i18n'
 
-export type View = 'skills' | 'workflows' | 'environments'
+export type View = 'skills' | 'workflows' | 'environments' | 'mcp'
 type SettingsTab = 'general' | 'shortcuts' | 'permissions' | 'about'
 export type ThemeMode = 'dark' | 'light' | 'system'
 
@@ -244,6 +246,20 @@ function AppSidebar({
               <div className="nav-pill-btn__left">
                 <Cpu size={15} className="nav-icon" />
                 <span>{t.nav.environments}</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-pill-btn ${view === 'mcp' ? 'is-active' : ''}`}
+              onClick={() => {
+                setView('mcp')
+                onBackToOverview()
+              }}
+            >
+              <div className="nav-pill-btn__left">
+                <Server size={15} className="nav-icon" />
+                <span>{t.nav.mcp}</span>
               </div>
             </button>
           </nav>
@@ -3874,6 +3890,12 @@ function AppCommandPalette({
         run: () => onSelectView('environments'),
       },
       {
+        id: 'view-mcp',
+        label: '切换至 MCP Server',
+        hint: 'G M',
+        run: () => onSelectView('mcp'),
+      },
+      {
         id: 'new-skill',
         label: t.command.newSkill,
         hint: t.command.newSkillHint,
@@ -5080,6 +5102,8 @@ export function App() {
             onShowToast={setToast}
           />
         </main>
+      ) : view === 'mcp' ? (
+        <McpThreeColumn notify={setToast} />
       ) : view === 'environments' ? (
         <AIEnvironmentsThreeColumn
           aiTools={aiTools}

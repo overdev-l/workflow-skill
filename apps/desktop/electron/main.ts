@@ -15,6 +15,14 @@ import { BrowserCaptureManager } from './browser-capture-manager'
 import { NativeRecorderManager } from './recorder-manager'
 import { deleteSkillPaths } from './skill-deletion'
 import { searchRepositorySkills } from './skill-repository-search'
+import {
+  deleteMCPServer,
+  distributeMCPServer,
+  preflightMCPDistribution,
+  readAllMCPServers,
+  saveMCPServer,
+  toggleMCPServer,
+} from './mcp-manager'
 
 const defaultTraceHome = path.join(os.homedir(), '.trace')
 
@@ -1651,6 +1659,53 @@ ${skill.description || ''}
     const mdPath = path.join(skillFolder, 'SKILL.md')
     writeFileSync(mdPath, markdown, 'utf8')
     return true
+  })
+
+  function getMCPOptions() {
+    return {
+      getProjectWorkspace: getStoredProjectWorkspace,
+      getTraceHome: getStoredTraceHome,
+    }
+  }
+
+  function notifyMCPChanged() {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send('mcp:changed')
+      }
+    }
+  }
+
+  ipcMain.handle('mcp:list', async () => {
+    return readAllMCPServers(getMCPOptions())
+  })
+
+  ipcMain.handle('mcp:save', async (_event, target, input) => {
+    const result = saveMCPServer(target, input, getMCPOptions())
+    if (result.success) notifyMCPChanged()
+    return result
+  })
+
+  ipcMain.handle('mcp:delete', async (_event, target) => {
+    const result = deleteMCPServer(target, getMCPOptions())
+    if (result.success) notifyMCPChanged()
+    return result
+  })
+
+  ipcMain.handle('mcp:toggle', async (_event, target, enabled) => {
+    const result = toggleMCPServer(target, enabled, getMCPOptions())
+    if (result.success) notifyMCPChanged()
+    return result
+  })
+
+  ipcMain.handle('mcp:preflight-distribution', async (_event, server, targets) => {
+    return preflightMCPDistribution(server, targets, getMCPOptions())
+  })
+
+  ipcMain.handle('mcp:distribute', async (_event, server, targets) => {
+    const result = distributeMCPServer(server, targets, getMCPOptions())
+    notifyMCPChanged()
+    return result
   })
 
   createWindow()

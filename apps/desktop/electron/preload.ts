@@ -7,7 +7,19 @@ import type {
   RecorderEnvelope,
   RecorderStatus,
 } from '@workflow-skill/capture-protocol'
-import type { AIProjectItem, DeleteSkillMode, RepositorySkillSearchResult, Workflow } from '@workflow-skill/workflow-model'
+import type {
+  AIProjectItem,
+  DeleteSkillMode,
+  MCPDistributionPreflightResult,
+  MCPDistributionReport,
+  MCPDistributionTarget,
+  MCPScope,
+  MCPServerDefinition,
+  MCPServerInput,
+  MCPSourceTool,
+  RepositorySkillSearchResult,
+  Workflow,
+} from '@workflow-skill/workflow-model'
 
 contextBridge.exposeInMainWorld('workflowSkill', {
   getSystemTheme: () => ipcRenderer.invoke('system:theme') as Promise<'light' | 'dark'>,
@@ -99,5 +111,28 @@ contextBridge.exposeInMainWorld('workflowSkill', {
     const handler = () => listener()
     ipcRenderer.on('capture:workflows-changed', handler)
     return () => ipcRenderer.removeListener('capture:workflows-changed', handler)
+  },
+  listMCPServers: () =>
+    ipcRenderer.invoke('mcp:list') as Promise<{ global: MCPServerDefinition[]; project: MCPServerDefinition[] }>,
+  saveMCPServer: (
+    target: { tool: MCPSourceTool; scope: MCPScope; expectedRevision?: string },
+    input: MCPServerInput & { isNew?: boolean }
+  ) =>
+    ipcRenderer.invoke('mcp:save', target, input) as Promise<{ success: boolean; server?: MCPServerDefinition; error?: string }>,
+  deleteMCPServer: (target: { tool: MCPSourceTool; scope: MCPScope; name: string; expectedRevision?: string }) =>
+    ipcRenderer.invoke('mcp:delete', target) as Promise<{ success: boolean; error?: string }>,
+  toggleMCPServer: (
+    target: { tool: MCPSourceTool; scope: MCPScope; name: string; expectedRevision?: string },
+    enabled: boolean
+  ) =>
+    ipcRenderer.invoke('mcp:toggle', target, enabled) as Promise<{ success: boolean; server?: MCPServerDefinition; error?: string }>,
+  preflightMCPDistribution: (server: MCPServerDefinition | MCPServerInput, targets: MCPDistributionTarget[]) =>
+    ipcRenderer.invoke('mcp:preflight-distribution', server, targets) as Promise<MCPDistributionPreflightResult>,
+  distributeMCPServer: (server: MCPServerDefinition | MCPServerInput, targets: MCPDistributionTarget[]) =>
+    ipcRenderer.invoke('mcp:distribute', server, targets) as Promise<MCPDistributionReport>,
+  onMCPChanged: (listener: () => void) => {
+    const handler = () => listener()
+    ipcRenderer.on('mcp:changed', handler)
+    return () => ipcRenderer.removeListener('mcp:changed', handler)
   },
 })

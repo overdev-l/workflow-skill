@@ -721,3 +721,130 @@ tags: [tailwind, css, ui]
 `,
   },
 ]
+
+// =========================================================================
+// MCP (Model Context Protocol) Server Unified Architecture Models (OPC-47)
+// =========================================================================
+
+export type MCPSourceTool = 'claude-code' | 'cursor' | 'gemini' | 'codex'
+export type MCPScope = 'global' | 'project'
+export type MCPTransportType = 'stdio' | 'sse' | 'http'
+
+export interface MCPServerDefinition {
+  id: string
+  name: string
+  sourceTool: MCPSourceTool
+  scope: MCPScope
+  transport: MCPTransportType
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+  envHeaders?: Record<string, string> // e.g. Codex env_http_headers
+  enabled: boolean
+  sourceRaw?: Record<string, unknown> // Unrecognized/tool-specific fields preserved on same-source edit
+  configPath: string
+  revision?: string // Opaque revision token for optimistic concurrency / conflict guard
+  updatedAt?: number
+}
+
+export interface MCPServerInput {
+  name: string
+  transport: MCPTransportType
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+  envHeaders?: Record<string, string>
+  enabled?: boolean
+  sourceRaw?: Record<string, unknown>
+  expectedRevision?: string
+}
+
+export interface MCPDistributionTarget {
+  tool: MCPSourceTool
+  scope: MCPScope
+  expectedRevision?: string
+}
+
+export interface MCPDistributionPreflightItem {
+  tool: MCPSourceTool
+  scope: MCPScope
+  configPath: string
+  targetExists: boolean
+  willOverwrite: boolean
+  compatible: boolean
+  currentRevision?: string
+  reasons?: string[]
+}
+
+export interface MCPDistributionPreflightResult {
+  canDistribute: boolean
+  targets: MCPDistributionPreflightItem[]
+}
+
+export interface MCPDistributionResultItem {
+  tool: MCPSourceTool
+  scope: MCPScope
+  configPath: string
+  success: boolean
+  error?: string
+}
+
+export interface MCPDistributionReport {
+  overallSuccess: boolean
+  results: MCPDistributionResultItem[]
+}
+
+export interface MCPSourceToolMetadata {
+  id: MCPSourceTool
+  name: string
+  logoId: string
+  description: string
+  globalConfigFileName: string
+  projectConfigFileName: string
+  supportedTransports: MCPTransportType[]
+}
+
+export const MCP_SOURCE_TOOLS: MCPSourceToolMetadata[] = [
+  {
+    id: 'claude-code',
+    name: 'Claude Code',
+    logoId: 'claude',
+    description: 'Anthropic Claude Code 全局终端或项目级 MCP 配置 (~/.claude.json / .mcp.json)',
+    globalConfigFileName: '.claude.json',
+    projectConfigFileName: '.mcp.json',
+    supportedTransports: ['stdio', 'sse', 'http'],
+  },
+  {
+    id: 'cursor',
+    name: 'Cursor IDE',
+    logoId: 'cursor',
+    description: 'Cursor IDE 全局与项目级 MCP 服务目录 (~/.cursor/mcp.json / .cursor/mcp.json)',
+    globalConfigFileName: '.cursor/mcp.json',
+    projectConfigFileName: '.cursor/mcp.json',
+    supportedTransports: ['stdio', 'http'],
+  },
+  {
+    id: 'gemini',
+    name: 'Google Antigravity & Gemini',
+    logoId: 'gemini',
+    description: 'Google Antigravity 与 Gemini CLI 全局与项目配置 (~/.gemini/settings.json)',
+    globalConfigFileName: '.gemini/settings.json',
+    projectConfigFileName: '.gemini/settings.json',
+    supportedTransports: ['stdio', 'sse', 'http'],
+  },
+  {
+    id: 'codex',
+    name: 'OpenAI Codex',
+    logoId: 'codex',
+    description: 'OpenAI Codex CLI TOML 配置文件 (~/.codex/config.toml / .codex/config.toml)',
+    globalConfigFileName: '.codex/config.toml',
+    projectConfigFileName: '.codex/config.toml',
+    supportedTransports: ['stdio', 'http'],
+  },
+]

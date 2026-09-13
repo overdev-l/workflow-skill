@@ -9,7 +9,19 @@ import type {
   RecorderEnvelope,
   RecorderStatus,
 } from '@workflow-skill/capture-protocol'
-import type { AIProjectItem, DeleteSkillMode, RepositorySkillSearchResult, Workflow } from '@workflow-skill/workflow-model'
+import type {
+  AIProjectItem,
+  DeleteSkillMode,
+  MCPDistributionPreflightResult,
+  MCPDistributionReport,
+  MCPDistributionTarget,
+  MCPScope,
+  MCPServerDefinition,
+  MCPServerInput,
+  MCPSourceTool,
+  RepositorySkillSearchResult,
+  Workflow,
+} from '@workflow-skill/workflow-model'
 
 declare global {
   interface Window {
@@ -66,6 +78,19 @@ declare global {
       onRecorderMessage: (listener: (message: RecorderEnvelope) => void) => () => void
       onBrowserCaptureMessage?: (listener: (message: BrowserCaptureEnvelope) => void) => () => void
       onCapturedWorkflowsChanged?: (listener: () => void) => () => void
+      listMCPServers?: () => Promise<{ global: MCPServerDefinition[]; project: MCPServerDefinition[] }>
+      saveMCPServer?: (
+        target: { tool: MCPSourceTool; scope: MCPScope; expectedRevision?: string },
+        input: MCPServerInput & { isNew?: boolean }
+      ) => Promise<{ success: boolean; server?: MCPServerDefinition; error?: string }>
+      deleteMCPServer?: (target: { tool: MCPSourceTool; scope: MCPScope; name: string; expectedRevision?: string }) => Promise<{ success: boolean; error?: string }>
+      toggleMCPServer?: (
+        target: { tool: MCPSourceTool; scope: MCPScope; name: string; expectedRevision?: string },
+        enabled: boolean
+      ) => Promise<{ success: boolean; server?: MCPServerDefinition; error?: string }>
+      preflightMCPDistribution?: (server: MCPServerDefinition | MCPServerInput, targets: MCPDistributionTarget[]) => Promise<MCPDistributionPreflightResult>
+      distributeMCPServer?: (server: MCPServerDefinition | MCPServerInput, targets: MCPDistributionTarget[]) => Promise<MCPDistributionReport>
+      onMCPChanged?: (listener: () => void) => () => void
     }
   }
 }

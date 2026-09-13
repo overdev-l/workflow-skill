@@ -21,7 +21,8 @@
     "verify:capture": "node --experimental-strip-types scripts/verify-capture-pipeline.mjs",
     "verify:browser-capture": "node --experimental-strip-types scripts/verify-browser-capture.mjs",
     "verify:skill-search": "node --experimental-strip-types scripts/verify-skill-repository-search.mjs",
-    "verify:skill-deletion": "node --experimental-strip-types scripts/verify-skill-deletion.mjs"
+    "verify:skill-deletion": "node --experimental-strip-types scripts/verify-skill-deletion.mjs",
+    "verify:mcp": "node --experimental-strip-types scripts/verify-mcp-management.mjs"
   },
   "devDependencies": {
     "turbo": "2.10.11",
