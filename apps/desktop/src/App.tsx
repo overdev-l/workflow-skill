@@ -1856,15 +1856,6 @@ function AIEnvironmentsThreeColumn({
                     <h1 className="detail-hero-name">{getAIToolDisplayName(activeTool)}</h1>
                     <span className="pinned-ver-pill font-mono">全局环境</span>
                   </div>
-                  <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span title={activeTool.detectedPath || activeTool.defaultDir}>
-                      {activeTool.detectedPath || activeTool.defaultDir}
-                    </span>
-                    <span>·</span>
-                    <span style={{ color: '#10b981' }}>已就绪</span>
-                    <span>·</span>
-                    <span>{activeMountedSkills.length} 个已挂载</span>
-                  </span>
                 </div>
               </div>
 
@@ -1946,11 +1937,6 @@ function AIEnvironmentsThreeColumn({
                             <span style={{ fontSize: '0.8125rem', fontWeight: 650, color: 'var(--color-ink)' }}>
                               {sk.name}
                             </span>
-                            {sk.tags?.slice(0, 3).map((t) => (
-                              <span key={t} className="skill-tag-pill font-mono" style={{ fontSize: '0.5625rem' }}>
-                                #{t}
-                              </span>
-                            ))}
                           </div>
                           <span
                             style={{
@@ -1998,9 +1984,6 @@ function AIEnvironmentsThreeColumn({
                       ))}
                     </div>
                   </div>
-                  <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                    <span title={activeProject.path}>{activeProject.path}</span>
-                  </span>
                 </div>
               </div>
 
@@ -2082,11 +2065,6 @@ function AIEnvironmentsThreeColumn({
                               <span style={{ fontSize: '0.8125rem', fontWeight: 650, color: 'var(--color-ink)' }}>
                                 {sk.name}
                               </span>
-                              {sk.tags?.slice(0, 3).map((t) => (
-                                <span key={t} className="skill-tag-pill font-mono" style={{ fontSize: '0.5625rem' }}>
-                                  #{t}
-                                </span>
-                              ))}
                             </div>
                             <span
                               style={{
