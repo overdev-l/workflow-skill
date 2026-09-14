@@ -1,3 +1,4 @@
+import { useUpdateBlocker } from './AppUpdate'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
@@ -222,6 +223,8 @@ export function McpThreeColumn({
     return unsubscribe
   }, [])
 
+  useUpdateBlocker('mcp-actions', createModalOpen || createSaving || formSaving || distributing || toggling || deleting)
+
   // Dirty detection for all editable fields
   const isDirty = useMemo(() => {
     if (!formBaseline || !selectedServerId) return false
@@ -252,6 +255,7 @@ export function McpThreeColumn({
     formHeaderPairs,
     formEnvHeaderPairs,
   ])
+  useUpdateBlocker('mcp-editor', isDirty)
 
   // Current tool and scope server list
   const currentList = useMemo(() => {

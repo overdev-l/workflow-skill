@@ -1,0 +1,113 @@
+name: Release Desktop
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: trace-desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: mac
+            arch: arm64
+            certificate: CSC_LINK
+            password: CSC_KEY_PASSWORD
+          - os: windows-latest
+            platform: win
+            arch: x64
+            certificate: WIN_CSC_LINK
+            password: WIN_CSC_KEY_PASSWORD
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '8.0.x'
+      - run: pnpm install --frozen-lockfile
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          node -e 'const v=require("./apps/desktop/package.json").version; if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(v) || process.env.GITHUB_REF!==`refs/tags/v${v}`) throw Error("Tag must match stable desktop version")'
+      - run: pnpm typecheck
+      - run: pnpm verify:updates
+      - run: pnpm prepare:desktop-package
+      - run: pnpm --filter @workflow-skill/desktop build
+      - name: Package (signed and notarized for tags)
+        env:
+          TRACE_RELEASE: ${{ startsWith(github.ref, 'refs/tags/') && '1' || '0' }}
+          TRACE_UPDATE_URL: ${{ vars.TRACE_UPDATE_URL }}
+          CSC_LINK: ${{ secrets[matrix.certificate] }}
+          CSC_KEY_PASSWORD: ${{ secrets[matrix.password] }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm --filter @workflow-skill/desktop exec electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --config electron-builder.config.cjs --publish never
+      - name: Verify macOS signatures and notarization
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
+        run: |
+          codesign --verify --deep --strict dist/desktop/mac-arm64/Trace.app
+          codesign --verify --strict dist/desktop/mac-arm64/Trace.app/Contents/Resources/native-bin/trace-account-keychain
+          codesign --verify --strict dist/desktop/mac-arm64/Trace.app/Contents/Resources/recorders/workflow-recorder-macos
+          spctl --assess --type execute dist/desktop/mac-arm64/Trace.app
+      - name: Verify Windows installer signature
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem dist/desktop/Trace-*-win-x64.exe)
+          if ($installers.Count -ne 1) { throw 'Expected one installer' }
+          if ((Get-AuthenticodeSignature $installers[0].FullName).Status -ne 'Valid') { throw 'Installer signature invalid' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            dist/desktop/Trace-*.dmg
+            dist/desktop/Trace-*.zip
+            dist/desktop/Trace-*.exe
+            dist/desktop/Trace-*.blockmap
+            dist/desktop/latest*.yml
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: trace-stable-update-manifests
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: dist/desktop
+      - name: Validate both platforms and upload artifacts before manifests
+        env:
+          TRACE_UPDATE_URL: ${{ vars.TRACE_UPDATE_URL }}
+          TRACE_UPDATE_BUCKET: ${{ vars.TRACE_UPDATE_BUCKET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/publish-desktop-updates.mjs --dir dist/desktop --publish

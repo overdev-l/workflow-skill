@@ -14,3 +14,5 @@ recorders/windows/**/obj
 !.env.example
 
 apps/desktop/native-bin/
+
+apps/desktop/release-resources/

@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./accounts": "./src/accounts.ts"
+    "./accounts": "./src/accounts.ts",
+    "./updates": "./src/updates.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

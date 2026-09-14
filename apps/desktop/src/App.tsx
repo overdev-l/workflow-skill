@@ -1,3 +1,4 @@
+import { AppUpdate, useUpdateBlocker } from './components/AppUpdate'
 import {
   useEffect,
   useLayoutEffect,
@@ -283,6 +284,7 @@ function AppSidebar({
 
           {/* Clean Footer: Settings Entry */}
           <div className="sidebar-footer">
+            <AppUpdate compact />
             <button
               type="button"
               className="nav-pill-btn settings-entry-btn"
@@ -2417,6 +2419,7 @@ function WorkflowsThreeColumn({
   }, [activeWf])
 
   const isDirty = Boolean(draft && activeWf && JSON.stringify(draft) !== JSON.stringify(activeWf))
+  useUpdateBlocker('workflow-editor', isDirty || saving)
   const selectedNode = draft?.nodes.find((node) => node.id === selectedNodeId) || null
   const skillPreview = useMemo(
     () => draft ? workflowSkillMarkdown(draft, isZh) : '',
@@ -3847,12 +3850,12 @@ function SettingsMainPage({
             <div className="about-hero-block">
               <div className="flat-title-with-badge">
                 <strong className="about-name">{t.settings.aboutTitle}</strong>
-                <span className="status-badge-ok font-mono">{t.settings.aboutReleaseBadge}</span>
               </div>
-              <span className="about-sub font-mono">{t.settings.aboutBuild}</span>
+
               <p className="about-manifesto">{t.settings.aboutManifesto}</p>
             </div>
           </div>
+          <AppUpdate />
         </>
       ) : null}
     </div>
@@ -4516,6 +4519,7 @@ export function App() {
   const [browserCaptureStarting, setBrowserCaptureStarting] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
   const [newSkillOpen, setNewSkillOpen] = useState(false)
+  useUpdateBlocker('new-skill', newSkillOpen)
   const [exportState, setExportState] = useState<{
     open: boolean
     skillName: string

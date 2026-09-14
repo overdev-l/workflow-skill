@@ -47,6 +47,18 @@ const accounts: AccountManagementAPI = {
 
 contextBridge.exposeInMainWorld('workflowSkill', {
   accounts,
+  updates: {
+    getState: () => ipcRenderer.invoke('updates:state'),
+    check: () => ipcRenderer.invoke('updates:check'),
+    download: () => ipcRenderer.invoke('updates:download'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    onChanged: (listener: (state: import('@workflow-skill/workflow-model/updates').AppUpdateState) => void) => {
+      const handler = (_event: unknown, state: import('@workflow-skill/workflow-model/updates').AppUpdateState) => listener(state)
+      ipcRenderer.on('updates:changed', handler)
+      return () => ipcRenderer.removeListener('updates:changed', handler)
+    },
+  } satisfies import('@workflow-skill/workflow-model/updates').AppUpdateAPI,
+  setUpdateBlocker: (key: string, blocked: boolean) => ipcRenderer.invoke('updates:blocker', key, blocked),
   getSystemTheme: () => ipcRenderer.invoke('system:theme') as Promise<'light' | 'dark'>,
   setTheme: (theme: 'dark' | 'light' | 'system') => ipcRenderer.invoke('system:set-theme', theme) as Promise<'light' | 'dark'>,
   getRecorderStatus: () => ipcRenderer.invoke('recorder:status') as Promise<RecorderStatus>,

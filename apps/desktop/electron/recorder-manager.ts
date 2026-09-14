@@ -98,6 +98,20 @@ export class NativeRecorderManager extends EventEmitter {
     return this.status
   }
 
+  async shutdownAndWait(): Promise<void> {
+    const child = this.child
+    if (!child || child.exitCode !== null) { this.shutdown(); return }
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        child.removeListener('exit', done)
+        reject(new Error('录制服务尚未退出，请稍后重试。'))
+      }, 5_000)
+      const done = () => { clearTimeout(timer); resolve() }
+      child.once('exit', done)
+      this.shutdown()
+    })
+  }
+
   shutdown() {
     this.stopping = true
     for (const child of this.auxiliaryChildren) child.kill('SIGTERM')

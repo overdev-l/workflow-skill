@@ -649,6 +649,8 @@ export class AccountRefreshService {
     this.pendingSyncDir = path.join(this.store.traceHome, 'pending-sync')
   }
 
+  hasActiveRefreshes(): boolean { return this.inFlight.size > 0 }
+
   dispose(): void {
     this.isDisposed = true
     this.abortController.abort()

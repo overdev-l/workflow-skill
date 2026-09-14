@@ -1,0 +1,27 @@
+/**
+ * Cloudflare Worker Configuration for Trace Updates Delivery (OPC-53)
+ *
+ * Provisioning Instructions:
+ * 1. Create R2 bucket:
+ *    wrangler r2 bucket create trace-updates
+ * 2. Deploy Worker:
+ *    wrangler deploy
+ * 3. Bind custom domain or use workers.dev subdomain:
+ *    https://<your-trace-update-domain> or https://trace-update-worker.<subdomain>.workers.dev
+ * 4. Pass the HTTPS URL as TRACE_UPDATE_URL during desktop build packaging.
+ */
+{
+  "$schema": "../../apps/web/node_modules/wrangler/config-schema.json",
+  "name": "trace-update-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "r2_buckets": [
+    {
+      "binding": "TRACE_UPDATES",
+      "bucket_name": "trace-updates"
+    }
+  ]
+}

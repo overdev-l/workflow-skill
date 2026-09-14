@@ -1,3 +1,4 @@
+import { useUpdateBlocker } from './AppUpdate'
 /**
  * AI Developer Account Settings & Workbench Component (OPC-48)
  *
@@ -467,9 +468,11 @@ export function AccountSettings({
   const [importName, setImportName] = useState<string>('')
   const [importCredential, setImportCredential] = useState<string>('')
   const [isCredentialMasked, setIsCredentialMasked] = useState<boolean>(true)
+  useUpdateBlocker('account-editor', showAddAccountModal || isBusy)
 
   const [pendingRenameAccount, setPendingRenameAccount] = useState<AccountMetadata | null>(null)
   const [renameName, setRenameName] = useState<string>('')
+  useUpdateBlocker('account-rename', Boolean(pendingRenameAccount))
   const [pendingDeleteAccount, setPendingDeleteAccount] = useState<AccountMetadata | null>(null)
 
   // Stable refs for scan & race-condition guards

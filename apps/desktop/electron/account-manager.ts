@@ -397,6 +397,8 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
     return this.refreshService.refreshDueAccounts()
   }
 
+  hasActiveRefreshes(): boolean { return this.refreshService.hasActiveRefreshes() }
+
   dispose(): void {
     this.refreshService.dispose()
   }

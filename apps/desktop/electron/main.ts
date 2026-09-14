@@ -1,3 +1,6 @@
+import { AppUpdateService } from './app-update-service'
+import { createElectronUpdateTransport, createDevelopmentUpdateTransport } from './app-update-transport'
+import { AppUpdateInstaller } from './app-update-install'
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, screen, shell, Tray } from 'electron'
 import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -239,6 +242,9 @@ function windowsOwnerHandle() {
 }
 
 let mainWindow: BrowserWindow | null = null
+let updateInstaller: AppUpdateInstaller | undefined
+let blockWindowCloseForUpdate: (() => string | undefined) | undefined
+let captureCommandPending = 0
 
 function createWindow() {
   const isDarwin = process.platform === 'darwin'
@@ -271,6 +277,13 @@ function createWindow() {
     },
   })
   mainWindow = window
+  window.on('close', event => {
+    const reason = blockWindowCloseForUpdate?.()
+    if (reason) {
+      event.preventDefault()
+      void dialog.showMessageBox(window, { type: 'info', message: reason, buttons: ['好'] })
+    }
+  })
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = null
   })
@@ -335,22 +348,30 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('recorder:status', () => recorder.getStatus())
   ipcMain.handle('recorder:command', async (_event, command: RecorderCommand) => {
-    const allowed = new Set(['start', 'pause', 'resume', 'stop', 'status', 'permissions', 'policy'])
-    if (!allowed.has(command.type)) throw new Error('Unsupported recorder command')
-    if (command.type === 'start' && browserCapture.getStatus().state === 'capturing') {
-      await browserCapture.command({ type: 'stop' })
-    }
-    if (command.type === 'start') recorder.command(defaultCapturePolicy)
-    return recorder.command({ ...command, ownerWindowHandle: windowsOwnerHandle() })
+    if (updateInstaller?.preparing || updateInstaller?.approved) throw new Error('正在安装应用更新。')
+    captureCommandPending++
+    try {
+      const allowed = new Set(['start', 'pause', 'resume', 'stop', 'status', 'permissions', 'policy'])
+      if (!allowed.has(command.type)) throw new Error('Unsupported recorder command')
+      if (command.type === 'start' && browserCapture.getStatus().state === 'capturing') {
+        await browserCapture.command({ type: 'stop' })
+      }
+      if (command.type === 'start') recorder.command(defaultCapturePolicy)
+      return recorder.command({ ...command, ownerWindowHandle: windowsOwnerHandle() })
+    } finally { captureCommandPending-- }
   })
   ipcMain.handle('browser-capture:status', () => browserCapture.getStatus())
   ipcMain.handle('browser-capture:command', async (_event, command: BrowserCaptureCommand) => {
-    const allowed = new Set(['start', 'stop', 'status'])
-    if (!allowed.has(command.type)) throw new Error('Unsupported browser capture command')
-    if (command.type === 'start' && recorder.getStatus().state === 'observing') {
-      recorder.command({ type: 'stop' })
-    }
-    return browserCapture.command(command)
+    if (updateInstaller?.preparing || updateInstaller?.approved) throw new Error('正在安装应用更新。')
+    captureCommandPending++
+    try {
+      const allowed = new Set(['start', 'stop', 'status'])
+      if (!allowed.has(command.type)) throw new Error('Unsupported browser capture command')
+      if (command.type === 'start' && recorder.getStatus().state === 'observing') {
+        recorder.command({ type: 'stop' })
+      }
+      return await browserCapture.command(command)
+    } finally { captureCommandPending-- }
   })
   ipcMain.handle('capture:list-workflows', () => captureRepository.loadWorkflows())
   ipcMain.handle('capture:list-events', (_event, limit?: number) => (
@@ -1717,6 +1738,7 @@ ${skill.description || ''}
   let accountManager: AccountManager | undefined
   let accountStorageRoot = ''
   let accountMutationInProgress = false
+  let accountOperations = 0
   let accountOAuth: AccountOAuthService | undefined
   let accountOAuthOwner: Electron.WebContents | undefined
   let detachOAuthOwner: (() => void) | undefined
@@ -1757,6 +1779,7 @@ ${skill.description || ''}
   }
   function getAccountOAuth(event: Electron.IpcMainInvokeEvent) {
     assertAccountSender(event)
+    if (updateInstaller?.preparing || updateInstaller?.approved) throw new AccountError('正在安装应用更新，请稍后重试。')
     const manager = getAccountManager()
     if (accountOAuth && accountOAuthOwner !== event.sender) disposeAccountOAuth()
     if (!accountOAuth) {
@@ -1788,7 +1811,7 @@ ${skill.description || ''}
   let renewalRunning = false
   let renewalStopped = false
   async function checkAccountRenewals() {
-    if (renewalRunning || renewalStopped || accountMutationInProgress) return
+    if (renewalRunning || renewalStopped || accountMutationInProgress || updateInstaller?.preparing || updateInstaller?.approved) return
     renewalRunning = true
     try {
       await getAccountManager().refreshDueAccounts()
@@ -1803,7 +1826,8 @@ ${skill.description || ''}
   const onRenewalWake = () => { void checkAccountRenewals() }
   powerMonitor.on('resume', onRenewalWake)
   app.on('browser-window-focus', onRenewalWake)
-  app.on('before-quit', () => {
+  app.on('before-quit', event => {
+    if (event.defaultPrevented) return
     renewalStopped = true
     clearInterval(renewalTimer)
     powerMonitor.removeListener('resume', onRenewalWake)
@@ -1811,6 +1835,8 @@ ${skill.description || ''}
     disposeAccountManager()
   })
   async function accountCall<T>(operation: (manager: AccountManager) => Promise<T>, mutation = false): Promise<T> {
+    if (updateInstaller?.preparing || updateInstaller?.approved) throw new Error('正在安装应用更新，请稍后重试。')
+    accountOperations++
     try {
       if (mutation && accountMutationInProgress) throw new AccountError('账号操作进行中，请稍后重试。')
       const manager = getAccountManager()
@@ -1819,7 +1845,7 @@ ${skill.description || ''}
       finally { if (mutation) accountMutationInProgress = false }
     } catch (error) {
       throw new Error(sanitizeErrorMessage(error))
-    }
+    } finally { accountOperations-- }
   }
   // The old profiles:* handlers are intentionally not registered: whole-environment
   // snapshots must never remain an alternate path to change model/MCP settings.
@@ -1848,6 +1874,80 @@ ${skill.description || ''}
   ipcMain.handle('accounts:rename', (_event, id: string, name: string) => accountCall(manager => manager.renameAccount(id, name), true))
   ipcMain.handle('accounts:delete', (_event, id: string) => accountCall(manager => manager.deleteAccount(id), true))
 
+  const simulatedUpdates = !app.isPackaged && process.env.TRACE_SIMULATE_UPDATE === '1'
+  const updatesEnabled = simulatedUpdates || (app.isPackaged && ['darwin', 'win32'].includes(process.platform)
+    && existsSync(path.join(process.resourcesPath, 'app-update.yml')))
+  const updates = new AppUpdateService({
+    currentVersion: app.getVersion(), enabled: updatesEnabled, simulated: simulatedUpdates,
+    transport: updatesEnabled && !simulatedUpdates ? createElectronUpdateTransport()
+      : createDevelopmentUpdateTransport({ currentVersion: app.getVersion(), progressIntervalMilliseconds: 500, progressSteps: 20 }),
+    onStateChanged: state => {
+      if (state.status === 'downloaded' && state.error && updateInstaller?.approved) {
+        updateInstaller.approved = false
+        mainWindow?.setEnabled(true)
+        recorder.start()
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updates:changed', state)
+    },
+  })
+  const updateBlockers = new Set<string>()
+  const updateBlocker = (): string | undefined => {
+    if (updateBlockers.size) return '请先保存或关闭正在编辑的内容，再安装更新。'
+    const native = recorder.getStatus()
+    const browser = browserCapture.getStatus()
+    if (captureCommandPending || native.state === 'observing' || native.state === 'paused'
+      || (native.state === 'interrupted' && native.sessionId) || browser.state === 'capturing') {
+      return '请先结束录制，再安装更新。'
+    }
+    if (accountOperations || accountMutationInProgress || renewalRunning || accountManager?.hasActiveRefreshes()) {
+      return '账号操作或凭据续期正在进行，请完成后再安装更新。'
+    }
+  }
+  updateInstaller = new AppUpdateInstaller({
+    ready: () => updates.state().status === 'downloaded',
+    blocker: updateBlocker,
+    prepare: async () => {
+      mainWindow?.setEnabled(false)
+      await browserCapture.shutdown()
+      await recorder.shutdownAndWait()
+    },
+    install: () => { updates.installUpdate() },
+  })
+  blockWindowCloseForUpdate = () => !simulatedUpdates && updates.state().status === 'downloaded'
+    && !updateInstaller?.approved ? (updateInstaller?.preparing ? '正在准备安装更新，请稍候。' : updateBlocker()) : undefined
+  const installUpdate = async () => {
+    if (simulatedUpdates) return updates.state() // Preview only: never shut down any resources.
+    try { await updateInstaller!.install() }
+    catch (error) { mainWindow?.setEnabled(true); recorder.start(); throw error }
+    return updates.state()
+  }
+  for (const [channel, handler] of Object.entries({
+    'updates:state': () => updates.state(),
+    'updates:check': () => updates.checkForUpdates(),
+    'updates:download': () => updates.downloadUpdate(),
+    'updates:install': installUpdate,
+  })) {
+    ipcMain.handle(channel, event => { assertAccountSender(event); return handler() })
+  }
+  ipcMain.handle('updates:blocker', (event, key: unknown, blocked: unknown) => {
+    assertAccountSender(event)
+    if (typeof key !== 'string' || !/^[a-z-]{1,64}$/.test(key) || typeof blocked !== 'boolean') {
+      throw new Error('更新保护状态无效。')
+    }
+    if (blocked) updateBlockers.add(key); else updateBlockers.delete(key)
+  })
+  // Run before existing before-quit cleanup, so a rejected quit leaves services running.
+  app.prependListener('before-quit', event => {
+    if (simulatedUpdates || updates.state().status !== 'downloaded' || updateInstaller?.approved) return
+    event.preventDefault()
+    void installUpdate().catch(() => {
+      recorder.start()
+      void dialog.showMessageBox({ type: 'info', message: updateBlocker() ?? '更新未能安装，请稍后重试。', buttons: ['好'] })
+    })
+  })
+  app.on('will-quit', () => updates.dispose())
+  updates.start({ automatic: updatesEnabled })
+
   createWindow()
   void checkAccountRenewals()
 
@@ -1865,7 +1965,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', event => {
+  if (event.defaultPrevented) return
   if (trayAnimationTimer) clearInterval(trayAnimationTimer)
   trayAnimationTimer = undefined
   statusTray?.destroy()
