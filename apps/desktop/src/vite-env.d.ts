@@ -11,6 +11,10 @@ import type {
 } from '@workflow-skill/capture-protocol'
 import type {
   AIProjectItem,
+  BatchItemResult,
+  CentralMCPServer,
+  ClaudeLinkResult,
+  ClaudeLinkStatus,
   DeleteSkillMode,
   MCPDistributionPreflightResult,
   MCPDistributionReport,
@@ -19,6 +23,10 @@ import type {
   MCPServerDefinition,
   MCPServerInput,
   MCPSourceTool,
+  ProjectRecord,
+  ProjectRuleAssociation,
+  ProjectSkillPathStatus,
+  PublicRule,
   RepositorySkillSearchResult,
   Workflow,
 } from '@workflow-skill/workflow-model'
@@ -94,6 +102,80 @@ declare global {
       preflightMCPDistribution?: (server: MCPServerDefinition | MCPServerInput, targets: MCPDistributionTarget[]) => Promise<MCPDistributionPreflightResult>
       distributeMCPServer?: (server: MCPServerDefinition | MCPServerInput, targets: MCPDistributionTarget[]) => Promise<MCPDistributionReport>
       onMCPChanged?: (listener: () => void) => () => void
+
+      // --- Projects (OPC-56) ---
+      listProjects?: () => Promise<ProjectRecord[]>
+      getActiveProject?: () => Promise<ProjectRecord | null>
+      setActiveProject?: (idOrPath: string) => Promise<{ success: boolean; project?: ProjectRecord; error?: string }>
+      addProject?: (folderPath?: string) => Promise<{ success: boolean; project?: ProjectRecord; error?: string }>
+      removeProject?: (idOrPath: string) => Promise<{ success: boolean; error?: string }>
+      scanProjectSkillPaths?: (projectPath?: string) => Promise<ProjectSkillPathStatus[]>
+      onProjectsChanged?: (listener: () => void) => () => void
+
+      // --- Public Rule Libraries (OPC-56) ---
+      listRules?: () => Promise<PublicRule[]>
+      getRule?: (ruleId: string) => Promise<PublicRule | null>
+      saveRule?: (rule: Partial<PublicRule> & { name: string; content: string }) => Promise<{
+        success: boolean
+        rule: PublicRule
+        syncResults: Array<{ projectPath: string; success: boolean; error?: string }>
+      }>
+      deleteRule?: (ruleId: string) => Promise<{
+        success: boolean
+        syncResults: Array<{ projectPath: string; success: boolean; error?: string }>
+      }>
+      getProjectRuleConfig?: (projectPath?: string) => Promise<ProjectRuleAssociation>
+      setProjectRules?: (projectPath: string, ruleIds: string[]) => Promise<{
+        success: boolean
+        status: 'synced' | 'failed'
+        error?: string
+      }>
+      uninjectProjectRule?: (projectPath: string, ruleId: string) => Promise<{
+        success: boolean
+        status: 'synced' | 'failed'
+        error?: string
+      }>
+      syncProjectRules?: (projectPath: string) => Promise<{
+        success: boolean
+        status: 'synced' | 'failed'
+        error?: string
+      }>
+      createClaudeLink?: (projectPath?: string) => Promise<ClaudeLinkResult>
+      checkClaudeLink?: (projectPath?: string) => Promise<ClaudeLinkStatus>
+      onRulesChanged?: (listener: () => void) => () => void
+
+      // --- Central MCP Assets & Target Injection (OPC-56) ---
+      listCentralMCPServers?: () => Promise<CentralMCPServer[]>
+      saveCentralMCPServer?: (input: Partial<CentralMCPServer> & { name: string; transport: any }) => Promise<{
+        success: boolean
+        server?: CentralMCPServer
+        syncResults?: Array<{ tool: MCPSourceTool; scope: MCPScope; projectPath?: string; success: boolean; error?: string }>
+        error?: string
+      }>
+      deleteCentralMCPServer?: (idOrName: string) => Promise<{ success: boolean; error?: string; targetErrors?: Array<{ target: any; error: string }> }>
+      injectMCPServer?: (serverIdOrName: string, target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => Promise<{ success: boolean; error?: string }>
+      uninjectMCPServer?: (serverIdOrName: string, target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => Promise<{ success: boolean; error?: string }>
+      batchInjectMCPServers?: (serverIds: string[], target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => Promise<{ results: BatchItemResult[] }>
+      batchUninjectMCPServers?: (serverIds: string[], target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => Promise<{ results: BatchItemResult[] }>
+
+      // --- Unified Skill Injection & Batching (OPC-56) ---
+      injectSkill?: (
+        skillId: string,
+        target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
+      ) => Promise<{ success: boolean; linkPath?: string; error?: string }>
+      uninjectSkill?: (
+        skillId: string,
+        target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
+      ) => Promise<{ success: boolean; error?: string }>
+      batchInjectSkills?: (
+        skillIds: string[],
+        target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
+      ) => Promise<{ results: BatchItemResult[] }>
+      batchUninjectSkills?: (
+        skillIds: string[],
+        target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
+      ) => Promise<{ results: BatchItemResult[] }>
+      onSkillsChanged?: (listener: () => void) => () => void
     }
   }
 }

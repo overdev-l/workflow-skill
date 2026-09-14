@@ -3,29 +3,26 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   Check,
-  CheckCircle2,
-  Copy,
   Folder,
+  FolderPlus,
   Layers,
-  Play,
   Plus,
   Power,
   RefreshCw,
   Search,
   Server,
-  Share2,
   Trash2,
   X,
 } from 'lucide-react'
 import type {
-  MCPDistributionPreflightItem,
-  MCPDistributionPreflightResult,
-  MCPDistributionTarget,
+  BatchItemResult,
+  CentralMCPServer,
   MCPScope,
-  MCPServerDefinition,
   MCPServerInput,
   MCPSourceTool,
+  MCPTargetAssociation,
   MCPTransportType,
+  ProjectRecord,
 } from '@workflow-skill/workflow-model'
 import { MCP_SOURCE_TOOLS } from '@workflow-skill/workflow-model'
 import { AIToolLogo } from '../AIToolLogo'
@@ -37,16 +34,26 @@ interface KeyValuePair {
   value: string
 }
 
-const TOOL_TAB_NAMES: Record<MCPSourceTool, string> = {
+const TOOL_NAMES: Record<MCPSourceTool, string> = {
   'claude-code': 'Claude Code',
   cursor: 'Cursor',
   gemini: 'Gemini',
   codex: 'Codex',
 }
 
+// Tool protocol compatibility
+const TOOL_TRANSPORT_SUPPORT: Record<MCPSourceTool, MCPTransportType[]> = {
+  'claude-code': ['stdio', 'sse', 'http'],
+  cursor: ['stdio', 'sse'],
+  gemini: ['stdio', 'sse'],
+  codex: ['stdio', 'sse', 'http'],
+}
+
+// Tools supporting project-scope configs
+const PROJECT_SUPPORTED_TOOLS: MCPSourceTool[] = ['claude-code', 'cursor', 'codex']
+
 interface FormBaseline {
   serverId: string
-  revision?: string
   transport: MCPTransportType
   command: string
   args: string[]
@@ -58,8 +65,7 @@ interface FormBaseline {
 }
 
 type PendingNavigationAction =
-  | { type: 'switch_tool'; tool: MCPSourceTool }
-  | { type: 'switch_scope'; scope: MCPScope }
+  | { type: 'switch_scope'; scope: 'all' | 'global' | 'project' }
   | { type: 'switch_row'; serverId: string }
   | { type: 'change_query'; query: string }
   | { type: 'open_create' }
@@ -80,19 +86,9 @@ function areKeyValuePairsEqual(a: KeyValuePair[], b: KeyValuePair[]): boolean {
   return true
 }
 
-function testServerMatchesQuery(s: MCPServerDefinition, q: string): boolean {
-  const toolName = s.sourceTool.toLowerCase()
-  const name = s.name.toLowerCase()
-  const transport = s.transport.toLowerCase()
-  const cmd = (s.command || '').toLowerCase()
-  const url = (s.url || '').toLowerCase()
-  return (
-    name.includes(q) ||
-    toolName.includes(q) ||
-    transport.includes(q) ||
-    cmd.includes(q) ||
-    url.includes(q)
-  )
+function normalizePath(p?: string): string {
+  if (!p) return ''
+  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 }
 
 export function McpThreeColumn({
@@ -102,18 +98,20 @@ export function McpThreeColumn({
 }) {
   const { t } = useI18n()
 
-  const [activeTool, setActiveTool] = useState<MCPSourceTool>('claude-code')
-  const [activeTab, setActiveTab] = useState<MCPScope>('global')
+  const [activeScopeTab, setActiveScopeTab] = useState<'all' | 'global' | 'project'>('all')
   const [query, setQuery] = useState('')
-  const [servers, setServers] = useState<{ global: MCPServerDefinition[]; project: MCPServerDefinition[] }>({
-    global: [],
-    project: [],
-  })
+  const [centralServers, setCentralServers] = useState<CentralMCPServer[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null)
+  const [projects, setProjects] = useState<ProjectRecord[]>([])
+  const [selectedProjectPath, setSelectedProjectPath] = useState<string>('')
+
+  // Target operating states
+  const [targetOperating, setTargetOperating] = useState<Record<string, boolean>>({})
 
   // Editor Form State
   const [formName, setFormName] = useState('')
+  const [formDescription, setFormDescription] = useState('')
   const [formTransport, setFormTransport] = useState<MCPTransportType>('stdio')
   const [formCommand, setFormCommand] = useState('')
   const [formArgs, setFormArgs] = useState<string[]>([])
@@ -124,7 +122,6 @@ export function McpThreeColumn({
   const [formEnvHeaderPairs, setFormEnvHeaderPairs] = useState<KeyValuePair[]>([])
   const [formSaving, setFormSaving] = useState(false)
   const [toggling, setToggling] = useState(false)
-  const [formBaseRevision, setFormBaseRevision] = useState<string | undefined>(undefined)
   const [formBaseline, setFormBaseline] = useState<FormBaseline | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const lastLoadedIdRef = useRef<string | null>(null)
@@ -132,54 +129,11 @@ export function McpThreeColumn({
   // Unsaved Changes Confirmation State
   const [unsavedModalOpen, setUnsavedModalOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState<PendingNavigationAction | null>(null)
-  const unsavedDialogRef = useRef<HTMLDivElement>(null)
-  const cancelUnsavedRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (!unsavedModalOpen) return
-    const previousFocus = document.activeElement as HTMLElement | null
-    cancelUnsavedRef.current?.focus()
-    const handleDialogKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        setUnsavedModalOpen(false)
-        setPendingAction(null)
-      } else if (event.key === 'Tab') {
-        const buttons = unsavedDialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
-        if (!buttons?.length) return
-        const first = buttons[0]
-        const last = buttons[buttons.length - 1]
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault()
-          last.focus()
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault()
-          first.focus()
-        }
-      }
-    }
-    window.addEventListener('keydown', handleDialogKey, true)
-    return () => {
-      window.removeEventListener('keydown', handleDialogKey, true)
-      previousFocus?.focus()
-    }
-  }, [unsavedModalOpen])
-
-  // Distribution State
-  const [selectedTargets, setSelectedTargets] = useState<Record<string, boolean>>({})
-  const [distributing, setDistributing] = useState(false)
-  const [preflighting, setPreflighting] = useState(false)
-  const [preflightResult, setPreflightResult] = useState<MCPDistributionPreflightResult | null>(null)
-  const [preflightModalOpen, setPreflightModalOpen] = useState(false)
-  const [frozenServer, setFrozenServer] = useState<MCPServerDefinition | null>(null)
-  const [frozenTargets, setFrozenTargets] = useState<MCPDistributionTarget[]>([])
 
   // Create Modal State
   const [createModalOpen, setCreateModalOpen] = useState(false)
-  const [newScope, setNewScope] = useState<MCPScope>('global')
-  const [newTool, setNewTool] = useState<MCPSourceTool>('claude-code')
   const [newName, setNewName] = useState('')
+  const [newDescription, setNewDescription] = useState('')
   const [newTransport, setNewTransport] = useState<MCPTransportType>('stdio')
   const [newCommand, setNewCommand] = useState('')
   const [newArgs, setNewArgs] = useState<string[]>([])
@@ -190,16 +144,16 @@ export function McpThreeColumn({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const isBusy = formSaving || toggling || deleting || distributing || preflighting || loading || createSaving
+  const isBusy = formSaving || toggling || deleting || loading || createSaving
 
-  // Load MCP Servers
-  const loadServers = async () => {
-    if (!window.workflowSkill?.listMCPServers) return
+  // 1. Load Central Servers & Projects
+  const loadCentralServers = async () => {
+    if (!window.workflowSkill?.listCentralMCPServers) return
     setLoading(true)
     setLoadError(null)
     try {
-      const data = await window.workflowSkill.listMCPServers()
-      setServers(data)
+      const data = await window.workflowSkill.listCentralMCPServers()
+      setCentralServers(data || [])
       setLoadError(null)
     } catch (err) {
       const msg = (err as Error).message
@@ -210,22 +164,59 @@ export function McpThreeColumn({
     }
   }
 
+  const loadProjects = async () => {
+    if (!window.workflowSkill?.listProjects) return
+    try {
+      const list = await window.workflowSkill.listProjects()
+      setProjects(list || [])
+      if (list && list.length > 0 && !selectedProjectPath) {
+        if (window.workflowSkill.getActiveProject) {
+          const active = await window.workflowSkill.getActiveProject()
+          setSelectedProjectPath(active ? active.path : list[0].path)
+        } else {
+          setSelectedProjectPath(list[0].path)
+        }
+      }
+    } catch {}
+  }
+
+  const handleAddProject = async () => {
+    if (!window.workflowSkill?.addProject) return
+    try {
+      const res = await window.workflowSkill.addProject()
+      if (res.success && res.project) {
+        await loadProjects()
+        setSelectedProjectPath(res.project.path)
+        notify?.(`已添加项目: ${res.project.name}`)
+      }
+    } catch (err: any) {
+      notify?.(`添加项目失败: ${err.message}`)
+    }
+  }
+
   useEffect(() => {
-    void loadServers()
+    void loadCentralServers()
+    void loadProjects()
   }, [])
 
-  // Listen for MCP configuration changes broadcast from main process
+  // Listen for MCP and project configuration changes broadcast from main process
   useEffect(() => {
-    if (!window.workflowSkill?.onMCPChanged) return
-    const unsubscribe = window.workflowSkill.onMCPChanged(() => {
-      void loadServers()
+    const unbindMCP = window.workflowSkill?.onMCPChanged?.(() => {
+      void loadCentralServers()
     })
-    return unsubscribe
+    const unbindProjects = window.workflowSkill?.onProjectsChanged?.(() => {
+      void loadProjects()
+      void loadCentralServers()
+    })
+    return () => {
+      unbindMCP?.()
+      unbindProjects?.()
+    }
   }, [])
 
-  useUpdateBlocker('mcp-actions', createModalOpen || createSaving || formSaving || distributing || toggling || deleting)
+  useUpdateBlocker('mcp-actions', createModalOpen || createSaving || formSaving || toggling || deleting)
 
-  // Dirty detection for all editable fields
+  // Dirty detection for editable fields
   const isDirty = useMemo(() => {
     if (!formBaseline || !selectedServerId) return false
     if (formBaseline.serverId !== selectedServerId) return false
@@ -257,35 +248,47 @@ export function McpThreeColumn({
   ])
   useUpdateBlocker('mcp-editor', isDirty)
 
-  // Current tool and scope server list
-  const currentList = useMemo(() => {
-    const scopeList = activeTab === 'global' ? servers.global : servers.project
-    return scopeList.filter((s) => s.sourceTool === activeTool)
-  }, [activeTab, activeTool, servers])
-
-  // Filtered servers by query
+  // Filtered servers by scope tab and search query
   const filteredServers = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return currentList
-    return currentList.filter((s) => testServerMatchesQuery(s, q))
-  }, [currentList, query])
+    let list = centralServers
 
-  // Active Selected Server - MUST ONLY be an item in filtered visible list
+    if (activeScopeTab === 'global') {
+      list = list.filter((s) => (s.targetAssociations || []).some((a) => a.scope === 'global'))
+    } else if (activeScopeTab === 'project') {
+      list = list.filter((s) => (s.targetAssociations || []).some((a) => a.scope === 'project'))
+    }
+
+    const q = query.trim().toLowerCase()
+    if (!q) return list
+
+    return list.filter((s) => {
+      const name = (s.name || '').toLowerCase()
+      const desc = (s.description || '').toLowerCase()
+      const transport = (s.transport || '').toLowerCase()
+      const cmd = (s.command || '').toLowerCase()
+      const url = (s.url || '').toLowerCase()
+      return (
+        name.includes(q) ||
+        desc.includes(q) ||
+        transport.includes(q) ||
+        cmd.includes(q) ||
+        url.includes(q)
+      )
+    })
+  }, [centralServers, activeScopeTab, query])
+
+  // Active Selected Server
   const selectedServer = useMemo(() => {
     if (filteredServers.length === 0) return null
     if (!selectedServerId) return filteredServers[0]
     return filteredServers.find((s) => s.id === selectedServerId) || null
   }, [filteredServers, selectedServerId])
 
-  // Keep selectedServerId synchronized with filteredServers without loops
+  // Synchronize selectedServerId
   useEffect(() => {
-    // A newly created ID is selected before the refreshed list arrives.
-    // Keep that intent while loading instead of replacing it with an old row.
     if (loading || createSaving) return
     if (filteredServers.length === 0) {
-      if (selectedServerId !== null) {
-        setSelectedServerId(null)
-      }
+      if (selectedServerId !== null) setSelectedServerId(null)
       return
     }
     const exists = filteredServers.some((s) => s.id === selectedServerId)
@@ -301,14 +304,13 @@ export function McpThreeColumn({
       setFormBaseline(null)
       return
     }
-    // Only repopulate if selectedServer ID changed to avoid wiping user dirty input
     if (lastLoadedIdRef.current === selectedServer.id) {
       return
     }
     lastLoadedIdRef.current = selectedServer.id
-    setFormBaseRevision(selectedServer.revision)
 
     setFormName(selectedServer.name)
+    setFormDescription(selectedServer.description || '')
     setFormTransport(selectedServer.transport)
     setFormCommand(selectedServer.command || '')
     const args = selectedServer.args ? [...selectedServer.args] : []
@@ -316,19 +318,16 @@ export function McpThreeColumn({
     setFormCwd(selectedServer.cwd || '')
     setFormUrl(selectedServer.url || '')
 
-    // Env pairs
     const envPairs = selectedServer.env
       ? Object.entries(selectedServer.env).map(([k, v]) => ({ key: k, value: v }))
       : []
     setFormEnvPairs(envPairs)
 
-    // Headers
     const headerPairs = selectedServer.headers
       ? Object.entries(selectedServer.headers).map(([k, v]) => ({ key: k, value: v }))
       : []
     setFormHeaderPairs(headerPairs)
 
-    // Env Headers (Codex)
     const envHeaderPairs = selectedServer.envHeaders
       ? Object.entries(selectedServer.envHeaders).map(([k, v]) => ({ key: k, value: v }))
       : []
@@ -336,7 +335,6 @@ export function McpThreeColumn({
 
     setFormBaseline({
       serverId: selectedServer.id,
-      revision: selectedServer.revision,
       transport: selectedServer.transport,
       command: selectedServer.command || '',
       args,
@@ -346,21 +344,9 @@ export function McpThreeColumn({
       headerPairs,
       envHeaderPairs,
     })
-
-    // Reset target selections: select all other tools by default
-    const defaults: Record<string, boolean> = {}
-    for (const tool of MCP_SOURCE_TOOLS) {
-      if (tool.id !== selectedServer.sourceTool) {
-        defaults[`${tool.id}:${selectedServer.scope}`] = true
-      }
-    }
-    setSelectedTargets(defaults)
-    setPreflightResult(null)
-    setFrozenServer(null)
-    setFrozenTargets([])
   }, [selectedServer])
 
-  // Helper to convert KeyValuePair array to Record with duplicate key guard
+  // Convert pairs to record with duplicate key detection
   const pairsToRecord = (pairs: KeyValuePair[]): { record: Record<string, string>; hasDuplicates: boolean } => {
     const record: Record<string, string> = {}
     const seen = new Set<string>()
@@ -377,55 +363,18 @@ export function McpThreeColumn({
     return { record, hasDuplicates }
   }
 
-  // Handle Switch Tool Tab
-  const handleSwitchTool = (newTool: MCPSourceTool) => {
-    if (isBusy || newTool === activeTool) return
-    if (isDirty) {
-      setPendingAction({ type: 'switch_tool', tool: newTool })
-      setUnsavedModalOpen(true)
-      return
-    }
-    executeSwitchTool(newTool)
-  }
-
-  const executeSwitchTool = (newTool: MCPSourceTool) => {
-    setActiveTool(newTool)
-    setPreflightResult(null)
-    setFrozenServer(null)
-    setFrozenTargets([])
-    const scopeList = activeTab === 'global' ? servers.global : servers.project
-    const toolList = scopeList.filter((s) => s.sourceTool === newTool)
-    const q = query.trim().toLowerCase()
-    const matching = q ? toolList.filter((s) => testServerMatchesQuery(s, q)) : toolList
-    setSelectedServerId(matching[0]?.id ?? null)
-    lastLoadedIdRef.current = null
-  }
-
-  // Handle Switch Scope Tab
-  const handleSwitchScope = (newScope: MCPScope) => {
-    if (isBusy || newScope === activeTab) return
+  // Navigation handlers with unsaved guard
+  const handleSwitchScope = (newScope: 'all' | 'global' | 'project') => {
+    if (isBusy || newScope === activeScopeTab) return
     if (isDirty) {
       setPendingAction({ type: 'switch_scope', scope: newScope })
       setUnsavedModalOpen(true)
       return
     }
-    executeSwitchScope(newScope)
-  }
-
-  const executeSwitchScope = (newScope: MCPScope) => {
-    setActiveTab(newScope)
-    setPreflightResult(null)
-    setFrozenServer(null)
-    setFrozenTargets([])
-    const scopeList = newScope === 'global' ? servers.global : servers.project
-    const toolList = scopeList.filter((s) => s.sourceTool === activeTool)
-    const q = query.trim().toLowerCase()
-    const matching = q ? toolList.filter((s) => testServerMatchesQuery(s, q)) : toolList
-    setSelectedServerId(matching[0]?.id ?? null)
+    setActiveScopeTab(newScope)
     lastLoadedIdRef.current = null
   }
 
-  // Handle Select Row
   const handleSelectRow = (serverId: string) => {
     if (isBusy || serverId === selectedServer?.id) return
     if (isDirty) {
@@ -433,46 +382,24 @@ export function McpThreeColumn({
       setUnsavedModalOpen(true)
       return
     }
-    executeSelectRow(serverId)
-  }
-
-  const executeSelectRow = (serverId: string) => {
     setSelectedServerId(serverId)
-    setPreflightResult(null)
-    setFrozenServer(null)
-    setFrozenTargets([])
     lastLoadedIdRef.current = null
   }
 
-  // Handle Query Change
   const handleQueryChange = (newQuery: string) => {
     if (isBusy) return
     if (isDirty && selectedServer) {
       const q = newQuery.trim().toLowerCase()
-      const currentStillMatches = !q || testServerMatchesQuery(selectedServer, q)
-      if (!currentStillMatches) {
+      const matches = !q || (selectedServer.name && selectedServer.name.toLowerCase().includes(q))
+      if (!matches) {
         setPendingAction({ type: 'change_query', query: newQuery })
         setUnsavedModalOpen(true)
         return
       }
     }
-    executeChangeQuery(newQuery)
-  }
-
-  const executeChangeQuery = (newQuery: string) => {
     setQuery(newQuery)
-    const q = newQuery.trim().toLowerCase()
-    const scopeList = activeTab === 'global' ? servers.global : servers.project
-    const toolList = scopeList.filter((s) => s.sourceTool === activeTool)
-    const matching = q ? toolList.filter((s) => testServerMatchesQuery(s, q)) : toolList
-
-    if (selectedServerId && !matching.some((s) => s.id === selectedServerId)) {
-      setSelectedServerId(matching[0]?.id ?? null)
-      lastLoadedIdRef.current = null
-    }
   }
 
-  // Handle Open Create Modal
   const handleOpenCreate = () => {
     if (isBusy) return
     if (isDirty) {
@@ -480,13 +407,8 @@ export function McpThreeColumn({
       setUnsavedModalOpen(true)
       return
     }
-    executeOpenCreate()
-  }
-
-  const executeOpenCreate = () => {
-    setNewTool(activeTool)
-    setNewScope(activeTab)
     setNewName('')
+    setNewDescription('')
     setNewTransport('stdio')
     setNewCommand('')
     setNewArgs([])
@@ -494,84 +416,34 @@ export function McpThreeColumn({
     setCreateModalOpen(true)
   }
 
-  // Cancel Unsaved Modal
-  const handleCancelUnsaved = () => {
-    setUnsavedModalOpen(false)
-    setPendingAction(null)
-  }
-
-  // Confirm Discard Unsaved Changes
   const handleConfirmDiscard = () => {
     setUnsavedModalOpen(false)
     const action = pendingAction
     setPendingAction(null)
     if (!action) return
 
-    if (action.type === 'switch_tool') {
-      executeSwitchTool(action.tool)
-    } else if (action.type === 'switch_scope') {
-      executeSwitchScope(action.scope)
+    if (action.type === 'switch_scope') {
+      setActiveScopeTab(action.scope)
+      lastLoadedIdRef.current = null
     } else if (action.type === 'switch_row') {
-      executeSelectRow(action.serverId)
+      setSelectedServerId(action.serverId)
+      lastLoadedIdRef.current = null
     } else if (action.type === 'change_query') {
-      executeChangeQuery(action.query)
+      setQuery(action.query)
     } else if (action.type === 'open_create') {
-      executeOpenCreate()
+      setNewName('')
+      setNewDescription('')
+      setNewTransport('stdio')
+      setNewCommand('')
+      setNewArgs([])
+      setNewUrl('')
+      setCreateModalOpen(true)
     }
   }
 
-  // Keyboard navigation for tool tabs
-  const handleToolTabKeyDown = (e: React.KeyboardEvent, currentToolId: MCPSourceTool) => {
-    const currentIndex = MCP_SOURCE_TOOLS.findIndex((tool) => tool.id === currentToolId)
-    if (currentIndex === -1) return
-
-    let nextIndex = -1
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-      e.preventDefault()
-      nextIndex = (currentIndex + 1) % MCP_SOURCE_TOOLS.length
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      nextIndex = (currentIndex - 1 + MCP_SOURCE_TOOLS.length) % MCP_SOURCE_TOOLS.length
-    } else if (e.key === 'Home') {
-      e.preventDefault()
-      nextIndex = 0
-    } else if (e.key === 'End') {
-      e.preventDefault()
-      nextIndex = MCP_SOURCE_TOOLS.length - 1
-    }
-
-    if (nextIndex !== -1) {
-      const targetTool = MCP_SOURCE_TOOLS[nextIndex]
-      handleSwitchTool(targetTool.id)
-      const el = document.getElementById(`mcp-tool-tab-${targetTool.id}`)
-      el?.focus()
-    }
-  }
-
-  // Keyboard navigation for scope tabs
-  const handleScopeTabKeyDown = (e: React.KeyboardEvent, currentScope: MCPScope) => {
-    let nextScope: MCPScope | null = null
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      nextScope = currentScope === 'global' ? 'project' : 'global'
-    } else if (e.key === 'Home') {
-      e.preventDefault()
-      nextScope = 'global'
-    } else if (e.key === 'End') {
-      e.preventDefault()
-      nextScope = 'project'
-    }
-
-    if (nextScope && nextScope !== currentScope) {
-      handleSwitchScope(nextScope)
-      const el = document.getElementById(`mcp-scope-tab-${nextScope}`)
-      el?.focus()
-    }
-  }
-
-  // Handle Save
+  // 2. Save Central Server
   const handleSave = async () => {
-    if (!selectedServer || !window.workflowSkill?.saveMCPServer) return
+    if (!selectedServer || !window.workflowSkill?.saveCentralMCPServer) return
     const envRes = pairsToRecord(formEnvPairs)
     const headerRes = pairsToRecord(formHeaderPairs)
     const envHeaderRes = pairsToRecord(formEnvHeaderPairs)
@@ -583,8 +455,10 @@ export function McpThreeColumn({
 
     setFormSaving(true)
     try {
-      const input: MCPServerInput = {
-        name: selectedServer.name, // Primary name is immutable to prevent orphaned duplicates
+      const input = {
+        id: selectedServer.id,
+        name: selectedServer.name,
+        description: formDescription.trim() || undefined,
         transport: formTransport,
         command: formTransport === 'stdio' ? formCommand.trim() : undefined,
         args: formTransport === 'stdio' ? formArgs : undefined,
@@ -594,29 +468,15 @@ export function McpThreeColumn({
         headers: formTransport !== 'stdio' ? headerRes.record : undefined,
         envHeaders: formTransport !== 'stdio' ? envHeaderRes.record : undefined,
         enabled: selectedServer.enabled,
-        sourceRaw: selectedServer.sourceRaw,
-        expectedRevision: formBaseRevision,
+        targetAssociations: selectedServer.targetAssociations,
       }
 
-      const res = await window.workflowSkill.saveMCPServer(
-        {
-          tool: selectedServer.sourceTool,
-          scope: selectedServer.scope,
-          expectedRevision: formBaseRevision,
-        },
-        input
-      )
+      const res = await window.workflowSkill.saveCentralMCPServer(input)
 
       if (res.success) {
         notify?.(t.mcp.savedToast(input.name))
-        const newRevision = res.server?.revision || formBaseRevision
-        if (res.server?.revision) {
-          setFormBaseRevision(res.server.revision)
-        }
-        // Reset baseline after successful save
         setFormBaseline({
           serverId: selectedServer.id,
-          revision: newRevision,
           transport: formTransport,
           command: formTransport === 'stdio' ? formCommand : '',
           args: formTransport === 'stdio' ? [...formArgs] : [],
@@ -626,7 +486,7 @@ export function McpThreeColumn({
           headerPairs: formTransport !== 'stdio' ? [...formHeaderPairs] : [],
           envHeaderPairs: formTransport !== 'stdio' ? [...formEnvHeaderPairs] : [],
         })
-        await loadServers()
+        await loadCentralServers()
       } else {
         notify?.(res.error || t.mcp.operationFailed)
       }
@@ -637,28 +497,19 @@ export function McpThreeColumn({
     }
   }
 
-  // Handle Toggle Enable/Disable
+  // 3. Toggle Server Enabled State
   const handleToggleEnable = async () => {
-    if (!selectedServer || !window.workflowSkill?.toggleMCPServer) return
+    if (!selectedServer || !window.workflowSkill?.saveCentralMCPServer) return
     const nextState = !selectedServer.enabled
     setToggling(true)
     try {
-      const res = await window.workflowSkill.toggleMCPServer(
-        {
-          tool: selectedServer.sourceTool,
-          scope: selectedServer.scope,
-          name: selectedServer.name,
-          expectedRevision: selectedServer.revision,
-        },
-        nextState
-      )
+      const res = await window.workflowSkill.saveCentralMCPServer({
+        ...selectedServer,
+        enabled: nextState,
+      })
       if (res.success) {
         notify?.(nextState ? t.mcp.enabledToast(selectedServer.name) : t.mcp.disabledToast(selectedServer.name))
-        if (formBaseRevision === selectedServer.revision && res.server?.revision) {
-          setFormBaseRevision(res.server.revision)
-          setFormBaseline((prev) => (prev ? { ...prev, revision: res.server?.revision } : null))
-        }
-        await loadServers()
+        await loadCentralServers()
       } else {
         notify?.(res.error || t.mcp.operationFailed)
       }
@@ -669,29 +520,25 @@ export function McpThreeColumn({
     }
   }
 
-  // Handle Delete
+  // 4. Delete Central Server (Truthful failure inspection)
   const handleDelete = async () => {
-    if (!selectedServer || !window.workflowSkill?.deleteMCPServer) return
+    if (!selectedServer || !window.workflowSkill?.deleteCentralMCPServer) return
     setDeleting(true)
     try {
-      const res = await window.workflowSkill.deleteMCPServer({
-        tool: selectedServer.sourceTool,
-        scope: selectedServer.scope,
-        name: selectedServer.name,
-        expectedRevision: selectedServer.revision,
-      })
+      const res = await window.workflowSkill.deleteCentralMCPServer(selectedServer.id)
       if (res.success) {
         notify?.(t.mcp.deletedToast(selectedServer.name))
         setDeleteConfirmOpen(false)
         setSelectedServerId(null)
         setFormBaseline(null)
         lastLoadedIdRef.current = null
-        setPreflightResult(null)
-        setFrozenServer(null)
-        setFrozenTargets([])
-        await loadServers()
+        await loadCentralServers()
       } else {
-        notify?.(res.error || t.mcp.operationFailed)
+        const errDetail = res.targetErrors && res.targetErrors.length > 0
+          ? `部分注入目标取消失败: ${res.targetErrors.map((e) => e.error).join('; ')}`
+          : (res.error || t.mcp.operationFailed)
+        notify?.(errDetail)
+        await loadCentralServers()
       }
     } catch (err) {
       notify?.((err as Error).message)
@@ -700,43 +547,33 @@ export function McpThreeColumn({
     }
   }
 
-  // Handle Create New Server
+  // 5. Create Central Server
   const handleCreate = async () => {
-    if (!newName.trim() || !window.workflowSkill?.saveMCPServer) return
+    if (!newName.trim() || !window.workflowSkill?.saveCentralMCPServer) return
     setCreateSaving(true)
     try {
-      const input: MCPServerInput = {
+      const res = await window.workflowSkill.saveCentralMCPServer({
         name: newName.trim(),
+        description: newDescription.trim() || undefined,
         transport: newTransport,
         command: newTransport === 'stdio' ? newCommand.trim() : undefined,
         args: newTransport === 'stdio' ? newArgs : undefined,
         url: newTransport !== 'stdio' ? newUrl.trim() : undefined,
         enabled: true,
-      }
-
-      const res = await window.workflowSkill.saveMCPServer(
-        { tool: newTool, scope: newScope },
-        { ...input, isNew: true }
-      )
+      })
 
       if (res.success && res.server) {
-        notify?.(t.mcp.savedToast(input.name))
+        notify?.(t.mcp.savedToast(res.server.name))
         setCreateModalOpen(false)
         setNewName('')
+        setNewDescription('')
         setNewCommand('')
         setNewArgs([])
         setNewUrl('')
-        // Navigate to newly created server destination so it is visible
-        setActiveTool(newTool)
-        setActiveTab(newScope)
-        setQuery('')
         setSelectedServerId(res.server.id)
         setFormBaseline(null)
         lastLoadedIdRef.current = null
-        setPreflightResult(null)
-        setFrozenServer(null)
-        setFrozenTargets([])
-        await loadServers()
+        await loadCentralServers()
       } else {
         notify?.(res.error || t.mcp.operationFailed)
       }
@@ -747,67 +584,62 @@ export function McpThreeColumn({
     }
   }
 
-  // Handle Distribution Preflight
-  const handlePreflight = async () => {
-    if (isBusy || !selectedServer || !window.workflowSkill?.preflightMCPDistribution) return
-    const targets: MCPDistributionTarget[] = Object.entries(selectedTargets)
-      .filter(([, checked]) => checked)
-      .map(([key]) => {
-        const [tool, scope] = key.split(':') as [MCPSourceTool, MCPScope]
-        return { tool, scope }
-      })
+  // 6. Inject / Uninject to Target with Authoritative Feedback
+  const handleInject = async (target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => {
+    if (!selectedServer || !window.workflowSkill?.injectMCPServer) return
+    const opKey = `${target.tool}:${target.scope}:${target.projectPath || ''}`
+    setTargetOperating((prev) => ({ ...prev, [opKey]: true }))
 
-    if (targets.length === 0) {
-      notify?.(t.mcp.distributeSelectTargets)
-      return
-    }
-
-    setPreflighting(true)
     try {
-      const result = await window.workflowSkill.preflightMCPDistribution(selectedServer, targets)
-      setPreflightResult(result)
-      // Freeze the source server and targets snapshot with their preflight revision tokens
-      setFrozenServer({ ...selectedServer })
-      setFrozenTargets(
-        result.targets.map((t) => ({
-          tool: t.tool,
-          scope: t.scope,
-          expectedRevision: t.currentRevision,
-        }))
-      )
-      setPreflightModalOpen(true)
-    } catch (err) {
-      notify?.(t.mcp.distributeFailToast((err as Error).message))
+      const res = await window.workflowSkill.injectMCPServer(selectedServer.id, target)
+      if (res.success) {
+        const targetLabel = target.scope === 'global' ? TOOL_NAMES[target.tool] : `${TOOL_NAMES[target.tool]} (项目)`
+        notify?.(`已成功注入到 ${targetLabel}`)
+        await loadCentralServers()
+      } else {
+        notify?.(res.error || `注入到 ${TOOL_NAMES[target.tool]} 失败`)
+        await loadCentralServers()
+      }
+    } catch (err: any) {
+      notify?.(`注入异常: ${err?.message || String(err)}`)
     } finally {
-      setPreflighting(false)
+      setTargetOperating((prev) => ({ ...prev, [opKey]: false }))
     }
   }
 
-  // Handle Execute Distribution
-  const handleDistribute = async () => {
-    if (!frozenServer || frozenTargets.length === 0 || !window.workflowSkill?.distributeMCPServer) return
+  const handleUninject = async (target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => {
+    if (!selectedServer || !window.workflowSkill?.uninjectMCPServer) return
+    const opKey = `${target.tool}:${target.scope}:${target.projectPath || ''}`
+    setTargetOperating((prev) => ({ ...prev, [opKey]: true }))
 
-    setDistributing(true)
     try {
-      const report = await window.workflowSkill.distributeMCPServer(frozenServer, frozenTargets)
-      const successCount = report.results.filter((r) => r.success).length
-      const failCount = report.results.filter((r) => !r.success).length
-
-      if (report.overallSuccess) {
-        notify?.(t.mcp.distributeSuccessToast(successCount))
-      } else if (successCount > 0) {
-        notify?.(t.mcp.partialSuccessToast(successCount, failCount))
+      const res = await window.workflowSkill.uninjectMCPServer(selectedServer.id, target)
+      if (res.success) {
+        const targetLabel = target.scope === 'global' ? TOOL_NAMES[target.tool] : `${TOOL_NAMES[target.tool]} (项目)`
+        notify?.(`已从 ${targetLabel} 取消注入`)
+        await loadCentralServers()
       } else {
-        notify?.(t.mcp.distributeFailToast(report.results[0]?.error || t.mcp.operationFailed))
+        notify?.(res.error || `从 ${TOOL_NAMES[target.tool]} 取消注入失败`)
+        await loadCentralServers()
       }
-
-      setPreflightModalOpen(false)
-      await loadServers()
-    } catch (err) {
-      notify?.(t.mcp.distributeFailToast((err as Error).message))
+    } catch (err: any) {
+      notify?.(`取消注入异常: ${err?.message || String(err)}`)
     } finally {
-      setDistributing(false)
+      setTargetOperating((prev) => ({ ...prev, [opKey]: false }))
     }
+  }
+
+  // Check target association state
+  const getTargetAssociation = (tool: MCPSourceTool, scope: MCPScope, projectPath?: string): MCPTargetAssociation | undefined => {
+    if (!selectedServer?.targetAssociations) return undefined
+    const normTargetProj = normalizePath(projectPath)
+    return selectedServer.targetAssociations.find((a) => {
+      if (a.tool !== tool || a.scope !== scope) return false
+      if (scope === 'project') {
+        return normalizePath(a.projectPath) === normTargetProj
+      }
+      return true
+    })
   }
 
   return (
@@ -817,74 +649,45 @@ export function McpThreeColumn({
           ========================================================================= */}
       <aside className="app-col-master view-enter">
         <div className="master-header">
-          {/* Tool Selector: 4 Tool Tabs - Height: 24px */}
-          <div className="mcp-tool-nav">
-            <div
-              role="tablist"
-              aria-label={t.mcp.toolTabsLabel}
-              className="master-tab-segmented mcp-tool-segmented"
-            >
-              {MCP_SOURCE_TOOLS.map((tool) => {
-                const isSelected = activeTool === tool.id
-                return (
-                  <button
-                    type="button"
-                    role="tab"
-                    id={`mcp-tool-tab-${tool.id}`}
-                    key={tool.id}
-                    aria-selected={isSelected}
-                    aria-label={TOOL_TAB_NAMES[tool.id]}
-                    title={TOOL_TAB_NAMES[tool.id]}
-                    tabIndex={isSelected ? 0 : -1}
-                    className={`master-tab-btn mcp-tool-tab-btn ${isSelected ? 'is-active' : ''}`}
-                    onClick={() => handleSwitchTool(tool.id)}
-                    onKeyDown={(e) => handleToolTabKeyDown(e, tool.id)}
-                    disabled={isBusy}
-                  >
-                    <AIToolLogo toolId={tool.id} size={14} color />
-                  </button>
-                )
-              })}
-            </div>
-            <div className="mcp-selected-tool-label">
-              <span className="mcp-selected-tool-name">{TOOL_TAB_NAMES[activeTool]}</span>
-            </div>
-          </div>
-
-          {/* Segmented Tab: [ 全局 | 项目 ] - Height: 24px */}
+          {/* Scope Segmented Tabs: [ 全部 | 全局 | 项目 ] - Height: 24px */}
           <div className="master-header-top">
             <div
               role="tablist"
-              aria-label={t.mcp.scopeTabsLabel}
+              aria-label="MCP 资产作用域"
               className="master-tab-segmented mcp-scope-segmented"
             >
               <button
                 type="button"
                 role="tab"
-                id="mcp-scope-tab-global"
-                aria-selected={activeTab === 'global'}
-                aria-label={t.mcp.tabGlobal}
-                tabIndex={activeTab === 'global' ? 0 : -1}
-                className={`master-tab-btn ${activeTab === 'global' ? 'is-active' : ''}`}
-                onClick={() => handleSwitchScope('global')}
-                onKeyDown={(e) => handleScopeTabKeyDown(e, 'global')}
+                aria-selected={activeScopeTab === 'all'}
+                tabIndex={activeScopeTab === 'all' ? 0 : -1}
+                className={`master-tab-btn ${activeScopeTab === 'all' ? 'is-active' : ''}`}
+                onClick={() => handleSwitchScope('all')}
                 disabled={isBusy}
               >
-                <span>{t.mcp.tabGlobal}</span>
+                <span>全部</span>
               </button>
               <button
                 type="button"
                 role="tab"
-                id="mcp-scope-tab-project"
-                aria-selected={activeTab === 'project'}
-                aria-label={t.mcp.tabProject}
-                tabIndex={activeTab === 'project' ? 0 : -1}
-                className={`master-tab-btn ${activeTab === 'project' ? 'is-active' : ''}`}
-                onClick={() => handleSwitchScope('project')}
-                onKeyDown={(e) => handleScopeTabKeyDown(e, 'project')}
+                aria-selected={activeScopeTab === 'global'}
+                tabIndex={activeScopeTab === 'global' ? 0 : -1}
+                className={`master-tab-btn ${activeScopeTab === 'global' ? 'is-active' : ''}`}
+                onClick={() => handleSwitchScope('global')}
                 disabled={isBusy}
               >
-                <span>{t.mcp.tabProject}</span>
+                <span>全局</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeScopeTab === 'project'}
+                tabIndex={activeScopeTab === 'project' ? 0 : -1}
+                className={`master-tab-btn ${activeScopeTab === 'project' ? 'is-active' : ''}`}
+                onClick={() => handleSwitchScope('project')}
+                disabled={isBusy}
+              >
+                <span>项目</span>
               </button>
             </div>
           </div>
@@ -937,7 +740,7 @@ export function McpThreeColumn({
               type="button"
               className="btn btn--capsule btn--sm"
               style={{ alignSelf: 'flex-start' }}
-              onClick={() => void loadServers()}
+              onClick={() => void loadCentralServers()}
             >
               {t.mcp.retryBtn}
             </button>
@@ -952,7 +755,11 @@ export function McpThreeColumn({
               <span>
                 {query
                   ? t.mcp.emptySearch
-                  : t.mcp.emptyToolTitle(TOOL_TAB_NAMES[activeTool])}
+                  : activeScopeTab === 'global'
+                  ? '暂无全局已注入的 MCP 资产'
+                  : activeScopeTab === 'project'
+                  ? '暂无项目已注入的 MCP 资产'
+                  : '中央资产库暂无 MCP 服务'}
               </span>
               {query ? (
                 <button
@@ -965,16 +772,17 @@ export function McpThreeColumn({
                 </button>
               ) : (
                 <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textAlign: 'center', margin: '4px 0 0' }}>
-                  {t.mcp.emptyToolDesc(
-                    TOOL_TAB_NAMES[activeTool],
-                    activeTab === 'global' ? t.mcp.tabGlobal : t.mcp.tabProject
-                  )}
+                  点击下方「新建 MCP Server」添加中央资产，随时一键分发到各个 AI 工具。
                 </p>
               )}
             </div>
           ) : (
             filteredServers.map((server) => {
               const isSelected = selectedServer?.id === server.id
+              const assocs = server.targetAssociations || []
+              const hasError = assocs.some((a) => a.lastSyncStatus === 'failed')
+              const injectedCount = assocs.length
+
               return (
                 <button
                   type="button"
@@ -985,12 +793,23 @@ export function McpThreeColumn({
                 >
                   <div className="mcp-master-row__left">
                     <div className="mcp-master-row__logo">
-                      <AIToolLogo toolId={server.sourceTool} size={15} color />
+                      <Layers size={15} style={{ color: 'var(--color-accent)' }} />
                     </div>
                     <div className="mcp-master-row__info">
                       <span className="mcp-master-row__name">{server.name}</span>
                       <div className="mcp-master-row__sub">
                         <span className="mcp-badge mcp-badge--transport">{server.transport}</span>
+                        {hasError ? (
+                          <span className="mcp-badge" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>
+                            同步失败
+                          </span>
+                        ) : injectedCount > 0 ? (
+                          <span className="mcp-badge" style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#10b981' }}>
+                            {injectedCount} 注入
+                          </span>
+                        ) : (
+                          <span className="mcp-badge mcp-badge--disabled">未注入</span>
+                        )}
                         {!server.enabled ? (
                           <span className="mcp-badge mcp-badge--disabled">{t.mcp.statusDisabled}</span>
                         ) : null}
@@ -1003,7 +822,7 @@ export function McpThreeColumn({
           )}
         </div>
 
-        {/* Bottom Action Bar: New Server Button (Height: 24px) */}
+        {/* Bottom Action Bar: New Central Server Button (Height: 24px) */}
         <div className="mcp-master-action-bar">
           <button
             type="button"
@@ -1028,18 +847,11 @@ export function McpThreeColumn({
               {query.trim()
                 ? t.mcp.emptySearch
                 : filteredServers.length === 0
-                ? t.mcp.emptyToolTitle(TOOL_TAB_NAMES[activeTool])
+                ? '暂无 MCP 资产'
                 : t.mcp.emptyDetailTitle}
             </h2>
             <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', maxWidth: 360, textAlign: 'center', margin: 0 }}>
-              {query.trim()
-                ? t.mcp.emptySearchDesc(query)
-                : filteredServers.length === 0
-                ? t.mcp.emptyToolDesc(
-                    TOOL_TAB_NAMES[activeTool],
-                    activeTab === 'global' ? t.mcp.tabGlobal : t.mcp.tabProject
-                  )
-                : t.mcp.emptyDetailDesc}
+              在左侧列表中选择一个 MCP 资产以编辑配置，或通过注入矩阵一键注入到全局 AI 宿主与工程项目。
             </p>
             <button
               type="button"
@@ -1058,14 +870,14 @@ export function McpThreeColumn({
             <div className="mcp-hero-header">
               <div className="mcp-hero-left">
                 <div className="mcp-hero-logo-box">
-                  <AIToolLogo toolId={selectedServer.sourceTool} size={24} color />
+                  <Layers size={24} style={{ color: 'var(--color-accent)' }} />
                 </div>
                 <div className="mcp-hero-titles">
                   <div className="mcp-hero-title-row">
                     <h1 className="mcp-hero-name font-mono">{selectedServer.name}</h1>
                     <span className="pinned-ver-pill font-mono">{selectedServer.transport}</span>
                     <span className="pinned-ver-pill">
-                      {selectedServer.scope === 'global' ? t.mcp.tabGlobal : t.mcp.tabProject}
+                      已注入 {(selectedServer.targetAssociations || []).length} 个目标
                     </span>
                     {!selectedServer.enabled ? (
                       <span className="mcp-badge mcp-badge--disabled">{t.mcp.statusDisabled}</span>
@@ -1076,7 +888,7 @@ export function McpThreeColumn({
                     )}
                   </div>
                   <div className="mcp-hero-subtitle font-mono">
-                    <span>{selectedServer.configPath}</span>
+                    <span>中央资产库标识: {selectedServer.id}</span>
                   </div>
                 </div>
               </div>
@@ -1124,17 +936,269 @@ export function McpThreeColumn({
               <span>{t.mcp.restartNotice}</span>
             </div>
 
-            {/* Main Configuration Card */}
+            {/* 1. Target Injection Matrix Card (OPC-56 Core) */}
+            <div className="mcp-card">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div>
+                  <h3 className="mcp-card-title" style={{ margin: 0 }}>目标环境注入矩阵 (Target Injection Matrix)</h3>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '2px 0 0' }}>
+                    集中分发并注入到全局 AI 宿主或特定工程项目中，修改中央定义会自动同步到所有已注入目标。
+                  </p>
+                </div>
+              </div>
+
+              {/* Sub-section: Global Tools */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-ink)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>全局 AI 宿主环境</span>
+                  <span className="branch-badge font-mono">
+                    {(selectedServer.targetAssociations || []).filter((a) => a.scope === 'global').length}/{MCP_SOURCE_TOOLS.length}
+                  </span>
+                </div>
+
+                <div className="mcp-dist-matrix">
+                  {MCP_SOURCE_TOOLS.map((tool) => {
+                    const assoc = getTargetAssociation(tool.id, 'global')
+                    const isAssociated = Boolean(assoc)
+                    const isSynced = assoc?.lastSyncStatus === 'synced'
+                    const isFailed = assoc?.lastSyncStatus === 'failed'
+                    const supportedTransports = TOOL_TRANSPORT_SUPPORT[tool.id] || []
+                    const isCompatible = supportedTransports.includes(selectedServer.transport)
+                    const opKey = `${tool.id}:global:`
+                    const isOperating = Boolean(targetOperating[opKey])
+
+                    let statusBadge = <span className="mcp-dist-status-badge is-none">未注入</span>
+                    if (isFailed) {
+                      statusBadge = (
+                        <span
+                          className="mcp-dist-status-badge is-diff"
+                          style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                          title={assoc?.lastError || '同步写入目标失败'}
+                        >
+                          同步失败
+                        </span>
+                      )
+                    } else if (isSynced) {
+                      statusBadge = <span className="mcp-dist-status-badge is-synced">已注入</span>
+                    }
+
+                    return (
+                      <div key={tool.id} className={`mcp-dist-card ${isAssociated ? 'is-current' : ''}`}>
+                        <div className="mcp-dist-card__top">
+                          <div className="mcp-dist-card__tool">
+                            <AIToolLogo toolId={tool.id} size={18} color />
+                            <span className="mcp-dist-card__name">{tool.name}</span>
+                          </div>
+                          {statusBadge}
+                        </div>
+
+                        <div className="mcp-dist-card__path">
+                          {tool.globalConfigFileName}
+                        </div>
+
+                        {!isCompatible ? (
+                          <div style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', fontStyle: 'italic', marginTop: 4 }}>
+                            此宿主不支持 {selectedServer.transport} 传输
+                          </div>
+                        ) : isFailed && assoc?.lastError ? (
+                          <div style={{ fontSize: '0.6875rem', color: '#ef4444', marginTop: 4, wordBreak: 'break-all' }}>
+                            {assoc.lastError}
+                          </div>
+                        ) : null}
+
+                        <div className="mcp-dist-card__footer">
+                          {isAssociated ? (
+                            <button
+                              type="button"
+                              className="btn btn--capsule-ghost btn--sm"
+                              style={{ height: '22px', fontSize: '0.6875rem', color: '#ef4444' }}
+                              disabled={isOperating || isBusy}
+                              onClick={() => void handleUninject({ tool: tool.id, scope: 'global' })}
+                            >
+                              {isOperating ? <RefreshCw size={10} className="spin" /> : <X size={10} />}
+                              <span>取消注入</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn btn--capsule btn--sm"
+                              style={{ height: '22px', fontSize: '0.6875rem' }}
+                              disabled={!isCompatible || isOperating || isBusy}
+                              onClick={() => void handleInject({ tool: tool.id, scope: 'global' })}
+                            >
+                              {isOperating ? <RefreshCw size={10} className="spin" /> : <Plus size={10} />}
+                              <span>注入</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Sub-section: Project Environments */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>工程项目环境</span>
+                  </div>
+
+                  {projects.length > 0 ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Folder size={12} style={{ color: 'var(--color-accent)' }} />
+                      <select
+                        value={selectedProjectPath}
+                        onChange={(e) => setSelectedProjectPath(e.target.value)}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.06)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: '4px',
+                          color: 'var(--color-ink)',
+                          fontSize: '0.6875rem',
+                          padding: '2px 6px',
+                          outline: 'none',
+                        }}
+                      >
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.path}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="btn btn--capsule-ghost btn--sm"
+                        style={{ height: '20px', padding: '0 5px' }}
+                        title="添加项目文件夹"
+                        onClick={handleAddProject}
+                      >
+                        <FolderPlus size={11} />
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                {projects.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '12px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px dashed var(--color-border)',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                      尚未登记工程项目。添加项目后即可将 MCP 服务注入到项目专有的 .mcp.json 等配置中。
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--sm"
+                      onClick={handleAddProject}
+                    >
+                      <FolderPlus size={12} />
+                      <span>添加项目</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mcp-dist-matrix">
+                    {PROJECT_SUPPORTED_TOOLS.map((toolId) => {
+                      const tool = MCP_SOURCE_TOOLS.find((t) => t.id === toolId)!
+                      const assoc = getTargetAssociation(toolId, 'project', selectedProjectPath)
+                      const isAssociated = Boolean(assoc)
+                      const isSynced = assoc?.lastSyncStatus === 'synced'
+                      const isFailed = assoc?.lastSyncStatus === 'failed'
+                      const supportedTransports = TOOL_TRANSPORT_SUPPORT[toolId] || []
+                      const isCompatible = supportedTransports.includes(selectedServer.transport)
+                      const opKey = `${toolId}:project:${selectedProjectPath}`
+                      const isOperating = Boolean(targetOperating[opKey])
+
+                      let statusBadge = <span className="mcp-dist-status-badge is-none">未注入</span>
+                      if (isFailed) {
+                        statusBadge = (
+                          <span
+                            className="mcp-dist-status-badge is-diff"
+                            style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                            title={assoc?.lastError || '同步写入项目配置失败'}
+                          >
+                            同步失败
+                          </span>
+                        )
+                      } else if (isSynced) {
+                        statusBadge = <span className="mcp-dist-status-badge is-synced">已注入</span>
+                      }
+
+                      return (
+                        <div key={toolId} className={`mcp-dist-card ${isAssociated ? 'is-current' : ''}`}>
+                          <div className="mcp-dist-card__top">
+                            <div className="mcp-dist-card__tool">
+                              <AIToolLogo toolId={toolId} size={18} color />
+                              <span className="mcp-dist-card__name">{tool.name}</span>
+                            </div>
+                            {statusBadge}
+                          </div>
+
+                          <div className="mcp-dist-card__path font-mono">
+                            {tool.projectConfigFileName}
+                          </div>
+
+                          {!isCompatible ? (
+                            <div style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', fontStyle: 'italic', marginTop: 4 }}>
+                              此工具项目配置不支持 {selectedServer.transport}
+                            </div>
+                          ) : isFailed && assoc?.lastError ? (
+                            <div style={{ fontSize: '0.6875rem', color: '#ef4444', marginTop: 4, wordBreak: 'break-all' }}>
+                              {assoc.lastError}
+                            </div>
+                          ) : null}
+
+                          <div className="mcp-dist-card__footer">
+                            {isAssociated ? (
+                              <button
+                                type="button"
+                                className="btn btn--capsule-ghost btn--sm"
+                                style={{ height: '22px', fontSize: '0.6875rem', color: '#ef4444' }}
+                                disabled={isOperating || isBusy}
+                                onClick={() => void handleUninject({ tool: toolId, scope: 'project', projectPath: selectedProjectPath })}
+                              >
+                                {isOperating ? <RefreshCw size={10} className="spin" /> : <X size={10} />}
+                                <span>取消注入</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn--capsule btn--sm"
+                                style={{ height: '22px', fontSize: '0.6875rem' }}
+                                disabled={!isCompatible || isOperating || isBusy}
+                                onClick={() => void handleInject({ tool: toolId, scope: 'project', projectPath: selectedProjectPath })}
+                              >
+                                {isOperating ? <RefreshCw size={10} className="spin" /> : <Plus size={10} />}
+                                <span>注入项目</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 2. Main Configuration Card */}
             <div className="mcp-card">
               <h3 className="mcp-card-title">
                 <span>{t.mcp.configCardTitle}</span>
                 <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                  {selectedServer.sourceTool}
+                  {selectedServer.id}
                 </span>
               </h3>
 
               <div className="mcp-form-grid">
-                {/* Name - Immutable primary key */}
+                {/* Name - Immutable primary key for existing server */}
                 <div className="mcp-form-field">
                   <label className="mcp-field-label">{t.mcp.serverNameLabel}</label>
                   <input
@@ -1148,6 +1212,17 @@ export function McpThreeColumn({
                   <span style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', marginTop: 2 }}>
                     {t.mcp.nameImmutableHint}
                   </span>
+                </div>
+
+                {/* Description */}
+                <div className="mcp-form-field">
+                  <label className="mcp-field-label">服务描述 (可选)</label>
+                  <input
+                    className="mcp-input"
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    placeholder="描述该 MCP Server 的用途与提供的工具"
+                  />
                 </div>
 
                 {/* Transport Selector (Segmented 24px) */}
@@ -1212,7 +1287,8 @@ export function McpThreeColumn({
                         ) : (
                           formArgs.map((arg, idx) => (
                             <div key={idx} className="mcp-arg-row">
-                              <textarea rows={1}
+                              <textarea
+                                rows={1}
                                 aria-label={`${t.mcp.argsLabel} ${idx + 1}`}
                                 className="mcp-arg-input"
                                 placeholder={t.mcp.argPlaceholder}
@@ -1364,7 +1440,7 @@ export function McpThreeColumn({
                     </div>
 
                     {/* Codex env_http_headers */}
-                    {selectedServer.sourceTool === 'codex' && <div className="mcp-form-field">
+                    <div className="mcp-form-field">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <label className="mcp-field-label">{t.mcp.envHeadersLabel}</label>
                         <button
@@ -1412,218 +1488,95 @@ export function McpThreeColumn({
                           </div>
                         ))}
                       </div>
-                    </div>}
+                    </div>
                   </>
                 )}
-              </div>
-            </div>
-
-            {/* Cross-Tool Distribution Matrix Card */}
-            <div className="mcp-card">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <h3 className="mcp-card-title">{t.mcp.distributeTitle}</h3>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '2px 0 0' }}>
-                    {t.mcp.distributeSubtitle}
-                  </p>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    className="btn btn--capsule-ghost btn--sm"
-                    onClick={() => void handlePreflight()}
-                  >
-                    <Search size={12} />
-                    <span>{t.mcp.preflightBtn}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn btn--capsule btn--sm"
-                    disabled={isBusy}
-                    onClick={() => void handlePreflight()}
-                  >
-                    {distributing ? <RefreshCw size={12} className="spin" /> : <Share2 size={12} />}
-                    <span>{distributing ? t.mcp.distributingBtn : t.mcp.distributeBtn}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Matrix Grid */}
-              <div className="mcp-dist-matrix">
-                {MCP_SOURCE_TOOLS.map((tool) => {
-                  const isCurrentSource = tool.id === selectedServer.sourceTool
-                  const targetKey = `${tool.id}:${selectedServer.scope}`
-                  const isChecked = Boolean(selectedTargets[targetKey])
-
-                  // Check if server with same name exists in this tool & scope
-                  const scopeList = selectedServer.scope === 'global' ? servers.global : servers.project
-                  const targetMatch = scopeList.find(
-                    (s) => s.sourceTool === tool.id && s.name === selectedServer.name
-                  )
-
-                  let statusText = t.mcp.notConfigured
-                  let statusClass = 'is-none'
-
-                  if (isCurrentSource) {
-                    statusText = t.mcp.currentSource
-                    statusClass = 'is-synced'
-                  } else if (targetMatch) {
-                    // Compare transport and parameters
-                    const isSynced =
-                      targetMatch.transport === selectedServer.transport &&
-                      targetMatch.command === selectedServer.command &&
-                      targetMatch.url === selectedServer.url
-                    if (isSynced) {
-                      statusText = t.mcp.alreadySynced
-                      statusClass = 'is-synced'
-                    } else {
-                      statusText = t.mcp.differentConfig
-                      statusClass = 'is-diff'
-                    }
-                  }
-
-                  return (
-                    <div
-                      key={tool.id}
-                      className={`mcp-dist-card ${isCurrentSource ? 'is-current' : ''}`}
-                    >
-                      <div className="mcp-dist-card__top">
-                        <div className="mcp-dist-card__tool">
-                          <AIToolLogo toolId={tool.id} size={18} color />
-                          <span className="mcp-dist-card__name">{tool.name}</span>
-                        </div>
-                        <span className={`mcp-dist-status-badge ${statusClass}`}>{statusText}</span>
-                      </div>
-
-                      <div className="mcp-dist-card__path">
-                        {selectedServer.scope === 'global' ? tool.globalConfigFileName : tool.projectConfigFileName}
-                      </div>
-
-                      <div className="mcp-dist-card__footer">
-                        {isCurrentSource ? (
-                          <span style={{ fontSize: '0.6875rem', color: 'var(--color-muted)' }}>{t.mcp.currentSource}</span>
-                        ) : (
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', cursor: 'pointer', color: 'var(--color-ink)' }}>
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                setSelectedTargets({
-                                  ...selectedTargets,
-                                  [targetKey]: e.target.checked,
-                                })
-                              }}
-                            />
-                            <span>{t.mcp.syncTargetLabel}</span>
-                          </label>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
               </div>
             </div>
           </div>
         )}
       </section>
 
-      {/* =========================================================================
-          Modals: Unsaved Changes Confirmation Dialog
-          ========================================================================= */}
-      {unsavedModalOpen ? (
-        <div className="mcp-dialog-overlay" onClick={handleCancelUnsaved}>
-          <div ref={unsavedDialogRef} role="dialog" aria-modal="true" aria-labelledby="mcp-unsaved-title" className="mcp-dialog-box" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
-            <div className="mcp-dialog-header">
-              <h3 id="mcp-unsaved-title" className="mcp-dialog-title">{t.mcp.unsavedTitle}</h3>
-              <button
-                type="button"
-                className="clear-search-btn"
-                aria-label={t.mcp.cancelBtn}
-                onClick={handleCancelUnsaved}
-              >
+      {/* Unsaved Changes Dialog */}
+      {unsavedModalOpen && (
+        <div className="modal-glass-backdrop view-enter" onClick={() => setUnsavedModalOpen(false)}>
+          <div className="glass-dialog-box modal-pop" onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-header-row">
+              <h3 className="glass-dialog-title">{t.mcp.unsavedTitle}</h3>
+              <button type="button" className="clear-search-btn" onClick={() => setUnsavedModalOpen(false)}>
                 <X size={14} />
               </button>
             </div>
-
-            <div className="mcp-dialog-body">
-              <p style={{ fontSize: '0.8125rem', color: 'var(--color-ink)', margin: 0 }}>
-                {t.mcp.unsavedDesc}
-              </p>
-            </div>
-
-            <div className="mcp-dialog-footer">
+            <p className="dialog-desc-text">{t.mcp.unsavedDesc}</p>
+            <div className="dialog-footer-row">
               <button
                 type="button"
                 className="btn btn--capsule-ghost btn--sm"
-                ref={cancelUnsavedRef}
-                onClick={handleCancelUnsaved}
+                onClick={() => setUnsavedModalOpen(false)}
               >
-                <span>{t.mcp.cancelBtn}</span>
+                {t.mcp.cancelBtn}
               </button>
               <button
                 type="button"
-                className="btn btn--capsule btn--sm"
-                style={{ background: '#ef4444', borderColor: '#ef4444', color: '#ffffff' }}
+                className="btn btn--danger btn--capsule btn--sm"
                 onClick={handleConfirmDiscard}
               >
-                <span>{t.mcp.discardBtn}</span>
+                {t.mcp.discardBtn}
               </button>
             </div>
           </div>
         </div>
-      ) : null}
+      )}
 
-      {/* =========================================================================
-          Modals: Create New MCP Server Dialog
-          ========================================================================= */}
-      {createModalOpen ? (
-        <div className="mcp-dialog-overlay" onClick={() => setCreateModalOpen(false)}>
-          <div className="mcp-dialog-box" onClick={(e) => e.stopPropagation()}>
-            <div className="mcp-dialog-header">
-              <h3 className="mcp-dialog-title">{t.mcp.createTitle}</h3>
-              <button
-                type="button"
-                className="clear-search-btn"
-                onClick={() => setCreateModalOpen(false)}
-              >
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirmOpen && selectedServer && (
+        <div className="modal-glass-backdrop view-enter" onClick={() => setDeleteConfirmOpen(false)}>
+          <div className="glass-dialog-box modal-pop" onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-header-row">
+              <h3 className="glass-dialog-title">{t.mcp.deleteConfirmTitle}</h3>
+              <button type="button" className="clear-search-btn" onClick={() => setDeleteConfirmOpen(false)}>
                 <X size={14} />
               </button>
             </div>
+            <p className="dialog-desc-text">
+              确定要删除中央 MCP 资产 “{selectedServer.name}” 吗？该操作会自动尝试从所有已注入的环境中解除注入，并在全部成功后彻底删除该定义。
+            </p>
+            <div className="dialog-footer-row">
+              <button
+                type="button"
+                className="btn btn--capsule-ghost btn--sm"
+                onClick={() => setDeleteConfirmOpen(false)}
+                disabled={deleting}
+              >
+                {t.mcp.cancelBtn}
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger btn--capsule btn--sm"
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+              >
+                {deleting ? <RefreshCw size={12} className="spin" /> : <Trash2 size={12} />}
+                <span>{deleting ? '正在删除…' : t.mcp.confirmDeleteBtn}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <div className="mcp-dialog-body">
-              {/* Scope & Tool selector */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div className="mcp-form-field">
-                  <label className="mcp-field-label">{t.mcp.scopeLabel}</label>
-                  <select
-                    className="mcp-input"
-                    value={newScope}
-                    onChange={(e) => setNewScope(e.target.value as MCPScope)}
-                  >
-                    <option value="global">{t.mcp.tabGlobal}</option>
-                    <option value="project">{t.mcp.tabProject}</option>
-                  </select>
-                </div>
+      {/* Create New Server Modal */}
+      {createModalOpen && (
+        <div className="modal-glass-backdrop view-enter" onClick={() => setCreateModalOpen(false)}>
+          <div className="glass-dialog-box modal-pop" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="dialog-header-row">
+              <h3 className="glass-dialog-title">{t.mcp.createTitle}</h3>
+              <button type="button" className="clear-search-btn" onClick={() => setCreateModalOpen(false)}>
+                <X size={14} />
+              </button>
+            </div>
+            <p className="dialog-desc-text">在中央资产库创建新的 MCP Server 定义，随后可随时注入到任意工具环境。</p>
 
-                <div className="mcp-form-field">
-                  <label className="mcp-field-label">{t.mcp.sourceToolLabel}</label>
-                  <select
-                    className="mcp-input"
-                    value={newTool}
-                    onChange={(e) => setNewTool(e.target.value as MCPSourceTool)}
-                  >
-                    {MCP_SOURCE_TOOLS.map((tool) => (
-                      <option key={tool.id} value={tool.id}>
-                        {tool.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Server Name */}
+            <div className="mcp-form-grid" style={{ marginTop: 12 }}>
               <div className="mcp-form-field">
                 <label className="mcp-field-label">{t.mcp.serverNameLabel}</label>
                 <input
@@ -1634,7 +1587,16 @@ export function McpThreeColumn({
                 />
               </div>
 
-              {/* Transport */}
+              <div className="mcp-form-field">
+                <label className="mcp-field-label">服务描述 (可选)</label>
+                <input
+                  className="mcp-input"
+                  placeholder="例如: GitHub 官方集成服务"
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                />
+              </div>
+
               <div className="mcp-form-field">
                 <label className="mcp-field-label">{t.mcp.transportLabel}</label>
                 <div className="master-tab-segmented" style={{ width: 'fit-content' }}>
@@ -1673,52 +1635,6 @@ export function McpThreeColumn({
                       onChange={(e) => setNewCommand(e.target.value)}
                     />
                   </div>
-                  <div className="mcp-form-field">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <label className="mcp-field-label" style={{ margin: 0 }}>{t.mcp.argsLabel}</label>
-                      <button
-                        type="button"
-                        className="btn btn--capsule-ghost btn--sm"
-                        style={{ height: '22px', padding: '0 6px', fontSize: '0.6875rem' }}
-                        onClick={() => setNewArgs([...newArgs, ''])}
-                      >
-                        <Plus size={10} />
-                        <span>{t.mcp.addArgBtn}</span>
-                      </button>
-                    </div>
-                    <div className="mcp-args-list">
-                      {newArgs.length === 0 ? (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', fontStyle: 'italic', padding: '4px 0' }}>
-                          {t.mcp.argsPlaceholder}
-                        </div>
-                      ) : (
-                        newArgs.map((arg, idx) => (
-                          <div key={idx} className="mcp-arg-row">
-                            <textarea rows={1}
-                              aria-label={`${t.mcp.argsLabel} ${idx + 1}`}
-                              className="mcp-arg-input"
-                              placeholder={t.mcp.argPlaceholder}
-                              value={arg}
-                              onChange={(e) => {
-                                const next = [...newArgs]
-                                next[idx] = e.target.value
-                                setNewArgs(next)
-                              }}
-                            />
-                            <button
-                              type="button"
-                              className="btn btn--capsule-ghost btn--sm"
-                              style={{ width: '22px', height: '22px', padding: 0 }}
-                              onClick={() => setNewArgs(newArgs.filter((_, i) => i !== idx))}
-                              title="Delete"
-                            >
-                              <X size={11} />
-                            </button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
                 </>
               ) : (
                 <div className="mcp-form-field">
@@ -1733,155 +1649,28 @@ export function McpThreeColumn({
               )}
             </div>
 
-            <div className="mcp-dialog-footer">
+            <div className="dialog-footer-row" style={{ marginTop: 16 }}>
               <button
                 type="button"
                 className="btn btn--capsule-ghost btn--sm"
                 onClick={() => setCreateModalOpen(false)}
+                disabled={createSaving}
               >
-                <span>{t.mcp.cancelBtn}</span>
+                {t.mcp.cancelBtn}
               </button>
               <button
                 type="button"
-                className="btn btn--capsule btn--sm"
-                disabled={!newName.trim() || createSaving}
+                className="btn btn--primary btn--capsule btn--sm"
                 onClick={() => void handleCreate()}
+                disabled={!newName.trim() || createSaving}
               >
-                {createSaving ? <RefreshCw size={12} className="spin" /> : <Check size={12} />}
-                <span>{createSaving ? t.mcp.savingBtn : t.mcp.createBtn}</span>
+                {createSaving ? <RefreshCw size={12} className="spin" /> : <Plus size={12} />}
+                <span>{createSaving ? '创建中…' : t.mcp.createBtn}</span>
               </button>
             </div>
           </div>
         </div>
-      ) : null}
-
-      {/* Preflight Modal */}
-      {preflightModalOpen && preflightResult ? (
-        <div className="mcp-dialog-overlay" onClick={() => setPreflightModalOpen(false)}>
-          <div className="mcp-dialog-box" onClick={(e) => e.stopPropagation()}>
-            <div className="mcp-dialog-header">
-              <h3 className="mcp-dialog-title">{t.mcp.preflightBtn}</h3>
-              <button
-                type="button"
-                className="clear-search-btn"
-                onClick={() => setPreflightModalOpen(false)}
-              >
-                <X size={14} />
-              </button>
-            </div>
-
-            <div className="mcp-dialog-body">
-              <p style={{ fontSize: '0.8125rem', color: 'var(--color-ink)', margin: 0 }}>
-                {t.mcp.preflightSummary(frozenServer?.name || "")}
-              </p>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {preflightResult.targets.map((target, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: '6px',
-                      background: 'var(--surface-float)',
-                      border: '1px solid var(--border-subtle)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '4px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '0.8125rem' }}>
-                        <AIToolLogo toolId={target.tool} size={14} color />
-                        <span>{target.tool} ({target.scope})</span>
-                      </div>
-                      {target.willOverwrite ? (
-                        <span style={{ fontSize: '0.6875rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                          <AlertCircle size={10} />
-                          <span>{t.mcp.willOverwriteNotice}</span>
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: '0.6875rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                          <CheckCircle2 size={10} />
-                          <span>{t.mcp.newTargetLabel}</span>
-                        </span>
-                      )}
-                    </div>
-                    <span className="font-mono" style={{ fontSize: '0.6875rem', color: 'var(--color-muted)' }}>
-                      {target.configPath}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mcp-dialog-footer">
-              <button
-                type="button"
-                className="btn btn--capsule-ghost btn--sm"
-                onClick={() => setPreflightModalOpen(false)}
-              >
-                <span>{t.mcp.cancelBtn}</span>
-              </button>
-              <button
-                type="button"
-                className="btn btn--capsule btn--sm"
-                disabled={distributing}
-                onClick={() => void handleDistribute()}
-              >
-                {distributing ? <RefreshCw size={12} className="spin" /> : <Share2 size={12} />}
-                <span>{t.mcp.distributeBtn}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Delete Confirm Modal */}
-      {deleteConfirmOpen && selectedServer ? (
-        <div className="mcp-dialog-overlay" onClick={() => setDeleteConfirmOpen(false)}>
-          <div className="mcp-dialog-box" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
-            <div className="mcp-dialog-header">
-              <h3 className="mcp-dialog-title">{t.mcp.deleteConfirmTitle}</h3>
-              <button
-                type="button"
-                className="clear-search-btn"
-                onClick={() => setDeleteConfirmOpen(false)}
-              >
-                <X size={14} />
-              </button>
-            </div>
-
-            <div className="mcp-dialog-body">
-              <p style={{ fontSize: '0.8125rem', color: 'var(--color-ink)', margin: 0 }}>
-                {t.mcp.deleteConfirmDesc(selectedServer.name, selectedServer.sourceTool)}
-              </p>
-              <p className="font-mono" style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', margin: 0 }}>
-                {selectedServer.configPath}
-              </p>
-            </div>
-
-            <div className="mcp-dialog-footer">
-              <button
-                type="button"
-                className="btn btn--capsule-ghost btn--sm"
-                onClick={() => setDeleteConfirmOpen(false)}
-              >
-                <span>{t.mcp.cancelBtn}</span>
-              </button>
-              <button
-                type="button"
-                className="btn btn--capsule btn--sm"
-                style={{ background: '#ef4444', borderColor: '#ef4444', color: '#ffffff' }}
-                disabled={deleting}
-                onClick={() => void handleDelete()}
-              >
-                {deleting ? <RefreshCw size={12} className="spin" /> : <Trash2 size={12} />}
-                <span>{t.mcp.confirmDeleteBtn}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      )}
     </>
   )
 }

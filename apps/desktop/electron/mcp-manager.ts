@@ -13,6 +13,8 @@ import path from 'node:path'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { parseTOML } from 'toml-eslint-parser'
 import {
+  type BatchItemResult,
+  type CentralMCPServer,
   type MCPDistributionPreflightItem,
   type MCPDistributionPreflightResult,
   type MCPDistributionReport,
@@ -22,6 +24,7 @@ import {
   type MCPServerDefinition,
   type MCPServerInput,
   type MCPSourceTool,
+  type MCPTargetAssociation,
   type MCPTransportType,
   MCP_SOURCE_TOOLS,
 } from '@workflow-skill/workflow-model'
@@ -75,9 +78,14 @@ export function getEffectiveHomeDir(options?: MCPOptions): string {
 }
 
 export function getEffectiveProjectWorkspace(options?: MCPOptions): string {
-  if (options?.projectWorkspace) return options.projectWorkspace
-  if (options?.getProjectWorkspace) return options.getProjectWorkspace()
-  return process.cwd()
+  if (options?.projectWorkspace && options.projectWorkspace.trim()) {
+    return options.projectWorkspace.trim()
+  }
+  if (options?.getProjectWorkspace) {
+    const ws = options.getProjectWorkspace()
+    if (ws && ws.trim()) return ws.trim()
+  }
+  throw new Error('No valid project workspace selected. Please select a project.')
 }
 
 export function getEffectiveTraceHome(options?: MCPOptions): string {
@@ -93,7 +101,6 @@ export function resolveMCPConfigPath(
 ): string {
   validateToolAndScope(tool, scope)
   const homeDir = getEffectiveHomeDir(options)
-  const projectWorkspace = getEffectiveProjectWorkspace(options)
 
   if (scope === 'global') {
     switch (tool) {
@@ -107,6 +114,7 @@ export function resolveMCPConfigPath(
         return path.join(homeDir, '.codex', 'config.toml')
     }
   } else if (scope === 'project') {
+    const projectWorkspace = getEffectiveProjectWorkspace(options)
     switch (tool) {
       case 'claude-code':
         return path.join(projectWorkspace, '.mcp.json')
@@ -1050,7 +1058,12 @@ export function readMCPServersForTool(
   scope: MCPScope,
   options?: MCPOptions
 ): MCPServerDefinition[] {
-  const configPath = resolveMCPConfigPath(tool, scope, options)
+  let configPath: string
+  try {
+    configPath = resolveMCPConfigPath(tool, scope, options)
+  } catch {
+    return []
+  }
   const results: MCPServerDefinition[] = []
   const activeNames = new Set<string>()
 
@@ -1847,8 +1860,9 @@ export function preflightMCPDistribution(
       continue
     }
 
+    const targetOptions = target.projectWorkspace ? { ...options, projectWorkspace: target.projectWorkspace } : options
     try {
-      configPath = resolveMCPConfigPath(target.tool, target.scope, options)
+      configPath = resolveMCPConfigPath(target.tool, target.scope, targetOptions)
       targetExists = existsSync(configPath)
 
       // 2. Validate target file validity if exists
@@ -1873,7 +1887,7 @@ export function preflightMCPDistribution(
       }
 
       // Check disabled registry collisions too
-      const disabled = getDisabledEntry(target.tool, target.scope, server.name, options)
+      const disabled = getDisabledEntry(target.tool, target.scope, server.name, targetOptions)
       if (disabled) willOverwrite = true
 
       if (willOverwrite) {
@@ -1892,7 +1906,7 @@ export function preflightMCPDistribution(
       }
 
       if (targetExists) {
-        currentRevision = computeServerRevision(target.tool, target.scope, server.name, options)
+        currentRevision = computeServerRevision(target.tool, target.scope, server.name, targetOptions)
       }
     } catch (err) {
       compatible = false
@@ -1902,6 +1916,7 @@ export function preflightMCPDistribution(
     items.push({
       tool: target.tool,
       scope: target.scope,
+      projectWorkspace: target.projectWorkspace,
       configPath,
       targetExists,
       willOverwrite,
@@ -2030,8 +2045,10 @@ export function distributeMCPServer(
   const results: MCPDistributionResultItem[] = []
 
   for (const target of targets) {
-    const configPath = resolveMCPConfigPath(target.tool, target.scope, options)
+    const targetOptions = target.projectWorkspace ? { ...options, projectWorkspace: target.projectWorkspace } : options
+    let configPath = ''
     try {
+      configPath = resolveMCPConfigPath(target.tool, target.scope, targetOptions)
       const saveRes = saveMCPServer(
         { tool: target.tool, scope: target.scope, expectedRevision: target.expectedRevision },
         {
@@ -2046,13 +2063,14 @@ export function distributeMCPServer(
           envHeaders: server.envHeaders,
           enabled: server.enabled !== false,
         },
-        options
+        targetOptions
       )
 
       if (saveRes.success) {
         results.push({
           tool: target.tool,
           scope: target.scope,
+          projectWorkspace: target.projectWorkspace,
           configPath,
           success: true,
         })
@@ -2060,15 +2078,17 @@ export function distributeMCPServer(
         results.push({
           tool: target.tool,
           scope: target.scope,
+          projectWorkspace: target.projectWorkspace,
           configPath,
           success: false,
-          error: saveRes.error || 'Failed to save to target',
+          error: saveRes.error || 'Failed to save server.',
         })
       }
     } catch (err) {
       results.push({
         tool: target.tool,
         scope: target.scope,
+        projectWorkspace: target.projectWorkspace,
         configPath,
         success: false,
         error: (err as Error).message,
@@ -2101,4 +2121,445 @@ export async function exportMCPProfileSnapshot(
   }
 
   return { global: globalRecord, project: projectRecord }
+}
+
+// =========================================================================
+// Central MCP Source Assets & Target Injection (OPC-56)
+// =========================================================================
+
+export function getCentralMCPRegistryPath(options?: MCPOptions): string {
+  const traceHome = getEffectiveTraceHome(options)
+  return path.join(traceHome, 'mcp-central.json')
+}
+
+export function loadCentralMCPRegistry(options?: MCPOptions): Record<string, CentralMCPServer> {
+  const filePath = getCentralMCPRegistryPath(options)
+  try {
+    if (existsSync(filePath)) {
+      const data = JSON.parse(readFileSync(filePath, 'utf8'))
+      if (data && typeof data === 'object') return data
+    }
+  } catch {}
+  return {}
+}
+
+export function saveCentralMCPRegistry(
+  registry: Record<string, CentralMCPServer>,
+  options?: MCPOptions
+): void {
+  const traceHome = getEffectiveTraceHome(options)
+  if (!existsSync(traceHome)) {
+    mkdirSync(traceHome, { recursive: true })
+  }
+  const filePath = getCentralMCPRegistryPath(options)
+  writeFileSync(filePath, JSON.stringify(registry, null, 2), 'utf8')
+}
+
+export async function readCentralMCPServers(options?: MCPOptions): Promise<CentralMCPServer[]> {
+  const registry = loadCentralMCPRegistry(options)
+
+  // Also discover servers from tools that might have been configured before or externally
+  try {
+    const discovered = await readAllMCPServers(options)
+    let registryModified = false
+
+    const registerDiscovered = (server: MCPServerDefinition) => {
+      const id = server.name
+      const projectPath =
+        server.scope === 'project'
+          ? options?.projectWorkspace || options?.getProjectWorkspace?.()
+          : undefined
+
+      if (!registry[id]) {
+        registry[id] = {
+          id,
+          name: server.name,
+          transport: server.transport,
+          command: server.command,
+          args: server.args,
+          env: server.env,
+          cwd: server.cwd,
+          url: server.url,
+          headers: server.headers,
+          envHeaders: server.envHeaders,
+          enabled: server.enabled,
+          updatedAt: server.updatedAt || Date.now(),
+          targetAssociations: [
+            {
+              tool: server.sourceTool,
+              scope: server.scope,
+              projectPath,
+              injectedAt: Date.now(),
+              lastSyncStatus: 'synced',
+            },
+          ],
+        }
+        registryModified = true
+      } else {
+        const existingAssocs = registry[id].targetAssociations || []
+        const exists = existingAssocs.some(
+          (a) =>
+            a.tool === server.sourceTool &&
+            a.scope === server.scope &&
+            (!projectPath || !a.projectPath || path.resolve(a.projectPath) === path.resolve(projectPath))
+        )
+        if (!exists) {
+          existingAssocs.push({
+            tool: server.sourceTool,
+            scope: server.scope,
+            projectPath,
+            injectedAt: Date.now(),
+            lastSyncStatus: 'synced',
+          })
+          registry[id].targetAssociations = existingAssocs
+          registryModified = true
+        }
+      }
+    }
+
+    for (const s of discovered.global) registerDiscovered(s)
+    for (const s of discovered.project) registerDiscovered(s)
+
+    if (registryModified) {
+      saveCentralMCPRegistry(registry, options)
+    }
+  } catch {}
+
+  return Object.values(registry)
+}
+
+export function saveCentralMCPServer(
+  input: Partial<CentralMCPServer> & { name: string; transport: MCPTransportType },
+  options?: MCPOptions
+): {
+  success: boolean
+  server?: CentralMCPServer
+  syncResults?: Array<{ tool: MCPSourceTool; scope: MCPScope; projectPath?: string; success: boolean; error?: string }>
+  error?: string
+} {
+  try {
+    validateServerInput(input as MCPServerInput)
+  } catch (err) {
+    return { success: false, error: (err as Error).message }
+  }
+
+  const registry = loadCentralMCPRegistry(options)
+  const id = input.id || input.name
+
+  const existing = registry[id] || registry[input.name]
+  const targetAssociations = input.targetAssociations || existing?.targetAssociations || []
+
+  const server: CentralMCPServer = {
+    id,
+    name: input.name,
+    transport: input.transport,
+    command: input.command,
+    args: input.args,
+    env: input.env,
+    cwd: input.cwd,
+    url: input.url,
+    headers: input.headers,
+    envHeaders: input.envHeaders,
+    enabled: input.enabled !== false,
+    description: input.description,
+    targetAssociations,
+    updatedAt: Date.now(),
+  }
+
+  // Synchronize changes to all associated injected targets
+  const syncResults: Array<{ tool: MCPSourceTool; scope: MCPScope; projectPath?: string; success: boolean; error?: string }> = []
+  for (const assoc of targetAssociations) {
+    try {
+      const targetOptions = assoc.projectPath ? { ...options, projectWorkspace: assoc.projectPath } : options
+      const saveRes = saveMCPServer(
+        { tool: assoc.tool, scope: assoc.scope },
+        {
+          name: server.name,
+          transport: server.transport,
+          command: server.command,
+          args: server.args,
+          env: server.env,
+          cwd: server.cwd,
+          url: server.url,
+          headers: server.headers,
+          envHeaders: server.envHeaders,
+          enabled: server.enabled,
+        },
+        targetOptions
+      )
+      assoc.lastSyncStatus = saveRes.success ? 'synced' : 'failed'
+      assoc.lastError = saveRes.error
+      syncResults.push({
+        tool: assoc.tool,
+        scope: assoc.scope,
+        projectPath: assoc.projectPath,
+        success: saveRes.success,
+        error: saveRes.error,
+      })
+    } catch (err: any) {
+      assoc.lastSyncStatus = 'failed'
+      assoc.lastError = err?.message || String(err)
+      syncResults.push({
+        tool: assoc.tool,
+        scope: assoc.scope,
+        projectPath: assoc.projectPath,
+        success: false,
+        error: err?.message || String(err),
+      })
+    }
+  }
+
+  registry[id] = server
+  saveCentralMCPRegistry(registry, options)
+
+  return { success: true, server, syncResults }
+}
+
+export function injectMCPServerToTarget(
+  serverIdOrName: string,
+  target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string },
+  options?: MCPOptions
+): { success: boolean; error?: string } {
+  try {
+    validateToolAndScope(target.tool, target.scope)
+  } catch (err) {
+    return { success: false, error: (err as Error).message }
+  }
+
+  const registry = loadCentralMCPRegistry(options)
+  const server = registry[serverIdOrName] || Object.values(registry).find((s) => s.name === serverIdOrName)
+  if (!server) {
+    return { success: false, error: `找不到 MCP 资产: ${serverIdOrName}` }
+  }
+
+  const projectPath =
+    target.scope === 'project'
+      ? target.projectPath || options?.projectWorkspace || options?.getProjectWorkspace?.()
+      : undefined
+
+  if (target.scope === 'project' && !projectPath) {
+    return { success: false, error: '未指定有效的项目路径' }
+  }
+
+  const targetOptions = projectPath ? { ...options, projectWorkspace: projectPath } : options
+
+  const saveRes = saveMCPServer(
+    { tool: target.tool, scope: target.scope },
+    {
+      name: server.name,
+      transport: server.transport,
+      command: server.command,
+      args: server.args,
+      env: server.env,
+      cwd: server.cwd,
+      url: server.url,
+      headers: server.headers,
+      envHeaders: server.envHeaders,
+      enabled: server.enabled,
+    },
+    targetOptions
+  )
+
+  if (!saveRes.success) {
+    return { success: false, error: saveRes.error || '写入目标配置失败' }
+  }
+
+  // Update target associations
+  const assocs = server.targetAssociations || []
+  const existingIdx = assocs.findIndex(
+    (a) =>
+      a.tool === target.tool &&
+      a.scope === target.scope &&
+      (!projectPath || !a.projectPath || path.resolve(a.projectPath) === path.resolve(projectPath))
+  )
+
+  const newAssoc: MCPTargetAssociation = {
+    tool: target.tool,
+    scope: target.scope,
+    projectPath,
+    injectedAt: Date.now(),
+    lastSyncStatus: 'synced',
+  }
+
+  if (existingIdx >= 0) {
+    assocs[existingIdx] = newAssoc
+  } else {
+    assocs.push(newAssoc)
+  }
+
+  server.targetAssociations = assocs
+  registry[server.id] = server
+  saveCentralMCPRegistry(registry, options)
+
+  return { success: true }
+}
+
+export function uninjectMCPServerFromTarget(
+  serverIdOrName: string,
+  target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string },
+  options?: MCPOptions
+): { success: boolean; error?: string } {
+  try {
+    validateToolAndScope(target.tool, target.scope)
+  } catch (err) {
+    return { success: false, error: (err as Error).message }
+  }
+
+  const registry = loadCentralMCPRegistry(options)
+  const server = registry[serverIdOrName] || Object.values(registry).find((s) => s.name === serverIdOrName)
+  if (!server) {
+    return { success: false, error: `找不到 MCP 资产: ${serverIdOrName}` }
+  }
+
+  const projectPath =
+    target.scope === 'project'
+      ? target.projectPath || options?.projectWorkspace || options?.getProjectWorkspace?.()
+      : undefined
+
+  if (target.scope === 'project') {
+    if (!projectPath) {
+      return { success: false, error: '未指定有效的项目路径' }
+    }
+    try {
+      if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
+        return { success: false, error: `项目路径不存在或不是文件夹: ${projectPath}` }
+      }
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) }
+    }
+  }
+
+  const targetOptions = projectPath ? { ...options, projectWorkspace: projectPath } : options
+
+  // Delete from target config
+  const delRes = deleteMCPServer({ tool: target.tool, scope: target.scope, name: server.name }, targetOptions)
+  if (!delRes.success) {
+    // Record failed status in target associations
+    const assocs = server.targetAssociations || []
+    const match = assocs.find(
+      (a) =>
+        a.tool === target.tool &&
+        a.scope === target.scope &&
+        (!projectPath || !a.projectPath || path.resolve(a.projectPath) === path.resolve(projectPath))
+    )
+    if (match) {
+      match.lastSyncStatus = 'failed'
+      match.lastError = delRes.error || '从目标工具配置中删除失败'
+      saveCentralMCPRegistry(registry, options)
+    }
+    return { success: false, error: delRes.error || '从目标工具配置中删除失败' }
+  }
+
+  // Remove target from associations on real success, retaining central server source
+  const assocs = (server.targetAssociations || []).filter((a) => {
+    if (a.tool !== target.tool || a.scope !== target.scope) return true
+    if (target.scope === 'project' && projectPath && a.projectPath) {
+      return path.resolve(a.projectPath) !== path.resolve(projectPath)
+    }
+    return false
+  })
+
+  server.targetAssociations = assocs
+  registry[server.id] = server
+  saveCentralMCPRegistry(registry, options)
+
+  return { success: true }
+}
+
+export function deleteCentralMCPServer(
+  serverIdOrName: string,
+  options?: MCPOptions
+): {
+  success: boolean
+  error?: string
+  targetErrors?: Array<{ target: any; error: string }>
+  failedTargets?: Array<{ tool: MCPSourceTool; scope: MCPScope; projectPath?: string; error: string }>
+} {
+  const registry = loadCentralMCPRegistry(options)
+  const server = registry[serverIdOrName] || Object.values(registry).find((s) => s.name === serverIdOrName)
+  if (!server) {
+    return { success: false, error: `找不到 MCP 资产: ${serverIdOrName}` }
+  }
+
+  const failedTargets: Array<{ tool: MCPSourceTool; scope: MCPScope; projectPath?: string; error: string }> = []
+  const remainingAssocs: MCPTargetAssociation[] = []
+
+  // Uninject from all targets through uninjectMCPServerFromTarget to ensure full validation
+  for (const assoc of [...(server.targetAssociations || [])]) {
+    try {
+      const uninjRes = uninjectMCPServerFromTarget(
+        server.id,
+        { tool: assoc.tool, scope: assoc.scope, projectPath: assoc.projectPath },
+        options
+      )
+      if (!uninjRes.success) {
+        assoc.lastSyncStatus = 'failed'
+        assoc.lastError = uninjRes.error || '从目标删除失败'
+        remainingAssocs.push(assoc)
+        failedTargets.push({
+          tool: assoc.tool,
+          scope: assoc.scope,
+          projectPath: assoc.projectPath,
+          error: uninjRes.error || '从目标删除失败',
+        })
+      }
+    } catch (err: any) {
+      assoc.lastSyncStatus = 'failed'
+      assoc.lastError = err?.message || String(err)
+      remainingAssocs.push(assoc)
+      failedTargets.push({
+        tool: assoc.tool,
+        scope: assoc.scope,
+        projectPath: assoc.projectPath,
+        error: err?.message || String(err),
+      })
+    }
+  }
+
+  if (failedTargets.length > 0) {
+    server.targetAssociations = remainingAssocs
+    registry[server.id] = server
+    saveCentralMCPRegistry(registry, options)
+    const targetErrors = failedTargets.map((f) => ({ target: f, error: f.error }))
+    return {
+      success: false,
+      error: `无法完全从目标工具中删除资产: ${failedTargets.map((f) => `${f.tool}: ${f.error}`).join('; ')}`,
+      targetErrors,
+      failedTargets,
+    }
+  }
+
+  delete registry[server.id]
+  if (server.name !== server.id) {
+    delete registry[server.name]
+  }
+
+  saveCentralMCPRegistry(registry, options)
+  return { success: true }
+}
+
+export function batchInjectMCPServers(
+  serverIds: string[],
+  target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string },
+  options?: MCPOptions
+): { results: Array<{ id: string; success: boolean; error?: string }> } {
+  const results: Array<{ id: string; success: boolean; error?: string }> = []
+  for (const id of serverIds) {
+    const res = injectMCPServerToTarget(id, target, options)
+    results.push({ id, success: res.success, error: res.error })
+  }
+  return { results }
+}
+
+export function batchUninjectMCPServers(
+  serverIds: string[],
+  target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string },
+  options?: MCPOptions
+): { results: Array<{ id: string; success: boolean; error?: string }> } {
+  const results: Array<{ id: string; success: boolean; error?: string }> = []
+  for (const id of serverIds) {
+    const res = uninjectMCPServerFromTarget(id, target, options)
+    results.push({ id, success: res.success, error: res.error })
+  }
+  return { results }
 }

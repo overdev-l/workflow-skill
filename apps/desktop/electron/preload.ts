@@ -10,6 +10,10 @@ import type {
 } from '@workflow-skill/capture-protocol'
 import type {
   AIProjectItem,
+  BatchItemResult,
+  CentralMCPServer,
+  ClaudeLinkResult,
+  ClaudeLinkStatus,
   DeleteSkillMode,
   MCPDistributionPreflightResult,
   MCPDistributionReport,
@@ -18,6 +22,10 @@ import type {
   MCPServerDefinition,
   MCPServerInput,
   MCPSourceTool,
+  ProjectRecord,
+  ProjectRuleAssociation,
+  ProjectSkillPathStatus,
+  PublicRule,
   RepositorySkillSearchResult,
   Workflow,
 } from '@workflow-skill/workflow-model'
@@ -171,5 +179,114 @@ contextBridge.exposeInMainWorld('workflowSkill', {
     const handler = () => listener()
     ipcRenderer.on('mcp:changed', handler)
     return () => ipcRenderer.removeListener('mcp:changed', handler)
+  },
+
+  // --- Projects (OPC-56) ---
+  listProjects: () => ipcRenderer.invoke('projects:list') as Promise<ProjectRecord[]>,
+  getActiveProject: () => ipcRenderer.invoke('projects:get-active') as Promise<ProjectRecord | null>,
+  setActiveProject: (idOrPath: string) =>
+    ipcRenderer.invoke('projects:set-active', idOrPath) as Promise<{ success: boolean; project?: ProjectRecord; error?: string }>,
+  addProject: (folderPath?: string) =>
+    ipcRenderer.invoke('projects:add', folderPath) as Promise<{ success: boolean; project?: ProjectRecord; error?: string }>,
+  removeProject: (idOrPath: string) =>
+    ipcRenderer.invoke('projects:remove', idOrPath) as Promise<{ success: boolean; error?: string }>,
+  scanProjectSkillPaths: (projectPath?: string) =>
+    ipcRenderer.invoke('projects:scan-targets', projectPath) as Promise<ProjectSkillPathStatus[]>,
+  onProjectsChanged: (listener: () => void) => {
+    const handler = () => listener()
+    ipcRenderer.on('projects:changed', handler)
+    return () => ipcRenderer.removeListener('projects:changed', handler)
+  },
+
+  // --- Public Rule Libraries (OPC-56) ---
+  listRules: () => ipcRenderer.invoke('rules:list') as Promise<PublicRule[]>,
+  getRule: (ruleId: string) => ipcRenderer.invoke('rules:get', ruleId) as Promise<PublicRule | null>,
+  saveRule: (rule: Partial<PublicRule> & { name: string; content: string }) =>
+    ipcRenderer.invoke('rules:save', rule) as Promise<{
+      success: boolean
+      rule: PublicRule
+      syncResults: Array<{ projectPath: string; success: boolean; error?: string }>
+    }>,
+  deleteRule: (ruleId: string) =>
+    ipcRenderer.invoke('rules:delete', ruleId) as Promise<{
+      success: boolean
+      syncResults: Array<{ projectPath: string; success: boolean; error?: string }>
+    }>,
+  getProjectRuleConfig: (projectPath?: string) =>
+    ipcRenderer.invoke('rules:get-project-associations', projectPath) as Promise<ProjectRuleAssociation>,
+  setProjectRules: (projectPath: string, ruleIds: string[]) =>
+    ipcRenderer.invoke('rules:set-project-rules', projectPath, ruleIds) as Promise<{
+      success: boolean
+      status: 'synced' | 'failed'
+      error?: string
+    }>,
+  uninjectProjectRule: (projectPath: string, ruleId: string) =>
+    ipcRenderer.invoke('rules:uninject-project-rule', projectPath, ruleId) as Promise<{
+      success: boolean
+      status: 'synced' | 'failed'
+      error?: string
+    }>,
+  syncProjectRules: (projectPath: string) =>
+    ipcRenderer.invoke('rules:sync-project', projectPath) as Promise<{
+      success: boolean
+      status: 'synced' | 'failed'
+      error?: string
+    }>,
+  createClaudeLink: (projectPath?: string) =>
+    ipcRenderer.invoke('rules:create-claude-link', projectPath) as Promise<ClaudeLinkResult>,
+  checkClaudeLink: (projectPath?: string) =>
+    ipcRenderer.invoke('rules:check-claude-link', projectPath) as Promise<ClaudeLinkStatus>,
+  onRulesChanged: (listener: () => void) => {
+    const handler = () => listener()
+    ipcRenderer.on('rules:changed', handler)
+    return () => ipcRenderer.removeListener('rules:changed', handler)
+  },
+
+  // --- Central MCP Assets & Target Injection (OPC-56) ---
+  listCentralMCPServers: () =>
+    ipcRenderer.invoke('mcp:list-central') as Promise<CentralMCPServer[]>,
+  saveCentralMCPServer: (input: Partial<CentralMCPServer> & { name: string; transport: any }) =>
+    ipcRenderer.invoke('mcp:save-central', input) as Promise<{
+      success: boolean
+      server?: CentralMCPServer
+      syncResults?: Array<{ tool: MCPSourceTool; scope: MCPScope; projectPath?: string; success: boolean; error?: string }>
+      error?: string
+    }>,
+  deleteCentralMCPServer: (idOrName: string) =>
+    ipcRenderer.invoke('mcp:delete-central', idOrName) as Promise<{ success: boolean; error?: string }>,
+  injectMCPServer: (serverIdOrName: string, target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) =>
+    ipcRenderer.invoke('mcp:inject', serverIdOrName, target) as Promise<{ success: boolean; error?: string }>,
+  uninjectMCPServer: (serverIdOrName: string, target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) =>
+    ipcRenderer.invoke('mcp:uninject', serverIdOrName, target) as Promise<{ success: boolean; error?: string }>,
+  batchInjectMCPServers: (serverIds: string[], target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) =>
+    ipcRenderer.invoke('mcp:batch-inject', serverIds, target) as Promise<{ results: BatchItemResult[] }>,
+  batchUninjectMCPServers: (serverIds: string[], target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) =>
+    ipcRenderer.invoke('mcp:batch-uninject', serverIds, target) as Promise<{ results: BatchItemResult[] }>,
+
+  // --- Unified Skill Injection & Batching (OPC-56) ---
+  injectSkill: (
+    skillId: string,
+    target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
+  ) =>
+    ipcRenderer.invoke('skills:inject', skillId, target) as Promise<{ success: boolean; linkPath?: string; error?: string }>,
+  uninjectSkill: (
+    skillId: string,
+    target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
+  ) =>
+    ipcRenderer.invoke('skills:uninject', skillId, target) as Promise<{ success: boolean; error?: string }>,
+  batchInjectSkills: (
+    skillIds: string[],
+    target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
+  ) =>
+    ipcRenderer.invoke('skills:batch-inject', skillIds, target) as Promise<{ results: BatchItemResult[] }>,
+  batchUninjectSkills: (
+    skillIds: string[],
+    target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
+  ) =>
+    ipcRenderer.invoke('skills:batch-uninject', skillIds, target) as Promise<{ results: BatchItemResult[] }>,
+  onSkillsChanged: (listener: () => void) => {
+    const handler = () => listener()
+    ipcRenderer.on('skills:changed', handler)
+    return () => ipcRenderer.removeListener('skills:changed', handler)
   },
 })

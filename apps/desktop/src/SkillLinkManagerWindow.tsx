@@ -5,13 +5,20 @@ import {
   FolderGit2,
   FolderOpen,
   FolderPlus,
+  FolderTree,
   Globe,
   Link2,
   Plus,
   RefreshCw,
   Unlink,
 } from 'lucide-react'
-import { DEFAULT_AI_TOOLS, type AIProjectItem, type AIToolTarget, type Skill } from '@workflow-skill/workflow-model'
+import {
+  DEFAULT_AI_TOOLS,
+  SUPPORTED_PROJECT_SKILL_PATHS,
+  type AIProjectItem,
+  type AIToolTarget,
+  type Skill,
+} from '@workflow-skill/workflow-model'
 import { AIToolLogo } from './AIToolLogo'
 
 const getAIToolDisplayName = (tool: AIToolTarget): string => {
@@ -124,6 +131,7 @@ export function SkillLinkManagerWindow() {
   const currentSkill = skills.find((s) => s.id === skillId)
   const targetTools = currentSkill?.targetTools || []
   const targetProjects = currentSkill?.targetProjects || []
+  const targetProjectPaths = currentSkill?.targetProjectPaths
 
   // Filter global tools
   const globalTools = aiTools.filter((t) => (t.scope === 'global' || !t.scope) && t.installed !== false)
@@ -137,7 +145,13 @@ export function SkillLinkManagerWindow() {
     setBusy(true)
     try {
       if (isCurrentlyLinked) {
-        if (window.workflowSkill?.unlinkSkillTarget) {
+        if (window.workflowSkill?.uninjectSkill) {
+          const res = await window.workflowSkill.uninjectSkill(currentSkill.id, { scope: 'global', targetId: tool.id })
+          if (!res.success) {
+            setToast(`取消注入失败: ${res.error || '未知错误'}`)
+            return
+          }
+        } else if (window.workflowSkill?.unlinkSkillTarget) {
           await window.workflowSkill.unlinkSkillTarget(currentSkill.id, tool.id)
         }
         setSkills((prev) =>
@@ -147,9 +161,15 @@ export function SkillLinkManagerWindow() {
               : s,
           ),
         )
-        setToast(`已从 ${displayName} 取消软链接`)
+        setToast(`已从 ${displayName} 取消注入`)
       } else {
-        if (window.workflowSkill?.linkSkillTarget) {
+        if (window.workflowSkill?.injectSkill) {
+          const res = await window.workflowSkill.injectSkill(currentSkill.id, { scope: 'global', targetId: tool.id })
+          if (!res.success) {
+            setToast(`注入失败: ${res.error || '未知错误'}`)
+            return
+          }
+        } else if (window.workflowSkill?.linkSkillTarget) {
           await window.workflowSkill.linkSkillTarget(currentSkill.id, tool.id)
         }
         setSkills((prev) =>
@@ -159,45 +179,135 @@ export function SkillLinkManagerWindow() {
               : s,
           ),
         )
-        setToast(`已成功软链接到 ${displayName}`)
+        setToast(`已成功注入到 ${displayName}`)
       }
+    } catch (err: any) {
+      setToast(`操作失败: ${err?.message || String(err)}`)
     } finally {
       setBusy(false)
     }
   }
 
-  // Toggle Project Target
-  const handleToggleProjectTarget = async (proj: AIProjectItem) => {
+  // Toggle Project Path Target
+  const handleToggleProjectPath = async (proj: AIProjectItem, relPath: string) => {
     if (!currentSkill || busy) return
-    const isCurrentlyLinked = targetProjects.includes(proj.path)
+    const isCurrentlyLinked = targetProjectPaths
+      ? targetProjectPaths.some((item) =>
+          item.projectPath.toLowerCase() === proj.path.toLowerCase() && item.relPath === relPath)
+      : targetProjects.some((p) => p && p.toLowerCase() === proj.path.toLowerCase())
 
     setBusy(true)
     try {
       if (isCurrentlyLinked) {
-        if (window.workflowSkill?.unlinkSkillProject) {
+        if (window.workflowSkill?.uninjectSkill) {
+          const res = await window.workflowSkill.uninjectSkill(currentSkill.id, {
+            scope: 'project',
+            projectPath: proj.path,
+            relPath,
+          })
+          if (!res.success) {
+            setToast(`取消注入失败: ${res.error || '未知错误'}`)
+            return
+          }
+        } else if (window.workflowSkill?.unlinkSkillProject) {
           await window.workflowSkill.unlinkSkillProject(currentSkill.id, proj.path)
         }
         setSkills((prev) =>
           prev.map((s) =>
             s.id === currentSkill.id
-              ? { ...s, targetProjects: (s.targetProjects || []).filter((p) => p !== proj.path) }
+              ? {
+                  ...s,
+                  targetProjectPaths: (s.targetProjectPaths || []).filter((item) =>
+                    !(item.projectPath.toLowerCase() === proj.path.toLowerCase() && item.relPath === relPath)),
+                }
               : s,
           ),
         )
-        setToast(`已从项目 ${proj.name} 取消软链接`)
+        setToast(`已从 ${proj.name}/${relPath} 取消注入`)
       } else {
-        if (window.workflowSkill?.linkSkillProject) {
+        if (window.workflowSkill?.injectSkill) {
+          const res = await window.workflowSkill.injectSkill(currentSkill.id, {
+            scope: 'project',
+            projectPath: proj.path,
+            relPath,
+          })
+          if (!res.success) {
+            setToast(`注入失败: ${res.error || '未知错误'}`)
+            return
+          }
+        } else if (window.workflowSkill?.linkSkillProject) {
           await window.workflowSkill.linkSkillProject(currentSkill.id, proj.path)
         }
         setSkills((prev) =>
           prev.map((s) =>
             s.id === currentSkill.id
-              ? { ...s, targetProjects: Array.from(new Set([...(s.targetProjects || []), proj.path])) }
+              ? {
+                  ...s,
+                  targetProjects: Array.from(new Set([...(s.targetProjects || []), proj.path])),
+                  targetProjectPaths: [
+                    ...(s.targetProjectPaths || []).filter((item) =>
+                      !(item.projectPath.toLowerCase() === proj.path.toLowerCase() && item.relPath === relPath)),
+                    { projectPath: proj.path, relPath },
+                  ],
+                }
               : s,
           ),
         )
-        setToast(`已成功软链接到项目 ${proj.name}`)
+        setToast(`已成功注入到 ${proj.name}/${relPath}`)
       }
+    } catch (err: any) {
+      setToast(`操作失败: ${err?.message || String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Batch toggle all supported paths for a project
+  const handleBatchToggleProject = async (proj: AIProjectItem, shouldInject: boolean) => {
+    if (!currentSkill || busy) return
+    setBusy(true)
+    try {
+      const failures: string[] = []
+      for (const sp of SUPPORTED_PROJECT_SKILL_PATHS) {
+        if (shouldInject) {
+          if (window.workflowSkill?.batchInjectSkills) {
+            const res = await window.workflowSkill.batchInjectSkills([currentSkill.id], {
+              scope: 'project',
+              projectPath: proj.path,
+              relPath: sp.relPath,
+            })
+            const failed = res.results.find((item) => !item.success)
+            if (failed) failures.push(`${sp.relPath}: ${failed.error || '未知错误'}`)
+          }
+        } else {
+          if (window.workflowSkill?.batchUninjectSkills) {
+            const res = await window.workflowSkill.batchUninjectSkills([currentSkill.id], {
+              scope: 'project',
+              projectPath: proj.path,
+              relPath: sp.relPath,
+            })
+            const failed = res.results.find((item) => !item.success)
+            if (failed) failures.push(`${sp.relPath}: ${failed.error || '未知错误'}`)
+          }
+        }
+      }
+      await reloadData()
+      if (failures.length > 0) {
+        setToast(`部分操作失败: ${failures.join('; ')}`)
+        return
+      }
+      setSkills((prev) =>
+        prev.map((s) => {
+          if (s.id !== currentSkill.id) return s
+          const projects = shouldInject
+            ? Array.from(new Set([...(s.targetProjects || []), proj.path]))
+            : (s.targetProjects || []).filter((p) => p.toLowerCase() !== proj.path.toLowerCase())
+          return { ...s, targetProjects: projects }
+        }),
+      )
+      setToast(shouldInject ? `已将技能批量注入到 ${proj.name}` : `已从 ${proj.name} 取消所有技能注入`)
+    } catch (err: any) {
+      setToast(`操作失败: ${err?.message || String(err)}`)
     } finally {
       setBusy(false)
     }
@@ -337,64 +447,93 @@ export function SkillLinkManagerWindow() {
 
             {projects.length > 0 ? (
               projects.map((proj) => {
-                const isLinked = targetProjects.includes(proj.path)
+                const isProjectLinked = targetProjectPaths
+                  ? targetProjectPaths.some((item) => item.projectPath.toLowerCase() === proj.path.toLowerCase())
+                  : targetProjects.some((p) => p && p.toLowerCase() === proj.path.toLowerCase())
 
                 return (
-                  <div
-                    key={proj.path}
-                    className={`env-clean-row ${isLinked ? 'is-linked' : ''}`}
-                    onClick={() => void handleToggleProjectTarget(proj)}
-                  >
-                    <div className="env-row-left">
-                      <div className="master-item-logo">
-                        <Folder size={15} style={{ color: isLinked ? 'var(--color-accent)' : 'var(--color-muted)' }} />
-                      </div>
-                      <div className="env-row-text">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span className="env-row-title">{proj.name}</span>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                            {proj.sources.map((src) => {
-                              const s = src.toLowerCase()
-                              const toolId = s.includes('cursor')
-                                ? 'cursor'
-                                : s.includes('claude')
-                                ? 'claude'
-                                : s.includes('antigravity') || s.includes('gemini')
-                                ? 'antigravity'
-                                : s.includes('trae')
-                                ? 'trae'
-                                : s.includes('code') || s.includes('vscode')
-                                ? 'vscode'
-                                : s.includes('windsurf')
-                                ? 'windsurf'
-                                : 'agents'
+                  <div key={proj.path} className="env-tree-branch" style={{ marginBottom: 12 }}>
+                    <div className="env-tree-branch-header" style={{ padding: '6px 8px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '6px' }}>
+                      <div className="branch-header-left">
+                        <Folder size={15} style={{ color: isProjectLinked ? 'var(--color-accent)' : 'var(--color-muted)' }} />
+                        <span className="branch-title">{proj.name}</span>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          {proj.sources.map((src) => {
+                            const s = src.toLowerCase()
+                            const toolId = s.includes('cursor')
+                              ? 'cursor'
+                              : s.includes('claude')
+                              ? 'claude'
+                              : s.includes('antigravity') || s.includes('gemini')
+                              ? 'antigravity'
+                              : s.includes('trae')
+                              ? 'trae'
+                              : s.includes('code') || s.includes('vscode')
+                              ? 'vscode'
+                              : s.includes('windsurf')
+                              ? 'windsurf'
+                              : 'agents'
 
-                              return (
-                                <span
-                                  key={src}
-                                  className="env-source-logo-chip"
-                                  title={`在 ${src} 中打开过`}
-                                >
-                                  <AIToolLogo toolId={toolId} size={12} />
-                                </span>
-                              )
-                            })}
-                          </div>
+                            return (
+                              <span key={src} className="env-source-logo-chip" title={`在 ${src} 中打开过`}>
+                                <AIToolLogo toolId={toolId} size={12} />
+                              </span>
+                            )
+                          })}
                         </div>
-                        <span className="env-row-path font-mono">
-                          {proj.skillDir}
-                        </span>
+                        {isProjectLinked ? (
+                          <span className="branch-badge font-mono" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                            已关联
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="branch-header-actions">
+                        <button
+                          type="button"
+                          className="btn btn--capsule-ghost btn--capsule btn--sm branch-action-btn"
+                          onClick={() => void handleBatchToggleProject(proj, !isProjectLinked)}
+                          disabled={busy}
+                        >
+                          {isProjectLinked ? '取消全部' : '全选注入'}
+                        </button>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      className={`btn btn--capsule btn--sm ${isLinked ? 'btn--secondary' : 'btn--primary'}`}
-                      style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
-                    >
-                      {isLinked ? <Unlink size={11} /> : <Link2 size={11} />}
-                      <span>{isLinked ? '清除链接' : '创建链接'}</span>
-                    </button>
+                    <div className="env-tree-children" style={{ paddingLeft: '12px', marginTop: '4px' }}>
+                      {SUPPORTED_PROJECT_SKILL_PATHS.map((sp) => {
+                        const isLinked = targetProjectPaths
+                          ? targetProjectPaths.some((item) =>
+                              item.projectPath.toLowerCase() === proj.path.toLowerCase() && item.relPath === sp.relPath)
+                          : isProjectLinked
+                        return (
+                          <div
+                            key={sp.id}
+                            className={`env-tree-node-row ${isLinked ? 'is-linked' : ''}`}
+                            onClick={() => void handleToggleProjectPath(proj, sp.relPath)}
+                          >
+                            <div className="node-content-left">
+                              <span className="env-scope-tag is-project" title={sp.name}>
+                                <FolderTree size={10} />
+                                <span>{sp.name}</span>
+                              </span>
+                              <span className="node-path font-mono">
+                                {proj.name}/{sp.relPath}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              className={`btn btn--capsule btn--sm ${isLinked ? 'btn--secondary' : 'btn--primary'}`}
+                              style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
+                            >
+                              {isLinked ? <Unlink size={11} /> : <Link2 size={11} />}
+                              <span>{isLinked ? '已注入' : '注入'}</span>
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                 )
               })

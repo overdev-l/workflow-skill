@@ -81,10 +81,12 @@ import {
   communityRemoteSkills,
   DEFAULT_AI_TOOLS,
   demoSkills,
+  SUPPORTED_PROJECT_SKILL_PATHS,
   type AIProjectItem,
   type AIToolCategory,
   type AIToolTarget,
   type DeleteSkillMode,
+  type ProjectRecord,
   type RemoteSkill,
   type RepositorySkillSearchResult,
   type RepositorySkillSummary,
@@ -101,11 +103,12 @@ import type {
 } from '@workflow-skill/capture-protocol'
 import { WorkflowGraph } from './components/WorkflowGraph'
 import { McpThreeColumn } from './components/McpThreeColumn'
+import { RulesThreeColumn } from './components/RulesThreeColumn'
 import { AccountSettings } from './components/AccountSettings'
 import { AIToolLogo } from './AIToolLogo'
 import { useI18n, type Locale, type TranslationKeys } from './i18n'
 
-export type View = 'skills' | 'workflows' | 'environments' | 'mcp' | 'accounts'
+export type View = 'skills' | 'workflows' | 'environments' | 'mcp' | 'rules' | 'accounts'
 type SettingsTab = 'general' | 'shortcuts' | 'permissions' | 'about'
 export type ThemeMode = 'dark' | 'light' | 'system'
 
@@ -263,6 +266,20 @@ function AppSidebar({
               <div className="nav-pill-btn__left">
                 <Server size={15} className="nav-icon" />
                 <span>{t.nav.mcp}</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-pill-btn ${view === 'rules' ? 'is-active' : ''}`}
+              onClick={() => {
+                setView('rules')
+                onBackToOverview()
+              }}
+            >
+              <div className="nav-pill-btn__left">
+                <BookOpen size={15} className="nav-icon" />
+                <span>{t.nav.rules}</span>
               </div>
             </button>
 
@@ -789,13 +806,28 @@ function ManageSkillLinksModal({
   onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
+  const [activeTab, setActiveTab] = useState<'global' | 'project'>('global')
+  const [projects, setProjects] = useState<ProjectRecord[]>([])
+  const [projectPathOperating, setProjectPathOperating] = useState<Record<string, boolean>>({})
+  const [projectLinkMap, setProjectLinkMap] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    if (!open) return
+    if (window.workflowSkill?.listProjects) {
+      window.workflowSkill.listProjects().then((projs) => {
+        if (Array.isArray(projs)) setProjects(projs)
+      }).catch(() => {})
+    }
+  }, [open])
 
   if (!open || !skill) return null
 
   const currentSkill = skills.find((s) => s.id === skill.id) || skill
   const targetTools = currentSkill.targetTools || []
+  const targetProjects = currentSkill.targetProjects || []
+  const targetProjectPaths = currentSkill.targetProjectPaths
   const envGroups = groupAIToolsByEnvironment(aiTools)
-  const totalLinkedCount = aiTools.filter((t) => targetTools.includes(t.id)).length
+  const totalLinkedCount = aiTools.filter((t) => targetTools.includes(t.id)).length + targetProjects.length
 
   const handleToggleGroup = async (group: AIEnvGroup) => {
     if (busy) return
@@ -810,6 +842,111 @@ function ManageSkillLinksModal({
           await onToggleLinkTarget(currentSkill, t.id)
         } else if (!shouldLink && isLinked) {
           await onToggleLinkTarget(currentSkill, t.id)
+        }
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleToggleProjectPath = async (proj: ProjectRecord, relPath: string) => {
+    if (busy || !currentSkill) return
+    const key = `${proj.path}:${relPath}`
+    const isCurrentlyLinked = Boolean(projectLinkMap[key] !== undefined
+      ? projectLinkMap[key]
+      : targetProjectPaths
+        ? targetProjectPaths.some((item) =>
+            item.projectPath.toLowerCase() === proj.path.toLowerCase() && item.relPath === relPath)
+        : targetProjects.some((p) => p && p.toLowerCase() === proj.path.toLowerCase()))
+    setProjectPathOperating((prev) => ({ ...prev, [key]: true }))
+
+    try {
+      if (isCurrentlyLinked) {
+        if (window.workflowSkill?.uninjectSkill) {
+          const res = await window.workflowSkill.uninjectSkill(currentSkill.id, {
+            scope: 'project',
+            projectPath: proj.path,
+            relPath,
+          })
+          if (res.success) {
+            setProjectLinkMap((prev) => ({ ...prev, [key]: false }))
+            currentSkill.targetProjectPaths = (currentSkill.targetProjectPaths || []).filter((item) =>
+              !(item.projectPath.toLowerCase() === proj.path.toLowerCase() && item.relPath === relPath))
+            if (!currentSkill.targetProjectPaths.some((item) =>
+              item.projectPath.toLowerCase() === proj.path.toLowerCase())) {
+              currentSkill.targetProjects = (currentSkill.targetProjects || []).filter(
+                (p) => p.toLowerCase() !== proj.path.toLowerCase())
+            }
+          }
+        }
+      } else {
+        if (window.workflowSkill?.injectSkill) {
+          const res = await window.workflowSkill.injectSkill(currentSkill.id, {
+            scope: 'project',
+            projectPath: proj.path,
+            relPath,
+          })
+          if (res.success) {
+            setProjectLinkMap((prev) => ({ ...prev, [key]: true }))
+            currentSkill.targetProjects = Array.from(new Set([...(currentSkill.targetProjects || []), proj.path]))
+            currentSkill.targetProjectPaths = [
+              ...(currentSkill.targetProjectPaths || []).filter((item) =>
+                !(item.projectPath.toLowerCase() === proj.path.toLowerCase() && item.relPath === relPath)),
+              { projectPath: proj.path, relPath },
+            ]
+          }
+        }
+      }
+    } finally {
+      setProjectPathOperating((prev) => ({ ...prev, [key]: false }))
+    }
+  }
+
+  const handleBatchToggleProject = async (proj: ProjectRecord, shouldInject: boolean) => {
+    if (busy || !currentSkill) return
+    setBusy(true)
+    try {
+      const successfulPaths: string[] = []
+      for (const sp of SUPPORTED_PROJECT_SKILL_PATHS) {
+        const key = `${proj.path}:${sp.relPath}`
+        if (shouldInject) {
+          if (window.workflowSkill?.batchInjectSkills) {
+            const res = await window.workflowSkill.batchInjectSkills([currentSkill.id], {
+              scope: 'project',
+              projectPath: proj.path,
+              relPath: sp.relPath,
+            })
+            if (res.results.some((item) => !item.success)) continue
+          }
+          successfulPaths.push(sp.relPath)
+          setProjectLinkMap((prev) => ({ ...prev, [key]: true }))
+        } else {
+          if (window.workflowSkill?.batchUninjectSkills) {
+            const res = await window.workflowSkill.batchUninjectSkills([currentSkill.id], {
+              scope: 'project',
+              projectPath: proj.path,
+              relPath: sp.relPath,
+            })
+            if (res.results.some((item) => !item.success)) continue
+          }
+          successfulPaths.push(sp.relPath)
+          setProjectLinkMap((prev) => ({ ...prev, [key]: false }))
+        }
+      }
+      if (shouldInject) {
+        currentSkill.targetProjects = Array.from(new Set([...(currentSkill.targetProjects || []), proj.path]))
+        currentSkill.targetProjectPaths = [
+          ...(currentSkill.targetProjectPaths || []).filter((item) =>
+            item.projectPath.toLowerCase() !== proj.path.toLowerCase() || !successfulPaths.includes(item.relPath)),
+          ...successfulPaths.map((relPath) => ({ projectPath: proj.path, relPath })),
+        ]
+      } else {
+        currentSkill.targetProjectPaths = (currentSkill.targetProjectPaths || []).filter((item) =>
+          item.projectPath.toLowerCase() !== proj.path.toLowerCase() || !successfulPaths.includes(item.relPath))
+        if (!currentSkill.targetProjectPaths.some((item) => item.projectPath.toLowerCase() === proj.path.toLowerCase())) {
+          currentSkill.targetProjects = (currentSkill.targetProjects || []).filter(
+            (p) => p.toLowerCase() !== proj.path.toLowerCase()
+          )
         }
       }
     } finally {
@@ -836,90 +973,209 @@ function ManageSkillLinksModal({
           </button>
         </div>
 
-        {/* Tree Body Grouped by AI Environment */}
-        <div className="env-tree-body" style={{ maxHeight: '380px', overflowY: 'auto' }}>
-          {envGroups.map((group) => {
-            const linkedCount = group.tools.filter((t) => targetTools.includes(t.id)).length
-            const allLinked = group.tools.length > 0 && linkedCount === group.tools.length
-            const hasLinked = linkedCount > 0
+        {/* Tab Switcher: [ 全局宿主 | 工程项目 ] */}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '0 16px 10px' }}>
+          <div className="master-tab-segmented" style={{ width: 'fit-content' }}>
+            <button
+              type="button"
+              className={`master-tab-btn ${activeTab === 'global' ? 'is-active' : ''}`}
+              onClick={() => setActiveTab('global')}
+              disabled={busy}
+            >
+              <span>全局宿主</span>
+            </button>
+            <button
+              type="button"
+              className={`master-tab-btn ${activeTab === 'project' ? 'is-active' : ''}`}
+              onClick={() => setActiveTab('project')}
+              disabled={busy}
+            >
+              <span>工程项目 ({projects.length})</span>
+            </button>
+          </div>
+        </div>
 
-            return (
-              <div key={group.key} className="env-tree-branch">
-                <div className="env-tree-branch-header">
-                  <div className="branch-header-left">
-                    <AIToolLogo toolId={group.logoId} size={16} />
-                    <span className="branch-title">{group.name}</span>
+        {/* Tree Body */}
+        <div className="env-tree-body" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+          {activeTab === 'global' ? (
+            envGroups.map((group) => {
+              const linkedCount = group.tools.filter((t) => targetTools.includes(t.id)).length
+              const allLinked = group.tools.length > 0 && linkedCount === group.tools.length
+              const hasLinked = linkedCount > 0
+
+              return (
+                <div key={group.key} className="env-tree-branch">
+                  <div className="env-tree-branch-header">
+                    <div className="branch-header-left">
+                      <AIToolLogo toolId={group.logoId} size={16} />
+                      <span className="branch-title">{group.name}</span>
+                      {group.tools.length > 1 ? (
+                        <span className="branch-badge font-mono">
+                          {linkedCount}/{group.tools.length}
+                        </span>
+                      ) : hasLinked ? (
+                        <span className="branch-badge font-mono" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                          已注入
+                        </span>
+                      ) : null}
+                    </div>
+
                     {group.tools.length > 1 ? (
-                      <span className="branch-badge font-mono">
-                        {linkedCount}/{group.tools.length}
-                      </span>
-                    ) : hasLinked ? (
-                      <span className="branch-badge font-mono" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
-                        已挂载
-                      </span>
+                      <div className="branch-header-actions">
+                        <button
+                          type="button"
+                          className="btn btn--capsule-ghost btn--capsule btn--sm branch-action-btn"
+                          onClick={() => void handleToggleGroup(group)}
+                          disabled={busy}
+                        >
+                          {allLinked ? '取消' : '全选'}
+                        </button>
+                      </div>
                     ) : null}
                   </div>
 
-                  {group.tools.length > 1 ? (
+                  <div className="env-tree-children" style={{ paddingLeft: '14px' }}>
+                    {group.tools.map((tool) => {
+                      const isLinked = targetTools.includes(tool.id)
+                      const isProject = tool.scope === 'project'
+
+                      return (
+                        <div
+                          key={tool.id}
+                          className={`env-tree-node-row ${isLinked ? 'is-linked' : ''}`}
+                          onClick={() => void onToggleLinkTarget(currentSkill, tool.id)}
+                        >
+                          <div className="node-content-left">
+                            <span
+                              className={`env-scope-tag ${isProject ? 'is-project' : 'is-global'}`}
+                              title={isProject ? '当前项目工作区目录' : '用户全局主目录'}
+                            >
+                              {isProject ? <FolderTree size={10} /> : <Globe size={10} />}
+                              <span>{isProject ? '项目' : '全局'}</span>
+                            </span>
+
+                            <span className="node-path font-mono">
+                              {tool.detectedPath || tool.defaultDir}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            className={`btn btn--capsule btn--sm ${isLinked ? 'btn--primary' : 'btn--capsule-ghost'}`}
+                            style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
+                          >
+                            {isLinked ? <Check size={11} /> : <Link2 size={11} />}
+                            <span>{isLinked ? '已注入' : '未注入'}</span>
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })
+          ) : projects.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--color-muted)' }}>
+              <Folder size={24} style={{ margin: '0 auto 8px', opacity: 0.4 }} />
+              <p style={{ fontSize: '0.8125rem', margin: 0 }}>暂无已登记的项目工作区</p>
+              <p style={{ fontSize: '0.75rem', margin: '4px 0 0', opacity: 0.7 }}>
+                请先在 MCP 页面或系统设置中添加本地项目文件夹
+              </p>
+            </div>
+          ) : (
+            projects.map((proj) => {
+              const isProjectLinked = SUPPORTED_PROJECT_SKILL_PATHS.some((item) => {
+                const key = `${proj.path}:${item.relPath}`
+                if (projectLinkMap[key] !== undefined) return projectLinkMap[key]
+                return targetProjectPaths
+                  ? targetProjectPaths.some((target) =>
+                      target.projectPath.toLowerCase() === proj.path.toLowerCase() && target.relPath === item.relPath)
+                  : targetProjects.some((p) => p && p.toLowerCase() === proj.path.toLowerCase())
+              })
+
+              return (
+                <div key={proj.id} className="env-tree-branch">
+                  <div className="env-tree-branch-header">
+                    <div className="branch-header-left">
+                      <Folder size={15} style={{ color: 'var(--color-accent)' }} />
+                      <span className="branch-title">{proj.name}</span>
+                      {isProjectLinked ? (
+                        <span className="branch-badge font-mono" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                          已关联
+                        </span>
+                      ) : null}
+                    </div>
+
                     <div className="branch-header-actions">
                       <button
                         type="button"
                         className="btn btn--capsule-ghost btn--capsule btn--sm branch-action-btn"
-                        onClick={() => void handleToggleGroup(group)}
+                        onClick={() => void handleBatchToggleProject(proj, !isProjectLinked)}
                         disabled={busy}
                       >
-                        {allLinked ? '取消' : '全选'}
+                        {isProjectLinked ? '取消全部' : '全选注入'}
                       </button>
                     </div>
-                  ) : null}
-                </div>
+                  </div>
 
-                <div className="env-tree-children" style={{ paddingLeft: '14px' }}>
-                  {group.tools.map((tool) => {
-                    const isLinked = targetTools.includes(tool.id)
-                    const isProject = tool.scope === 'project'
+                  <div className="env-tree-children" style={{ paddingLeft: '14px' }}>
+                    {SUPPORTED_PROJECT_SKILL_PATHS.map((sp) => {
+                      const key = `${proj.path}:${sp.relPath}`
+                      const isNodeLinked = Boolean(
+                        projectLinkMap[key] !== undefined
+                          ? projectLinkMap[key]
+                          : targetProjectPaths
+                            ? targetProjectPaths.some((target) =>
+                                target.projectPath.toLowerCase() === proj.path.toLowerCase() && target.relPath === sp.relPath)
+                            : isProjectLinked
+                      )
+                      const isOp = Boolean(projectPathOperating[key])
 
-                    return (
-                      <div
-                        key={tool.id}
-                        className={`env-tree-node-row ${isLinked ? 'is-linked' : ''}`}
-                        onClick={() => void onToggleLinkTarget(currentSkill, tool.id)}
-                      >
-                        <div className="node-content-left">
-                          <span
-                            className={`env-scope-tag ${isProject ? 'is-project' : 'is-global'}`}
-                            title={isProject ? '当前项目工作区目录' : '用户全局主目录'}
-                          >
-                            {isProject ? <FolderTree size={10} /> : <Globe size={10} />}
-                            <span>{isProject ? '项目' : '全局'}</span>
-                          </span>
-
-                          <span className="node-path font-mono">
-                            {tool.detectedPath || tool.defaultDir}
-                          </span>
-                        </div>
-
-                        <button
-                          type="button"
-                          className={`btn btn--capsule btn--sm ${isLinked ? 'btn--primary' : 'btn--capsule-ghost'}`}
-                          style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
+                      return (
+                        <div
+                          key={sp.id}
+                          className={`env-tree-node-row ${isNodeLinked ? 'is-linked' : ''}`}
+                          onClick={() => void handleToggleProjectPath(proj, sp.relPath)}
                         >
-                          {isLinked ? <Check size={11} /> : <Link2 size={11} />}
-                          <span>{isLinked ? '已挂载' : '未挂载'}</span>
-                        </button>
-                      </div>
-                    )
-                  })}
+                          <div className="node-content-left">
+                            <span className="env-scope-tag is-project" title={sp.name}>
+                              <FolderTree size={10} />
+                              <span>{sp.name}</span>
+                            </span>
+
+                            <span className="node-path font-mono">
+                              {proj.name}/{sp.relPath}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            className={`btn btn--capsule btn--sm ${isNodeLinked ? 'btn--primary' : 'btn--capsule-ghost'}`}
+                            style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
+                          >
+                            {isOp ? (
+                              <RefreshCw size={11} className="spin" />
+                            ) : isNodeLinked ? (
+                              <Check size={11} />
+                            ) : (
+                              <Link2 size={11} />
+                            )}
+                            <span>{isNodeLinked ? '已注入' : '未注入'}</span>
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })
+          )}
         </div>
 
         {/* Dialog Footer */}
         <div className="dialog-footer-row env-tree-dialog-footer">
           <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-            当前已挂载到 <strong>{totalLinkedCount}</strong> 个环境
+            当前已注入到 <strong>{totalLinkedCount}</strong> 个环境与工作区
           </div>
           <button type="button" className="btn btn--primary btn--capsule btn--sm" onClick={onClose}>
             <span>完成</span>
@@ -1994,7 +2250,7 @@ function AIEnvironmentsThreeColumn({
                         onClick={() => void onToggleLinkTarget(sk, activeTool.id)}
                       >
                         {isLinked ? <Unlink size={10} /> : <Link2 size={10} />}
-                        <span>{isLinked ? '清除软链' : '挂载到此环境'}</span>
+                        <span>{isLinked ? '取消注入' : '注入到此环境'}</span>
                       </button>
                     </div>
                   )
@@ -5132,6 +5388,8 @@ export function App() {
         </main>
       ) : view === 'mcp' ? (
         <McpThreeColumn notify={setToast} />
+      ) : view === 'rules' ? (
+        <RulesThreeColumn notify={setToast} />
       ) : view === 'accounts' ? (
         <AccountSettings presentation="workspace" api={window.workflowSkill?.accounts} onNotify={setToast} />
       ) : view === 'environments' ? (

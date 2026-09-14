@@ -25,7 +25,42 @@ import {
   readAllMCPServers,
   saveMCPServer,
   toggleMCPServer,
+  readCentralMCPServers,
+  saveCentralMCPServer,
+  deleteCentralMCPServer,
+  injectMCPServerToTarget,
+  uninjectMCPServerFromTarget,
+  batchInjectMCPServers,
+  batchUninjectMCPServers,
 } from './mcp-manager'
+import {
+  listProjects,
+  getActiveProject,
+  setActiveProject,
+  addProject,
+  removeProject,
+  scanProjectSkillPaths,
+  getStoredProjectWorkspace as getStoredProjectWorkspaceFromManager,
+  SUPPORTED_PROJECT_SKILL_PATHS,
+} from './project-manager'
+import {
+  listRules,
+  getRule,
+  saveRule,
+  deleteRule,
+  getProjectRuleConfig,
+  setProjectRules,
+  uninjectRuleFromProject,
+  syncProjectRules,
+  createClaudeMdLink,
+  checkClaudeMdLink,
+} from './rule-manager'
+import {
+  injectSkillToTarget,
+  uninjectSkillFromTarget,
+  batchInjectSkills,
+  batchUninjectSkills,
+} from './skill-injection-manager'
 import { AccountManager } from './account-manager'
 import { AccountOAuthService } from './account-oauth'
 import { createAccountOAuthProviders } from './account-oauth-providers'
@@ -528,32 +563,17 @@ app.whenReady().then(() => {
   })
 
   function getStoredProjectWorkspace(): string {
-    const configPath = path.join(defaultTraceHome, 'config.json')
-    try {
-      if (existsSync(configPath)) {
-        const data = JSON.parse(readFileSync(configPath, 'utf8'))
-        if (data.projectWorkspace && existsSync(data.projectWorkspace)) {
-          return data.projectWorkspace
-        }
-      }
-    } catch {}
-    return process.cwd()
+    return getStoredProjectWorkspaceFromManager(getStoredTraceHome())
   }
 
   function setStoredProjectWorkspace(workspacePath: string) {
-    const configPath = path.join(defaultTraceHome, 'config.json')
-    try {
-      let data: Record<string, any> = {}
-      if (existsSync(configPath)) {
-        data = JSON.parse(readFileSync(configPath, 'utf8'))
-      }
-      data.projectWorkspace = workspacePath
-      writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf8')
-    } catch {}
+    setActiveProject(workspacePath, getStoredTraceHome())
   }
 
   function getAIToolDirectory(tool: AIToolTarget): string {
     const projectRoot = getStoredProjectWorkspace()
+    if (tool.scope === 'project' && !projectRoot) return ''
+
     if (tool.customDir) {
       if (path.isAbsolute(tool.customDir)) return tool.customDir
       return tool.scope === 'project'
@@ -583,6 +603,14 @@ app.whenReady().then(() => {
   function detectInstalledAITools(): AIToolTarget[] {
     return DEFAULT_AI_TOOLS.map((tool) => {
       const dir = getAIToolDirectory(tool)
+      if (tool.scope === 'project' && !dir) {
+        return {
+          ...tool,
+          installed: false,
+          detectedPath: '',
+          itemCount: 0,
+        }
+      }
       const baseDir = path.dirname(dir)
       const installed = existsSync(dir) || (tool.scope === 'global' && existsSync(baseDir))
       let itemCount = 0
@@ -1264,7 +1292,13 @@ ${skill.description || ''}
     try {
       const targetPaths = new Set<string>()
       for (const tool of detectInstalledAITools()) {
-        targetPaths.add(path.join(getAIToolDirectory(tool), skillId))
+        const toolDir = getAIToolDirectory(tool)
+        if (toolDir) targetPaths.add(path.join(toolDir, skillId))
+      }
+      for (const project of listProjects(root)) {
+        for (const sp of SUPPORTED_PROJECT_SKILL_PATHS) {
+          targetPaths.add(path.join(project.path, sp.relPath, skillId))
+        }
       }
       targetPaths.add(path.join(skillsDir, skillId))
       targetPaths.add(path.join(skillsDir, `${skillId}.json`))
@@ -1703,6 +1737,106 @@ ${skill.description || ''}
     }
   }
 
+  function notifyProjectsChanged() {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send('projects:changed')
+      }
+    }
+  }
+
+  function notifyRulesChanged() {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send('rules:changed')
+      }
+    }
+  }
+
+  function notifySkillsChanged() {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send('skills:changed')
+      }
+    }
+  }
+
+  // --- Projects IPC (OPC-56) ---
+  ipcMain.handle('projects:list', () => listProjects(getStoredTraceHome()))
+  ipcMain.handle('projects:get-active', () => getActiveProject(getStoredTraceHome()))
+  ipcMain.handle('projects:set-active', (_event, idOrPath: string) => {
+    const res = setActiveProject(idOrPath, getStoredTraceHome())
+    if (res.success) notifyProjectsChanged()
+    return res
+  })
+  ipcMain.handle('projects:add', async (_event, folderPath?: string) => {
+    let chosen = folderPath
+    if (!chosen) {
+      const res = await dialog.showOpenDialog({
+        title: '选择项目工作区根目录',
+        properties: ['openDirectory', 'createDirectory'],
+      })
+      if (res.canceled || res.filePaths.length === 0) {
+        return { success: false, error: '用户取消了选择' }
+      }
+      chosen = res.filePaths[0]
+    }
+    const res = addProject(chosen, getStoredTraceHome())
+    if (res.success) notifyProjectsChanged()
+    return res
+  })
+  ipcMain.handle('projects:remove', (_event, idOrPath: string) => {
+    const res = removeProject(idOrPath, getStoredTraceHome())
+    if (res.success) notifyProjectsChanged()
+    return res
+  })
+  ipcMain.handle('projects:scan-targets', (_event, projectPath?: string) => {
+    const p = projectPath || getStoredProjectWorkspace()
+    return scanProjectSkillPaths(p)
+  })
+
+  // --- Public Rule Libraries & CLAUDE.md IPC (OPC-56) ---
+  ipcMain.handle('rules:list', () => listRules(getStoredTraceHome()))
+  ipcMain.handle('rules:get', (_event, ruleId: string) => getRule(ruleId, getStoredTraceHome()))
+  ipcMain.handle('rules:save', (_event, ruleInput) => {
+    const res = saveRule(ruleInput, getStoredTraceHome())
+    if (res.success) notifyRulesChanged()
+    return res
+  })
+  ipcMain.handle('rules:delete', (_event, ruleId: string) => {
+    const res = deleteRule(ruleId, getStoredTraceHome())
+    if (res.success) notifyRulesChanged()
+    return res
+  })
+  ipcMain.handle('rules:get-project-associations', (_event, projectPath?: string) => {
+    const p = projectPath || getStoredProjectWorkspace()
+    return getProjectRuleConfig(p, getStoredTraceHome())
+  })
+  ipcMain.handle('rules:set-project-rules', (_event, projectPath: string, ruleIds: string[]) => {
+    const res = setProjectRules(projectPath, ruleIds, getStoredTraceHome())
+    notifyRulesChanged()
+    return res
+  })
+  ipcMain.handle('rules:uninject-project-rule', (_event, projectPath: string, ruleId: string) => {
+    const res = uninjectRuleFromProject(projectPath, ruleId, getStoredTraceHome())
+    notifyRulesChanged()
+    return res
+  })
+  ipcMain.handle('rules:sync-project', (_event, projectPath: string) => {
+    const res = syncProjectRules(projectPath, getStoredTraceHome())
+    notifyRulesChanged()
+    return res
+  })
+  ipcMain.handle('rules:create-claude-link', (_event, projectPath?: string) => {
+    const p = projectPath || getStoredProjectWorkspace()
+    return createClaudeMdLink(p)
+  })
+  ipcMain.handle('rules:check-claude-link', (_event, projectPath?: string) => {
+    const p = projectPath || getStoredProjectWorkspace()
+    return checkClaudeMdLink(p)
+  })
+
+  // --- Central MCP Assets IPC (OPC-56) ---
   ipcMain.handle('mcp:list', async () => {
     return readAllMCPServers(getMCPOptions())
   })
@@ -1734,6 +1868,95 @@ ${skill.description || ''}
     notifyMCPChanged()
     return result
   })
+
+  ipcMain.handle('mcp:list-central', async () => {
+    return readCentralMCPServers(getMCPOptions())
+  })
+
+  ipcMain.handle('mcp:save-central', async (_event, input) => {
+    const result = saveCentralMCPServer(input, getMCPOptions())
+    if (result.success) notifyMCPChanged()
+    return result
+  })
+
+  ipcMain.handle('mcp:delete-central', async (_event, idOrName: string) => {
+    const result = deleteCentralMCPServer(idOrName, getMCPOptions())
+    if (result.success) notifyMCPChanged()
+    return result
+  })
+
+  ipcMain.handle('mcp:inject', async (_event, serverIdOrName: string, target: any) => {
+    const result = injectMCPServerToTarget(serverIdOrName, target, getMCPOptions())
+    if (result.success) notifyMCPChanged()
+    return result
+  })
+
+  ipcMain.handle('mcp:uninject', async (_event, serverIdOrName: string, target: any) => {
+    const result = uninjectMCPServerFromTarget(serverIdOrName, target, getMCPOptions())
+    if (result.success) notifyMCPChanged()
+    return result
+  })
+
+  ipcMain.handle('mcp:batch-inject', async (_event, serverIds: string[], target: any) => {
+    const result = batchInjectMCPServers(serverIds, target, getMCPOptions())
+    notifyMCPChanged()
+    return result
+  })
+
+  ipcMain.handle('mcp:batch-uninject', async (_event, serverIds: string[], target: any) => {
+    const result = batchUninjectMCPServers(serverIds, target, getMCPOptions())
+    notifyMCPChanged()
+    return result
+  })
+
+  // --- Unified Skill Injection IPC (OPC-56) ---
+  ipcMain.handle(
+    'skills:inject',
+    async (_event, skillId: string, target: any) => {
+      const res = injectSkillToTarget(skillId, target, {
+        traceHome: getStoredTraceHome(),
+        defaultProjectWorkspace: getStoredProjectWorkspace(),
+      })
+      if (res.success) notifySkillsChanged()
+      return res
+    }
+  )
+
+  ipcMain.handle(
+    'skills:uninject',
+    async (_event, skillId: string, target: any) => {
+      const res = uninjectSkillFromTarget(skillId, target, {
+        traceHome: getStoredTraceHome(),
+        defaultProjectWorkspace: getStoredProjectWorkspace(),
+      })
+      if (res.success) notifySkillsChanged()
+      return res
+    }
+  )
+
+  ipcMain.handle(
+    'skills:batch-inject',
+    async (_event, skillIds: string[], target: any) => {
+      const res = batchInjectSkills(skillIds, target, {
+        traceHome: getStoredTraceHome(),
+        defaultProjectWorkspace: getStoredProjectWorkspace(),
+      })
+      notifySkillsChanged()
+      return res
+    }
+  )
+
+  ipcMain.handle(
+    'skills:batch-uninject',
+    async (_event, skillIds: string[], target: any) => {
+      const res = batchUninjectSkills(skillIds, target, {
+        traceHome: getStoredTraceHome(),
+        defaultProjectWorkspace: getStoredProjectWorkspace(),
+      })
+      notifySkillsChanged()
+      return res
+    }
+  )
 
   let accountManager: AccountManager | undefined
   let accountStorageRoot = ''

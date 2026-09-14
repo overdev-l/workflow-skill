@@ -389,6 +389,7 @@ export interface Skill {
   workflow: Workflow
   targetTools?: string[]
   targetProjects?: string[]
+  targetProjectPaths?: Array<{ projectPath: string; relPath: string }>
   tags?: string[]
   triggers?: string[]
   skillMarkdown?: string
@@ -768,12 +769,14 @@ export interface MCPServerInput {
 export interface MCPDistributionTarget {
   tool: MCPSourceTool
   scope: MCPScope
+  projectWorkspace?: string
   expectedRevision?: string
 }
 
 export interface MCPDistributionPreflightItem {
   tool: MCPSourceTool
   scope: MCPScope
+  projectWorkspace?: string
   configPath: string
   targetExists: boolean
   willOverwrite: boolean
@@ -790,6 +793,7 @@ export interface MCPDistributionPreflightResult {
 export interface MCPDistributionResultItem {
   tool: MCPSourceTool
   scope: MCPScope
+  projectWorkspace?: string
   configPath: string
   success: boolean
   error?: string
@@ -847,4 +851,98 @@ export const MCP_SOURCE_TOOLS: MCPSourceToolMetadata[] = [
     projectConfigFileName: '.codex/config.toml',
     supportedTransports: ['stdio', 'http'],
   },
+]
+
+// =========================================================================
+// Unified Asset Management, Projects & Public Rules (OPC-56)
+// =========================================================================
+
+export interface ProjectRecord {
+  id: string
+  name: string
+  path: string
+  addedAt: number
+}
+
+export interface ProjectSkillPathStatus {
+  id: string
+  name: string
+  relPath: string
+  fullPath: string
+  exists: boolean
+  skillCount: number
+}
+
+export interface PublicRule {
+  id: string
+  name: string
+  content: string
+  description?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ProjectRuleAssociation {
+  projectPath: string
+  ruleIds: string[]
+  lastSyncedAt?: number
+  status: 'synced' | 'failed' | 'pending'
+  lastError?: string
+}
+
+export interface ClaudeLinkStatus {
+  exists: boolean
+  isSymlink: boolean
+  target?: string
+  isCorrect: boolean
+  conflict: boolean
+  reason?: string
+}
+
+export interface ClaudeLinkResult {
+  success: boolean
+  action?: 'created' | 'skipped'
+  conflict?: boolean
+  reason?: string
+}
+
+export interface MCPTargetAssociation {
+  tool: MCPSourceTool
+  scope: MCPScope
+  projectPath?: string
+  injectedAt?: number
+  lastSyncStatus?: 'synced' | 'failed'
+  lastError?: string
+}
+
+export interface CentralMCPServer {
+  id: string
+  name: string
+  transport: MCPTransportType
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+  envHeaders?: Record<string, string>
+  enabled: boolean
+  description?: string
+  targetAssociations?: MCPTargetAssociation[]
+  updatedAt?: number
+}
+
+export interface BatchItemResult {
+  id: string
+  success: boolean
+  error?: string
+}
+
+export const SUPPORTED_PROJECT_SKILL_PATHS: Array<{ id: string; name: string; relPath: string }> = [
+  { id: 'agents', name: '.agents 通用规范', relPath: '.agents/skills' },
+  { id: 'claude', name: 'Claude Code', relPath: '.claude/skills' },
+  { id: 'cursor', name: 'Cursor IDE', relPath: '.cursor/skills' },
+  { id: 'github', name: 'GitHub Copilot', relPath: '.github/skills' },
+  { id: 'trae', name: 'Trae IDE', relPath: '.trae/skills' },
+  { id: 'gemini', name: 'Google Antigravity & Gemini', relPath: '.gemini/skills' },
 ]
