@@ -760,6 +760,14 @@ End of file note.
   assert.ok(appCode.includes('batchInjectSkills'), 'App.tsx calls batchInjectSkills')
   assert.ok(appCode.includes('batchUninjectSkills'), 'App.tsx calls batchUninjectSkills')
   assert.ok(appCode.includes('SUPPORTED_PROJECT_SKILL_PATHS'), 'App.tsx references SUPPORTED_PROJECT_SKILL_PATHS')
+
+  const rulesThreeColCode = readFileSync(
+    path.join(process.cwd(), 'apps/desktop/src/components/RulesThreeColumn.tsx'),
+    'utf8'
+  )
+  assert.ok(rulesThreeColCode.includes('className="app-col-master view-enter"'), 'Rules uses the shared master column grid item')
+  assert.ok(rulesThreeColCode.includes('className="app-col-detail view-enter"'), 'Rules uses the shared detail column grid item')
+  assert.ok(!rulesThreeColCode.includes('className="mcp-workbench"'), 'Rules does not wrap both grid columns in one shell item')
   console.log('PASS Check 12: Renderer UI integration static verification passed')
 
   console.log('\n=============================================================')

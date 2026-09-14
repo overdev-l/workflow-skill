@@ -360,9 +360,9 @@ export function RulesThreeColumn({
   }, [selectedRuleIdsForProject, rules])
 
   return (
-    <div className="mcp-workbench">
+    <>
       {/* Column 2: Master List (Width: 210px) */}
-      <aside className="mcp-master-column">
+      <aside className="app-col-master view-enter">
         {/* Top Header with Segmented Tabs */}
         <div className="master-header">
           <div className="master-tab-segmented">
@@ -383,16 +383,15 @@ export function RulesThreeColumn({
           </div>
 
           <div className="master-search-row">
-            <div className="master-search-input-wrap">
-              <Search size={13} className="master-search-icon" />
+            <label className="master-search-input">
+              <Search size={13} />
               <input
                 type="text"
-                className="master-search-input"
                 placeholder={activeTab === 'rules' ? '搜索规则…' : '搜索项目…'}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
-            </div>
+            </label>
             {activeTab === 'rules' ? (
               <button
                 type="button"
@@ -491,10 +490,10 @@ export function RulesThreeColumn({
       </aside>
 
       {/* Column 3: Detail Stage (Width: minmax(0, 1fr)) */}
-      <main className="mcp-detail-stage view-enter">
+      <main className="app-col-detail view-enter">
         {activeTab === 'rules' ? (
           /* Rule Editor & Association Matrix */
-          <div className="mcp-form-container" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div className="detail-stage-wrap" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Header & Actions */}
             <div className="mcp-detail-header" style={{ marginBottom: '16px' }}>
               <div style={{ flex: 1, marginRight: '16px' }}>
@@ -590,10 +589,6 @@ export function RulesThreeColumn({
                     </div>
                   ) : (
                     projects.map((proj) => {
-                      const isLinked = selectedRuleId
-                        ? Boolean(proj.path && (window.workflowSkill ? true : false)) // real check handled below
-                        : false
-
                       return (
                         <ProjectRuleMatrixRow
                           key={proj.id}
@@ -610,7 +605,7 @@ export function RulesThreeColumn({
           </div>
         ) : (
           /* Project Rules Configuration Mode */
-          <div className="mcp-form-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
+          <div className="detail-stage-wrap" style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
             {/* Project Switcher Bar */}
             <div
               style={{
@@ -882,7 +877,7 @@ export function RulesThreeColumn({
           </div>
         )}
       </main>
-    </div>
+    </>
   )
 }
 
