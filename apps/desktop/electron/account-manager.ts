@@ -28,6 +28,8 @@ import {
   type AccountTool,
   type AccountToolCapability,
   type AccountToolState,
+  type AccountRefreshState,
+  type AccountRefreshStatus,
   type AccountsOverview,
   type StoredAccountRecord,
   ACCOUNT_TOOLS,
@@ -39,6 +41,16 @@ import {
 } from '../../../packages/workflow-model/src/accounts.ts'
 import { AccountStore, hasLegacyProfiles } from './account-store.ts'
 import { AccountQuotaService } from './account-quota.ts'
+import {
+  AccountRefreshService,
+  type AccountRefreshReason,
+} from './account-refresh.ts'
+
+export type {
+  AccountRefreshState,
+  AccountRefreshStatus,
+  AccountRefreshReason,
+}
 import {
   type AccountAdapter,
   type AccountProjection,
@@ -122,6 +134,8 @@ export interface AccountManagerOptions {
   /** Override only for isolated quota verification; production uses the native fetch. */
   quotaFetch?: typeof globalThis.fetch
   beforeWrite?: (tool: AccountTool, slot: string, index: number) => void
+  refreshFetch?: typeof globalThis.fetch
+  now?: () => number
 }
 
 export class AccountManager implements Omit<AccountManagementAPI, keyof AccountOAuthAPI> {
@@ -131,12 +145,15 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
   public readonly store: AccountStore
   public readonly adapters: Record<AccountTool, AccountAdapter>
   private readonly quotas: AccountQuotaService
+  private readonly refreshService: AccountRefreshService
   private readonly onAccountsChangedOption?: () => void
   private readonly beforeWrite?: (tool: AccountTool, slot: string, index: number) => void
   private readonly changeListeners: Set<() => void> = new Set()
+  private readonly now: () => number
   private mutationLock: Promise<void> = Promise.resolve()
 
   constructor(options?: AccountManagerOptions) {
+    this.now = options?.now ?? Date.now
     this.homeDir = options?.homeDir ? path.resolve(options.homeDir) : os.homedir()
     this.traceHome = options?.traceHome ? path.resolve(options.traceHome) : path.join(this.homeDir, '.trace')
 
@@ -160,6 +177,17 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
       env: options?.env,
       codexHome: options?.codexHome,
       antigravityFileMode: options?.antigravityFileMode,
+    })
+
+    this.refreshService = new AccountRefreshService({
+      store: this.store,
+      adapters: this.adapters,
+      quotas: this.quotas,
+      notifyChanged: () => this.notifyChanged(),
+      withMutationLock: (action) => this.withMutationLock(action),
+      readJournalSafely: (tool) => this.readJournalSafely(tool),
+      fetch: options?.refreshFetch,
+      now: options?.now,
     })
   }
 
@@ -365,6 +393,21 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
     return () => this.changeListeners.delete(listener)
   }
 
+  async refreshDueAccounts(): Promise<void> {
+    return this.refreshService.refreshDueAccounts()
+  }
+
+  dispose(): void {
+    this.refreshService.dispose()
+  }
+
+  async ensureFreshCredential(
+    id: string,
+    options?: { force?: boolean }
+  ): Promise<AccountRefreshState> {
+    return this.refreshService.ensureFresh(id, options)
+  }
+
   async authorizeAntigravityKeychain(): Promise<void> {
     return this.withMutationLock(() => {
       const adapter = this.adapters.antigravity
@@ -491,11 +534,21 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
       })
     }
 
-    return { accounts, quotas: this.quotas.getCached(accounts), tools, capabilities, legacyProfilesPresent }
+    const refreshes = this.refreshService.getRefreshStates(accounts)
+    return { accounts, quotas: this.quotas.getCached(accounts), tools, capabilities, legacyProfilesPresent, refreshes }
   }
 
   async refreshQuota(id: string) {
-    return this.quotas.refreshAccount(validateAccountId(id))
+    const validId = validateAccountId(id)
+    await this.ensureFreshCredential(validId)
+    let snapshot = await this.quotas.refreshAccount(validId)
+    if (snapshot.status === 'expired') {
+      const refreshed = await this.ensureFreshCredential(validId, { force: true })
+      if (refreshed.status === 'ready') {
+        snapshot = await this.quotas.refreshAccount(validId)
+      }
+    }
+    return snapshot
   }
 
   /**
@@ -522,7 +575,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
     if (!adapter) throw new AccountError(`Tool adapter not available for ${validTool}.`)
 
     const incomingInspected = adapter.inspect(incomingCredential)
-    if (incomingInspected.expiresAt && incomingInspected.expiresAt <= Date.now()) {
+    if (incomingInspected.expiresAt && incomingInspected.expiresAt <= this.now()) {
       throw new AccountError(`Cannot ${actionLabel} expired credential.`)
     }
 
@@ -590,7 +643,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         throw new AccountError(sanitizeErrorMessage(err))
       }
 
-      if (effectiveInspected.expiresAt && effectiveInspected.expiresAt <= Date.now()) {
+      if (effectiveInspected.expiresAt && effectiveInspected.expiresAt <= this.now()) {
         throw new AccountError(`Cannot ${actionLabel} expired credential.`)
       }
 
@@ -601,6 +654,8 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
           accountId: effectiveInspected.accountId,
           expiresAt: effectiveInspected.expiresAt,
         })
+        this.refreshService.clearState(matchingAccount.metadata.id)
+        this.refreshService.clearPendingSync(matchingAccount.metadata.id)
         this.quotas.invalidate(matchingAccount.metadata.id)
         this.notifyChanged()
         return updated
@@ -724,7 +779,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
             continue
           }
 
-          if (inspected.expiresAt && inspected.expiresAt <= Date.now()) {
+          if (inspected.expiresAt && inspected.expiresAt <= this.now()) {
             results.push({ tool, status: 'expired', message: 'Current credential has expired.' })
             continue
           }
@@ -780,7 +835,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
               throw new AccountError(sanitizeErrorMessage(err))
             }
 
-            if (effectiveInspected.expiresAt && effectiveInspected.expiresAt <= Date.now()) {
+            if (effectiveInspected.expiresAt && effectiveInspected.expiresAt <= this.now()) {
               results.push({ tool, status: 'expired', message: 'Current credential has expired.' })
               continue
             }
@@ -794,7 +849,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
               existingExpiresAt &&
               currentExpiresAt &&
               currentExpiresAt < existingExpiresAt &&
-              existingExpiresAt > Date.now()
+              existingExpiresAt > this.now()
             ) {
               results.push({ tool, status: 'unchanged', accountId: matchingAccount.metadata.id })
               continue
@@ -812,6 +867,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
               accountId: effectiveInspected.accountId,
               expiresAt: effectiveInspected.expiresAt,
             })
+            this.refreshService.clearState(matchingAccount.metadata.id)
             this.quotas.invalidate(matchingAccount.metadata.id)
             hasActualChanges = true
             results.push({ tool, status: 'updated', accountId: updated.id })
@@ -843,19 +899,25 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
 
   async switchAccount(id: string): Promise<AccountActionResult> {
     const validId = validateAccountId(id)
+    const renewal = await this.ensureFreshCredential(validId)
+    if (renewal.status === 'reauth-required') throw new AccountError('Account authorization is no longer valid. Sign in again.')
     return await this.withMutationLock(async () => {
       const record = await this.store.get(validId)
       const tool = record.metadata.tool
       const adapter = this.adapters[tool]
       if (!adapter) throw new AccountError(`Tool adapter not available for ${tool}.`)
 
+      if (this.refreshService.hasPendingSyncForTool(tool)) {
+        throw new AccountError('Cannot switch account while pending credential synchronization is unresolved.')
+      }
+
       const cap = adapter.capability()
       if (!cap.available) throw new AccountError(cap.reason || `Account switching is not supported for ${tool}.`)
 
       const inspected = adapter.inspect(record.credential)
       if (
-        (inspected.expiresAt && inspected.expiresAt <= Date.now()) ||
-        (record.metadata.expiresAt && record.metadata.expiresAt <= Date.now())
+        (inspected.expiresAt && inspected.expiresAt <= this.now()) ||
+        (record.metadata.expiresAt && record.metadata.expiresAt <= this.now())
       ) {
         throw new AccountError('Account credential has expired.')
       }
@@ -998,6 +1060,15 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
       const adapter = this.adapters[tool]
       if (!adapter) throw new AccountError(`Tool adapter not available for ${tool}.`)
 
+      if (this.refreshService.hasPendingSyncForTool(tool)) {
+        this.notifyChanged()
+        return {
+          success: false,
+          error: 'Cannot rollback account while pending credential synchronization is unresolved.',
+          recoveryNeeded: true,
+        }
+      }
+
       const journalInfo = this.readJournalSafely(tool)
       if (journalInfo.corrupted) {
         this.notifyChanged()
@@ -1078,6 +1149,15 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
       const adapter = this.adapters[tool]
       if (!adapter) throw new AccountError(`Tool adapter not available for ${tool}.`)
 
+      if (this.refreshService.hasPendingSyncForTool(tool)) {
+        this.notifyChanged()
+        return {
+          success: false,
+          error: 'Cannot recover account while pending credential synchronization is unresolved.',
+          recoveryNeeded: true,
+        }
+      }
+
       const journalInfo = this.readJournalSafely(tool)
       if (journalInfo.corrupted) {
         this.notifyChanged()
@@ -1156,6 +1236,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
 
   async deleteAccount(id: string): Promise<void> {
     const validId = validateAccountId(id)
+    this.refreshService.clearState(validId)
     await this.withMutationLock(async () => {
       let record: StoredAccountRecord | null = null
       try {
@@ -1209,6 +1290,8 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         }
       }
 
+      this.refreshService.clearPendingSync(validId)
+      this.refreshService.clearState(validId)
       await this.store.delete(validId)
       this.quotas.invalidate(validId)
       this.notifyChanged()

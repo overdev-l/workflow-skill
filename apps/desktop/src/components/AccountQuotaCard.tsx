@@ -30,6 +30,7 @@ import type {
   AccountMetadata,
   AccountQuotaSnapshot,
   AccountQuotaWindow,
+  AccountRefreshState,
 } from '@workflow-skill/workflow-model/accounts'
 
 export interface AccountQuotaCardProps {
@@ -41,6 +42,8 @@ export interface AccountQuotaCardProps {
   isRecoveryNeeded: boolean
   unsupportedReason?: string
   snapshot?: AccountQuotaSnapshot
+  renewal?: AccountRefreshState
+  onReauthenticate?: () => void
   isQuotaLoading: boolean
   onSwitch: (account: AccountMetadata) => void
   onRename: (account: AccountMetadata) => void
@@ -145,6 +148,8 @@ export function AccountQuotaCard({
   isRecoveryNeeded,
   unsupportedReason,
   snapshot,
+  renewal,
+  onReauthenticate,
   isQuotaLoading,
   onSwitch,
   onRename,
@@ -161,6 +166,17 @@ export function AccountQuotaCard({
   const status = snapshot?.status
   const isStale = Boolean(snapshot?.stale)
   const lastUpdatedTime = formatQuotaTime(snapshot?.fetchedAt, locale)
+  const isZh = locale.startsWith('zh')
+  const renewalLabels = isZh
+    ? { refreshing: '正在续期', ready: '已自动续期', retrying: '续期暂时失败，将重试', 'reauth-required': '需要重新授权', unsupported: '暂不支持自动续期', blocked: '自动续期受阻' }
+    : { refreshing: 'Renewing', ready: 'Renewed automatically', retrying: 'Renewal failed; will retry', 'reauth-required': 'Sign-in required', unsupported: 'Automatic renewal unavailable', blocked: 'Renewal blocked' }
+  const renewalReasons = isZh
+    ? { network: '网络异常', 'rate-limited': '服务限流', 'invalid-grant': '授权已失效', 'missing-refresh-token': '凭据不含刷新令牌', 'unknown-client': '无法确认原授权来源，请重新 OAuth 登录', 'credential-conflict': '登录已在其他位置更新', 'native-access': '无法读取原生登录，请检查凭据访问权限', 'runtime-active': '请先退出官方客户端及 CLI 会话', storage: '凭据保存失败', 'invalid-response': '服务返回的凭据未通过校验' }
+    : { network: 'Network unavailable', 'rate-limited': 'Service rate limit', 'invalid-grant': 'Authorization is no longer valid', 'missing-refresh-token': 'No refresh token', 'unknown-client': 'Unknown OAuth client; sign in again', 'credential-conflict': 'Credentials changed elsewhere', 'native-access': 'Check access to native credentials', 'runtime-active': 'Quit the official app and CLI sessions first', storage: 'Could not save credentials', 'invalid-response': 'Invalid credential response' }
+  const showRenewal = renewal && (renewal.status !== 'ready' || renewal.refreshedAt)
+  const renewalDescription = renewal?.reason === 'runtime-active' && account.tool !== 'antigravity'
+    ? (isZh ? '当前工具共用此授权，请通过 OAuth 添加独立授权以自动续期' : 'This grant is shared with the current tool; add a separate OAuth sign-in to renew automatically')
+    : renewal?.reason ? renewalReasons[renewal.reason] : undefined
 
   const getStatusBadge = () => {
     if (!status) {
@@ -216,7 +232,7 @@ export function AccountQuotaCard({
 
   // Switch button disabled state & title
   const isSwitchDisabled =
-    isActive || isBusy || !isAvailable || isRecoveryNeeded || isSwitching
+    isActive || isBusy || !isAvailable || isRecoveryNeeded || isSwitching || renewal?.status === 'refreshing' || renewal?.status === 'reauth-required'
 
   let switchTooltip = loc.switchBtn
   if (isActive) {
@@ -337,6 +353,21 @@ export function AccountQuotaCard({
               ? 'Google 返回年龄资格限制，暂无法确认订阅权益。请检查 Google 账号的年龄验证状态。'
               : 'Google returned an age eligibility restriction. Check age verification in your Google account; subscription benefits could not be confirmed.'}
           </p>
+        )}
+
+        {showRenewal && (
+          <div className="account-renewal-notice" role="status">
+            <span title={renewalDescription}>
+              {renewalLabels[renewal.status]}
+              {renewalDescription && ` · ${renewalDescription}`}
+              {renewal.retryAt && ` · ${isZh ? '重试于' : 'Retry at'} ${formatQuotaTime(renewal.retryAt, locale) ?? ''}`}
+            </span>
+            {(renewal.status === 'reauth-required' || renewal.status === 'unsupported') && onReauthenticate && (
+              <button type="button" className="account-btn account-btn--sm" disabled={isBusy} onClick={onReauthenticate}>
+                {isZh ? '重新授权' : 'Sign in'}
+              </button>
+            )}
+          </div>
         )}
 
         {/* Quota Windows List */}

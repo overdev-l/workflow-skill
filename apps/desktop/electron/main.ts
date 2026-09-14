@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, screen, shell, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, screen, shell, Tray } from 'electron'
 import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -467,6 +467,7 @@ app.whenReady().then(() => {
         }
         data.storagePath = selectedRoot
         writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf8')
+        disposeAccountManager()
       } catch {}
       for (const window of BrowserWindow.getAllWindows()) {
         if (!window.isDestroyed()) window.webContents.send('capture:workflows-changed')
@@ -486,6 +487,7 @@ app.whenReady().then(() => {
       }
       delete data.storagePath
       writeFileSync(configPath, JSON.stringify(data, null, 2), 'utf8')
+      disposeAccountManager()
     } catch {}
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send('capture:workflows-changed')
@@ -1718,6 +1720,12 @@ ${skill.description || ''}
   let accountOAuth: AccountOAuthService | undefined
   let accountOAuthOwner: Electron.WebContents | undefined
   let detachOAuthOwner: (() => void) | undefined
+  function disposeAccountManager() {
+    disposeAccountOAuth()
+    accountManager?.dispose()
+    accountManager = undefined
+    accountStorageRoot = ''
+  }
   function disposeAccountOAuth() {
     accountOAuth?.dispose()
     accountOAuth = undefined
@@ -1729,7 +1737,7 @@ ${skill.description || ''}
     const root = getStoredTraceHome()
     if (!accountManager || accountStorageRoot !== root) {
       if (accountMutationInProgress) throw new AccountError('账号操作进行中，请稍后重试。')
-      disposeAccountOAuth()
+      disposeAccountManager()
       accountManager = new AccountManager({
         traceHome: root,
         onAccountsChanged: () => {
@@ -1777,7 +1785,31 @@ ${skill.description || ''}
     }
     return accountOAuth
   }
-  app.on('before-quit', disposeAccountOAuth)
+  let renewalRunning = false
+  let renewalStopped = false
+  async function checkAccountRenewals() {
+    if (renewalRunning || renewalStopped || accountMutationInProgress) return
+    renewalRunning = true
+    try {
+      await getAccountManager().refreshDueAccounts()
+    } catch {
+      // Per-account failures are reported through the overview; never log credentials.
+    } finally {
+      renewalRunning = false
+    }
+  }
+  const renewalTimer = setInterval(() => { void checkAccountRenewals() }, 60_000)
+  renewalTimer.unref()
+  const onRenewalWake = () => { void checkAccountRenewals() }
+  powerMonitor.on('resume', onRenewalWake)
+  app.on('browser-window-focus', onRenewalWake)
+  app.on('before-quit', () => {
+    renewalStopped = true
+    clearInterval(renewalTimer)
+    powerMonitor.removeListener('resume', onRenewalWake)
+    app.removeListener('browser-window-focus', onRenewalWake)
+    disposeAccountManager()
+  })
   async function accountCall<T>(operation: (manager: AccountManager) => Promise<T>, mutation = false): Promise<T> {
     try {
       if (mutation && accountMutationInProgress) throw new AccountError('账号操作进行中，请稍后重试。')
@@ -1804,7 +1836,10 @@ ${skill.description || ''}
   ipcMain.handle('accounts:oauth-status', (event, id: string) => getAccountOAuth(event).get(id))
   ipcMain.handle('accounts:oauth-cancel', (event, id: string) => getAccountOAuth(event).cancel(id))
   ipcMain.handle('accounts:oauth-reopen', (event, id: string) => getAccountOAuth(event).reopen(id))
-  ipcMain.handle('accounts:refresh-quota', (_event, id: string) => accountCall(manager => manager.refreshQuota(id)))
+  ipcMain.handle('accounts:refresh-quota', (event, id: string) => {
+    assertAccountSender(event)
+    return accountCall(manager => manager.refreshQuota(id))
+  })
   ipcMain.handle('accounts:capture', (_event, input) => accountCall(manager => manager.captureAccount(input), true))
   ipcMain.handle('accounts:import', (_event, input) => accountCall(manager => manager.importAccount(input), true))
   ipcMain.handle('accounts:switch', (_event, id: string) => accountCall(manager => manager.switchAccount(id), true))
@@ -1814,6 +1849,7 @@ ${skill.description || ''}
   ipcMain.handle('accounts:delete', (_event, id: string) => accountCall(manager => manager.deleteAccount(id), true))
 
   createWindow()
+  void checkAccountRenewals()
 
   app.on('activate', () => {
     if (!mainWindow || mainWindow.isDestroyed()) {

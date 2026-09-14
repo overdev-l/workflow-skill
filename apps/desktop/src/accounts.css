@@ -990,6 +990,25 @@
   color: var(--color-muted);
 }
 
+.account-renewal-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+.account-renewal-notice > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.account-renewal-notice > button {
+  flex-shrink: 0;
+}
+
 .account-quota-window-item {
   display: flex;
   flex-shrink: 0;

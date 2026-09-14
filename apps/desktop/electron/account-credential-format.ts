@@ -58,13 +58,14 @@ export function inspectClaudeCredential(raw: string) {
       ...(safeLabel(oauth.rateLimitTier, secrets) ? { rateLimitTier: safeLabel(oauth.rateLimitTier, secrets) } : {}),
     },
     ...(knownIdentity ? { oauthAccount: { accountUuid: accountId, organizationUuid: organizationId, ...(email ? { emailAddress: email } : {}), ...(displayName ? { displayName } : {}) } } : {}),
-    ...(safeLabel(data.oauthClientId, secrets) ? { oauthClientId: safeLabel(data.oauthClientId, secrets) } : {}),
+    ...(safeLabel(data.oauthClientId ?? data.oauth_client_id ?? data.clientId, secrets) ? { oauthClientId: safeLabel(data.oauthClientId ?? data.oauth_client_id ?? data.clientId, secrets) } : {}),
   } : undefined
   return {
     credential: normalized ? JSON.stringify(normalized, null, 2) : access,
     identityKey: knownIdentity ? `claude-account:${knownIdentity}` : `claude:${digest(refresh ?? access)}`,
     email: knownIdentity ? email : undefined, accountId: knownIdentity ? accountId : undefined,
     expiresAt, access, refresh, knownIdentity, normalized,
+    oauthClientId: safeLabel(data?.oauthClientId ?? data?.oauth_client_id ?? data?.clientId, secrets),
   }
 }
 
@@ -83,6 +84,7 @@ export function mergeClaudeCredentials(incoming: string, stored: string): string
     return inspectClaudeCredential(JSON.stringify({
       ...b.normalized, ...a.normalized,
       claudeAiOauth: { ...b.normalized.claudeAiOauth, ...a.normalized.claudeAiOauth },
+      ...(a.normalized.oauthClientId || b.normalized.oauthClientId ? { oauthClientId: a.normalized.oauthClientId ?? b.normalized.oauthClientId } : {}),
     })).credential
   }
   return a.credential

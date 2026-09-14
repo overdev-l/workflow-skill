@@ -172,7 +172,9 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
       const accountId = label(t.account_id) ?? label(c['https://api.openai.com/auth']?.chatgpt_account_id)
       if (!accountId || !label(c.sub)) fail('Codex 凭据缺少可识别的 ChatGPT 账号信息。')
       const access = token(t.access_token)
-      const normalized = { auth_mode: 'chatgpt', OPENAI_API_KEY: null, tokens: { id_token: idToken, access_token: access, refresh_token: token(t.refresh_token), account_id: accountId }, ...(typeof value.last_refresh === 'string' ? { last_refresh: value.last_refresh } : {}) }
+      const clientId = value.client_id ?? value.oauth_client_id ?? value.oauthClientId ?? value.clientId
+      if (clientId !== undefined && (typeof clientId !== 'string' || !clientId.trim())) fail('无效的 OAuth 客户端来源。')
+      const normalized = { ...(clientId !== undefined ? { client_id: clientId } : {}), auth_mode: 'chatgpt', OPENAI_API_KEY: null, tokens: { id_token: idToken, access_token: access, refresh_token: token(t.refresh_token), account_id: accountId }, ...(typeof value.last_refresh === 'string' ? { last_refresh: value.last_refresh } : {}) }
       const expires = claims(access).exp
       return { credential: JSON.stringify(normalized, null, 2), email: label(c.email), accountId, identityKey: `codex:${accountId}:${c.sub}`, expiresAt: typeof expires === 'number' && Number.isFinite(expires) ? expires * 1000 : undefined }
     },

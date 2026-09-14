@@ -1970,6 +1970,8 @@ export function AccountSettings({
                 isRecoveryNeeded={isRecoveryNeeded}
                 unsupportedReason={currentCapability?.reason}
                 snapshot={snapshot}
+                renewal={overview?.refreshes?.find(state => state.accountId === account.id)}
+                onReauthenticate={() => openAddAccount('oauth')}
                 isQuotaLoading={isQuotaLoading}
                 onSwitch={handleDirectSwitch}
                 onRename={(acc) => {
