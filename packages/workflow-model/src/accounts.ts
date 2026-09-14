@@ -150,6 +150,8 @@ export interface AccountActionResult {
   success: boolean
   error?: string
   recoveryNeeded?: boolean
+  /** Operation committed, but a follow-up action (such as reopening the client) needs attention. */
+  warning?: string
 }
 
 export type AccountDiscoveryStatus =

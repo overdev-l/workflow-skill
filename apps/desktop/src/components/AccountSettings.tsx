@@ -566,13 +566,13 @@ export function AccountSettings({
       'codex-file': 'Uses ChatGPT auth.json with file credential storage. Verify identity in a new Codex session; project configuration and launch arguments can override global settings.',
       'claude-setup-token': 'Stores full OAuth login or imported subscription credentials; switching projects the access token into settings.json env. Supports model requests and local MCP; Remote Control and Claude.ai connectors remain unchanged and unavailable. Verify identity in a new session; setup-token alone cannot confirm email or expiry offline.',
       'antigravity-ssh-file': 'Uses only the CLI fallback file in a real SSH session; native desktop authentication is unchanged.',
-      'antigravity-native-keychain': 'Antigravity CLI and desktop share native credentials. Quit both before switching or rolling back, then start a new session. Only the Antigravity Keychain item is accessed; saved accounts remain in local files.',
+      'antigravity-native-keychain': 'Antigravity CLI and desktop share native credentials. Switching or rolling back reopens the running desktop client. Existing CLI sessions remain open; new CLI sessions use the selected account. Only the Antigravity Keychain item is accessed; saved accounts remain in local files.',
     }
     const detailsZh: Record<string, string> = {
       'codex-file': '使用 ChatGPT auth.json 文件凭据存储。请在新 Codex 会话中确认身份；项目配置和启动参数可能会覆盖全局设置。',
       'claude-setup-token': '完整保存 OAuth 官方登录凭据或导入的订阅凭据；切换时仍向 settings.json 环境变量投影 access token。支持模型请求与本地 MCP；Remote Control 与 Claude.ai 连接器保持不变且不可用。请在新会话中确认身份；单独的 setup-token 无法离线验证邮箱或有效期。',
       'antigravity-ssh-file': '仅使用真实 SSH 会话中的 CLI 后备文件，不改变原生客户端认证。',
-      'antigravity-native-keychain': 'Antigravity CLI 与客户端共享原生认证。切换或回滚前请退出两端，再开启新会话。仅访问 Antigravity 钥匙串项，账号库仍保存在本地文件。',
+      'antigravity-native-keychain': 'Antigravity CLI 与客户端共享原生认证。切换或回滚时会正常退出并重新打开正在运行的客户端。现有 CLI 会话保留，新 CLI 会话使用所选账号。仅访问 Antigravity 钥匙串项，账号库仍保存在本地文件。',
     }
 
     const reasons = resolvedLocale === 'en-US' ? reasonsEn : reasonsZh
@@ -1316,8 +1316,9 @@ export function AccountSettings({
       const res: AccountActionResult = await api.switchAccount(account.id)
       if (res && res.success) {
         onNotify?.(account.tool === 'antigravity' && currentCapability?.detailsCode === 'antigravity-native-keychain'
-          ? (resolvedLocale === 'en-US' ? 'Antigravity credentials updated. Start a new CLI or desktop session.' : 'Antigravity 认证已更新，请重新启动 CLI 或客户端会话。')
+          ? (resolvedLocale === 'en-US' ? 'Antigravity account switched. New CLI sessions use this account; existing sessions remain unchanged.' : 'Antigravity 账号已切换，新 CLI 会话将使用此账号，现有会话保持不变。')
           : loc.switchSuccess(account.name), 'success')
+        if (res.warning) onNotify?.(res.warning, 'warning')
         await loadData()
       } else {
         await handleFailure(res?.error, 'Failed to switch account.')
@@ -1340,6 +1341,7 @@ export function AccountSettings({
       const res: AccountActionResult = await api.rollbackAccount(selectedTool)
       if (res && res.success) {
         onNotify?.(loc.rollbackSuccess, 'success')
+        if (res.warning) onNotify?.(res.warning, 'warning')
         await loadData()
       } else {
         await handleFailure(res?.error, 'Failed to rollback account switch.')

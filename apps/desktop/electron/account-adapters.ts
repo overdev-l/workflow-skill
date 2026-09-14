@@ -2,12 +2,12 @@ import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { createAntigravityKeychain, decodeAntigravityKeychainSecret, encodeAntigravityKeychainSecret, type AntigravityKeychain } from './antigravity-keychain.ts'
-import { assertAntigravityStopped } from './antigravity-runtime.ts'
+import { assertAntigravityStopped, assertAntigravityStoppedStrict, withAntigravityAccountSwitch } from './antigravity-runtime.ts'
 import { enrichAntigravityIdentity } from './account-oauth-providers.ts'
 import path from 'node:path'
 import { parse as parseToml } from 'smol-toml'
 import { parseTOML } from 'toml-eslint-parser'
-import { AccountError, type AccountTool, type AccountToolCapability } from '../../../packages/workflow-model/src/accounts.ts'
+import { AccountError, type AccountTool, type AccountToolCapability, type AccountActionResult } from '../../../packages/workflow-model/src/accounts.ts'
 import { inspectClaudeCredential, inspectAntigravityCredential, matchClaudeCredentials, mergeClaudeCredentials, matchAntigravityCredentials, mergeAntigravityCredentials } from './account-credential-format.ts'
 
 export type AccountProjection = Record<string, string | null>
@@ -22,6 +22,8 @@ export interface AccountAdapter {
   tool: AccountTool
   journalKey?: 'antigravity-native'
   assertCanWrite?(): void
+  assertCanRefresh?(): void
+  withInteractiveSwitch?(operation: () => Promise<AccountActionResult>): Promise<AccountActionResult>
   authorizeAccess?(): void
   enrichCredential?(credential: string): Promise<string>
   capability(): AccountToolCapability
@@ -43,6 +45,7 @@ export interface AccountAdapterOptions {
   antigravityFileMode?: boolean
   antigravityKeychain?: AntigravityKeychain
   antigravityAssertStopped?: () => void
+  antigravityWithInteractiveSwitch?: AccountAdapter['withInteractiveSwitch']
   antigravityIdentityFetch?: typeof globalThis.fetch
 }
 
@@ -260,6 +263,8 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
   const keychain = options.antigravityKeychain ?? (native ? createAntigravityKeychain() : undefined)
   const conflict = !!(env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.JETSKI_APP_DATA_DIR)
   const assertStopped = options.antigravityAssertStopped ?? assertAntigravityStopped
+  const interactiveSwitch = options.antigravityWithInteractiveSwitch ??
+    (nativeHome && !options.antigravityKeychain && !options.antigravityAssertStopped ? withAntigravityAccountSwitch : undefined)
   const available = () => !conflict && (native ? !!keychain?.available() : fileMode)
   const identityCache = new Map<string, string>()
   const antigravity: AccountAdapter = {
@@ -270,11 +275,16 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
       reasonCode: conflict ? 'antigravity-auth-conflict' : available() ? undefined : native ? 'antigravity-helper-unavailable' : 'antigravity-file-mode-required',
       detailsCode: native ? 'antigravity-native-keychain' : 'antigravity-ssh-file',
       reason: conflict ? 'Antigravity 存在其他认证来源，无法确认原生账号。' : available() ? undefined : native ? 'Antigravity 原生认证助手未安装，请重新构建应用。' : '当前环境不支持 Antigravity 原生账号切换。',
-      details: native ? 'Antigravity CLI 与客户端共享原生认证项。切换前请退出客户端并结束 CLI 会话；新会话生效。仅访问 Antigravity 认证项，账号库保存在本地文件。' : '仅支持真实 SSH 环境中的 Antigravity CLI 后备文件；不影响原生客户端。',
+      details: native ? 'Antigravity CLI 与客户端共享原生认证项。切换时会正常退出并重新打开正在运行的客户端；现有 CLI 会话保留，新 CLI 会话使用所选账号。仅访问 Antigravity 认证项，账号库保存在本地文件。' : '仅支持真实 SSH 环境中的 Antigravity CLI 后备文件；不影响原生客户端。',
     }),
     assertCanWrite() {
       if (!available()) fail('Antigravity 当前认证环境不可切换。')
       if (native) assertStopped()
+    },
+    ...(native && interactiveSwitch ? { withInteractiveSwitch: interactiveSwitch } : {}),
+    assertCanRefresh() {
+      if (!available()) fail('Antigravity 当前认证环境不可续期。')
+      if (native) (options.antigravityAssertStopped ?? assertAntigravityStoppedStrict)()
     },
     inspect: inspectAntigravityCredential,
     matchesIdentity: matchAntigravityCredentials,

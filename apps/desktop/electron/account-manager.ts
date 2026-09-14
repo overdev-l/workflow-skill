@@ -900,6 +900,16 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
   }
 
   async switchAccount(id: string): Promise<AccountActionResult> {
+    const record = await this.store.get(validateAccountId(id))
+    const adapter = this.adapters[record.metadata.tool]
+    const capability = adapter?.capability()
+    if (!capability?.available) throw new AccountError(capability?.reason || '当前工具不可切换。')
+    adapter.inspect(record.credential)
+    const operation = () => this.switchAccountTransaction(id)
+    return adapter.withInteractiveSwitch ? adapter.withInteractiveSwitch(operation) : operation()
+  }
+
+  private async switchAccountTransaction(id: string): Promise<AccountActionResult> {
     const validId = validateAccountId(id)
     const renewal = await this.ensureFreshCredential(validId)
     if (renewal.status === 'reauth-required') throw new AccountError('Account authorization is no longer valid. Sign in again.')
@@ -1057,6 +1067,13 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
   }
 
   async rollbackAccount(tool: AccountTool): Promise<AccountActionResult> {
+    validateAccountTool(tool)
+    const adapter = this.adapters[tool]
+    const operation = () => this.rollbackAccountTransaction(tool)
+    return adapter?.withInteractiveSwitch ? adapter.withInteractiveSwitch(operation) : operation()
+  }
+
+  private async rollbackAccountTransaction(tool: AccountTool): Promise<AccountActionResult> {
     validateAccountTool(tool)
     return await this.withMutationLock(async () => {
       const adapter = this.adapters[tool]

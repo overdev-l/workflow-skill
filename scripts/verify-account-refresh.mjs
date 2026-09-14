@@ -793,7 +793,7 @@ async function main() {
     adapters.antigravity.writeSlot('oauth', agNativeCred)
 
     // Simulate IDE active running: assertCanWrite throws
-    adapters.antigravity.assertCanWrite = () => {
+    adapters.antigravity.assertCanRefresh = adapters.antigravity.assertCanWrite = () => {
       throw new AccountError('Antigravity is currently running.')
     }
 
@@ -941,7 +941,7 @@ async function main() {
     const { testHome, codexHome, env, adapters, getNow } = setupTestEnvironment()
 
     let ideRunning = false
-    adapters.antigravity.assertCanWrite = () => {
+    adapters.antigravity.assertCanRefresh = adapters.antigravity.assertCanWrite = () => {
       if (ideRunning) throw new AccountError('Antigravity IDE running.')
     }
 
@@ -1140,7 +1140,7 @@ async function main() {
     adapters.antigravity.writeSlot('oauth', agNativeCred)
 
     let ideRunning = false
-    adapters.antigravity.assertCanWrite = () => {
+    adapters.antigravity.assertCanRefresh = adapters.antigravity.assertCanWrite = () => {
       if (ideRunning) throw new AccountError('Antigravity IDE running during sync.')
     }
 
@@ -1242,7 +1242,7 @@ async function main() {
 
     // Running IDE makes ensureFreshCredential block
     let running = false
-    adapters.antigravity.assertCanWrite = () => { if (running) throw new AccountError('Antigravity IDE running.') }
+    adapters.antigravity.assertCanRefresh = adapters.antigravity.assertCanWrite = () => { if (running) throw new AccountError('Antigravity IDE running.') }
 
     const manager = new AccountManager({
       homeDir: testHome,

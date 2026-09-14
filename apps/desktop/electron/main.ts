@@ -29,7 +29,7 @@ import {
 import { AccountManager } from './account-manager'
 import { AccountOAuthService } from './account-oauth'
 import { createAccountOAuthProviders } from './account-oauth-providers'
-import { AccountError, sanitizeErrorMessage, type AccountTool } from '@workflow-skill/workflow-model/accounts'
+import { AccountError, sanitizeErrorMessage, type AccountTool, type AccountActionResult } from '@workflow-skill/workflow-model/accounts'
 
 const defaultTraceHome = path.join(os.homedir(), '.trace')
 
@@ -1847,6 +1847,12 @@ ${skill.description || ''}
       throw new Error(sanitizeErrorMessage(error))
     } finally { accountOperations-- }
   }
+  // accountCall already sanitizes every error; action envelopes avoid Electron's
+  // "Error invoking remote method" decoration in user-facing account feedback.
+  async function accountActionCall(operation: (manager: AccountManager) => Promise<AccountActionResult>): Promise<AccountActionResult> {
+    try { return await accountCall(operation, true) }
+    catch (error) { return { success: false, error: error instanceof Error ? error.message : sanitizeErrorMessage(error) } }
+  }
   // The old profiles:* handlers are intentionally not registered: whole-environment
   // snapshots must never remain an alternate path to change model/MCP settings.
   ipcMain.handle('accounts:authorize-antigravity', event => {
@@ -1868,9 +1874,9 @@ ${skill.description || ''}
   })
   ipcMain.handle('accounts:capture', (_event, input) => accountCall(manager => manager.captureAccount(input), true))
   ipcMain.handle('accounts:import', (_event, input) => accountCall(manager => manager.importAccount(input), true))
-  ipcMain.handle('accounts:switch', (_event, id: string) => accountCall(manager => manager.switchAccount(id), true))
-  ipcMain.handle('accounts:rollback', (_event, tool: AccountTool) => accountCall(manager => manager.rollbackAccount(tool), true))
-  ipcMain.handle('accounts:recover', (_event, tool: AccountTool) => accountCall(manager => manager.recoverAccount(tool), true))
+  ipcMain.handle('accounts:switch', (_event, id: string) => accountActionCall(manager => manager.switchAccount(id)))
+  ipcMain.handle('accounts:rollback', (_event, tool: AccountTool) => accountActionCall(manager => manager.rollbackAccount(tool)))
+  ipcMain.handle('accounts:recover', (_event, tool: AccountTool) => accountActionCall(manager => manager.recoverAccount(tool)))
   ipcMain.handle('accounts:rename', (_event, id: string, name: string) => accountCall(manager => manager.renameAccount(id, name), true))
   ipcMain.handle('accounts:delete', (_event, id: string) => accountCall(manager => manager.deleteAccount(id), true))
 

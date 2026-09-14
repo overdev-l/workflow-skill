@@ -785,7 +785,7 @@ export class AccountRefreshService {
       if (record.tool !== 'antigravity') return { success: false, reason: 'runtime-active' }
       const journal = this.readJournalSafely(record.tool)
       if (journal.corrupted || journal.journal?.phase === 'pending') return { success: false, reason: 'storage' }
-      try { adapter.assertCanWrite?.() } catch { return { success: false, reason: 'runtime-active' } }
+      try { (adapter.assertCanRefresh ?? adapter.assertCanWrite)?.call(adapter) } catch { return { success: false, reason: 'runtime-active' } }
       try {
         for (const slot of slots) {
           const current = adapter.read()
@@ -1208,7 +1208,7 @@ export class AccountRefreshService {
 
           // For Antigravity, verify runtime is stopped before network
           try {
-            adapter.assertCanWrite?.()
+            (adapter.assertCanRefresh ?? adapter.assertCanWrite)?.call(adapter)
           } catch {
             const blockedState: AccountRefreshState = {
               accountId,
@@ -1243,7 +1243,7 @@ export class AccountRefreshService {
           this.setCachedState(accountId, state, fingerprint)
           return state
         }
-        if (originallyShared) adapter.assertCanWrite?.()
+        if (originallyShared) (adapter.assertCanRefresh ?? adapter.assertCanWrite)?.call(adapter)
       } catch {
         const state: AccountRefreshState = { accountId, status: 'blocked', reason: 'native-access' }
         this.setCachedState(accountId, state, fingerprint)
