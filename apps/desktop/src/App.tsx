@@ -2188,7 +2188,7 @@ function AIEnvironmentsThreeColumn({
                 <span>
                   Skill 资产挂载列表 ({activeMountedSkills.length} / {skills.length})
                 </span>
-                <label className="master-search-input" style={{ width: '220px', height: '26px' }}>
+                <label className="master-search-input" style={{ width: '220px' }}>
                   <Search size={12} />
                   <input
                     value={skillSearchQuery}
@@ -2316,7 +2316,7 @@ function AIEnvironmentsThreeColumn({
                 <span>
                   项目 Skill 列表 ({filteredProjectMountedSkills.length})
                 </span>
-                <label className="master-search-input" style={{ width: '220px', height: '26px' }}>
+                <label className="master-search-input" style={{ width: '220px' }}>
                   <Search size={12} />
                   <input
                     value={skillSearchQuery}

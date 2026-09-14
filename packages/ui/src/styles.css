@@ -1,40 +1,87 @@
 :root,
-[data-theme='light'] {
-  color-scheme: light;
-  --color-bg: transparent;
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* DESIGN.md Dark Theme Palette (Titanium Obsidian & Electric Cobalt) */
+  --color-bg: oklch(0.120 0.004 250);
   --shell-bg: transparent;
-  --glass-rail: rgba(255, 255, 255, 0.12);
-  --glass-canvas: rgba(255, 255, 255, 0.78);
-  --glass-surface: rgba(255, 255, 255, 0.45);
-  --glass-surface-strong: rgba(255, 255, 255, 0.85);
-  --glass-border: rgba(0, 0, 0, 0.09);
-  --glass-border-specular: rgba(255, 255, 255, 0.95);
-  --color-ink: #111113;
-  --color-muted: #585860;
-  --color-subtle: #7a7a85;
-  --color-primary: #18181b;
-  --color-primary-hover: #27272a;
-  --btn-primary-bg: #18181b;
+  --color-canvas: oklch(0.145 0.005 250);
+  --color-surface: oklch(0.175 0.006 250);
+  --color-surface-raised: oklch(0.215 0.008 250);
+  --color-raised-surface: var(--color-surface-raised);
+  --color-surface-hover: oklch(0.200 0.007 250);
+  --color-rail: oklch(0.160 0.006 250);
+  --color-ink: oklch(0.960 0.003 250);
+  --color-muted: oklch(0.620 0.010 250);
+  --color-subtle: oklch(0.440 0.010 250);
+  --color-border: oklch(0.260 0.007 250);
+  --color-border-subtle: oklch(0.200 0.006 250);
+  --color-border-strong: oklch(0.340 0.008 250);
+
+  /* Primary Electric Cobalt & Accent Electric Azure */
+  --color-primary: oklch(0.580 0.200 250);
+  --color-primary-hover: oklch(0.630 0.210 250);
+  --color-primary-subtle: oklch(0.580 0.200 250 / 0.15);
+  --color-accent: oklch(0.780 0.130 210);
+  --color-accent-subtle: oklch(0.780 0.130 210 / 0.15);
+  --color-success: oklch(0.760 0.160 155);
+  --color-success-bg: oklch(0.760 0.160 155 / 0.15);
+  --color-success-ink: oklch(0.760 0.160 155);
+  --color-waiting: oklch(0.780 0.150 75);
+  --color-waiting-bg: oklch(0.780 0.150 75 / 0.15);
+  --color-waiting-ink: oklch(0.780 0.150 75);
+  --color-danger: oklch(0.650 0.220 25);
+  --color-danger-bg: oklch(0.650 0.220 25 / 0.15);
+  --color-danger-ink: oklch(0.750 0.180 25);
+  --focus-ring: oklch(0.580 0.200 250);
+
+  /* Visibly Deeper Obsidian Controls (Requirement 3: darker than surface 0.175 and canvas 0.145) */
+  --control-bg: oklch(0.110 0.004 250);
+  --control-bg-hover: oklch(0.125 0.005 250);
+  --control-bg-focus: oklch(0.095 0.004 250);
+  --control-bg-disabled: oklch(0.130 0.004 250 / 0.5);
+  --control-border: oklch(0.260 0.007 250);
+  --control-border-hover: oklch(0.340 0.008 250);
+  --control-border-focus: oklch(0.580 0.200 250);
+  --control-border-error: oklch(0.650 0.220 25);
+  --control-placeholder: oklch(0.500 0.010 250);
+  --control-ink: oklch(0.960 0.003 250);
+  --control-focus-ring: 0 0 0 1px oklch(0.580 0.200 250), 0 0 0 3px oklch(0.580 0.200 250 / 0.25);
+
+  /* Button Tokens */
+  --btn-primary-bg: oklch(0.580 0.200 250);
   --btn-primary-text: #ffffff;
-  --btn-primary-hover: #27272a;
-  --btn-secondary-bg: rgba(0, 0, 0, 0.05);
-  --btn-secondary-text: #18181b;
-  --btn-secondary-hover: rgba(0, 0, 0, 0.09);
-  --btn-saved-bg: rgba(22, 101, 52, 0.12);
-  --btn-saved-text: #15803d;
-  --btn-saved-border: rgba(22, 101, 52, 0.25);
-  --color-accent: oklch(0.40 0 0);
-  --color-success-bg: rgba(22, 101, 52, 0.12);
-  --color-success-ink: #15803d;
-  --color-waiting-bg: rgba(217, 119, 6, 0.14);
-  --color-waiting-ink: #b45309;
-  --color-danger-bg: rgba(220, 38, 38, 0.12);
-  --color-danger-ink: #b91c1c;
-  --focus-ring: #18181b;
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 18px;
-  --radius-capsule: 24px;
+  --btn-primary-hover: oklch(0.630 0.210 250);
+  --btn-secondary-bg: oklch(0.215 0.008 250);
+  --btn-secondary-text: var(--color-ink);
+  --btn-secondary-hover: oklch(0.245 0.010 250);
+  --btn-saved-bg: oklch(0.760 0.160 155 / 0.15);
+  --btn-saved-text: oklch(0.760 0.160 155);
+  --btn-saved-border: oklch(0.760 0.160 155 / 0.35);
+
+  /* Legacy & Semantic Compatibility Aliases */
+  --glass-rail: oklch(0.160 0.006 250 / 0.92);
+  --glass-canvas: oklch(0.145 0.005 250 / 0.94);
+  --glass-surface: oklch(0.175 0.006 250);
+  --glass-surface-subtle: oklch(0.155 0.005 250);
+  --glass-surface-strong: oklch(0.215 0.008 250);
+  --glass-surface-hover: oklch(0.200 0.007 250);
+  --glass-border: var(--color-border);
+  --glass-border-subtle: var(--color-border-subtle);
+  --glass-border-specular: oklch(1 0 0 / 0.08);
+  --border-subtle: var(--color-border-subtle);
+  --surface-card: var(--color-surface);
+  --surface-float: var(--color-surface-raised);
+  --surface-input: var(--control-bg);
+  --text-muted: var(--color-muted);
+  --danger: var(--color-danger);
+
+  /* Compact Rhythm Metrics (AGENTS.md & DESIGN.md) */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-card: 10px;
+  --radius-capsule: 12px;
   --radius-pill: 9999px;
   --space-1: 4px;
   --space-2: 8px;
@@ -43,46 +90,93 @@
   --space-6: 24px;
   --space-8: 32px;
   --space-12: 48px;
-  --motion-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Quiet Restrained Motion (No bounce, 150-240ms) */
+  --motion-spring: cubic-bezier(0.2, 0, 0, 1);
   --motion-smooth: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-fast: 160ms;
-  --motion-base: 240ms;
+  --motion-base: 220ms;
+
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", "SFMono-Regular", "JetBrains Mono", "Geist Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
-[data-theme='dark'] {
-  color-scheme: dark;
-  --color-bg: transparent;
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* DESIGN.md Light Theme Palette (Studio Warm White & Slate) */
+  --color-bg: oklch(0.985 0.002 250);
   --shell-bg: transparent;
-  --glass-rail: rgba(0, 0, 0, 0.10);
-  --glass-canvas: rgba(22, 22, 26, 0.82);
-  --glass-surface: rgba(255, 255, 255, 0.06);
-  --glass-surface-strong: rgba(255, 255, 255, 0.12);
-  --glass-border: rgba(255, 255, 255, 0.10);
-  --glass-border-specular: rgba(255, 255, 255, 0.20);
-  --color-ink: #f4f4f5;
-  --color-muted: #a1a1aa;
-  --color-subtle: #71717a;
-  --color-primary: #f4f4f5;
-  --color-primary-hover: #ffffff;
-  --btn-primary-bg: #f4f4f5;
-  --btn-primary-text: #18181b;
-  --btn-primary-hover: #ffffff;
-  --btn-secondary-bg: rgba(255, 255, 255, 0.08);
-  --btn-secondary-text: #f4f4f5;
-  --btn-secondary-hover: rgba(255, 255, 255, 0.14);
-  --btn-saved-bg: rgba(34, 197, 94, 0.16);
-  --btn-saved-text: #86efac;
-  --btn-saved-border: rgba(74, 222, 128, 0.32);
-  --color-accent: oklch(0.72 0 0);
-  --color-success-bg: rgba(34, 197, 94, 0.16);
-  --color-success-ink: #86efac;
-  --color-waiting-bg: rgba(245, 158, 11, 0.16);
-  --color-waiting-ink: #fcd34d;
-  --color-danger-bg: rgba(239, 68, 68, 0.16);
-  --color-danger-ink: #fca5a5;
-  --focus-ring: #f4f4f5;
+  --color-canvas: oklch(1 0 0);
+  --color-surface: oklch(0.965 0.004 250);
+  --color-surface-raised: oklch(0.925 0.007 250);
+  --color-raised-surface: var(--color-surface-raised);
+  --color-surface-hover: oklch(0.945 0.005 250);
+  --color-rail: oklch(0.940 0.005 250);
+  --color-ink: oklch(0.160 0.010 250);
+  --color-muted: oklch(0.480 0.015 250);
+  --color-subtle: oklch(0.640 0.010 250);
+  --color-border: oklch(0.890 0.006 250);
+  --color-border-subtle: oklch(0.930 0.004 250);
+  --color-border-strong: oklch(0.800 0.010 250);
+
+  /* Primary Bold Royal Cobalt & Accent Electric Azure */
+  --color-primary: oklch(0.520 0.210 250);
+  --color-primary-hover: oklch(0.470 0.220 250);
+  --color-primary-subtle: oklch(0.520 0.210 250 / 0.12);
+  --color-accent: oklch(0.580 0.160 215);
+  --color-accent-subtle: oklch(0.580 0.160 215 / 0.12);
+  --color-success: oklch(0.420 0.140 155);
+  --color-success-bg: oklch(0.420 0.140 155 / 0.12);
+  --color-success-ink: oklch(0.420 0.140 155);
+  --color-waiting: oklch(0.460 0.140 75);
+  --color-waiting-bg: oklch(0.460 0.140 75 / 0.12);
+  --color-waiting-ink: oklch(0.460 0.140 75);
+  --color-danger: oklch(0.550 0.200 25);
+  --color-danger-bg: oklch(0.550 0.200 25 / 0.12);
+  --color-danger-ink: oklch(0.550 0.200 25);
+  --focus-ring: oklch(0.520 0.210 250);
+
+  /* Visibly Deeper Cool-Gray Controls (Requirement 3: distinctly darker than surface 0.965 and canvas 1.000) */
+  --control-bg: oklch(0.910 0.008 250);
+  --control-bg-hover: oklch(0.890 0.010 250);
+  --control-bg-focus: oklch(0.925 0.007 250);
+  --control-bg-disabled: oklch(0.940 0.005 250 / 0.6);
+  --control-border: oklch(0.830 0.010 250);
+  --control-border-hover: oklch(0.740 0.015 250);
+  --control-border-focus: oklch(0.520 0.210 250);
+  --control-border-error: oklch(0.550 0.200 25);
+  --control-placeholder: oklch(0.500 0.015 250);
+  --control-ink: oklch(0.160 0.010 250);
+  --control-focus-ring: 0 0 0 1px oklch(0.520 0.210 250), 0 0 0 3px oklch(0.520 0.210 250 / 0.20);
+
+  /* Button Tokens */
+  --btn-primary-bg: oklch(0.520 0.210 250);
+  --btn-primary-text: #ffffff;
+  --btn-primary-hover: oklch(0.470 0.220 250);
+  --btn-secondary-bg: oklch(0.925 0.007 250);
+  --btn-secondary-text: var(--color-ink);
+  --btn-secondary-hover: oklch(0.890 0.010 250);
+  --btn-saved-bg: oklch(0.420 0.140 155 / 0.12);
+  --btn-saved-text: oklch(0.420 0.140 155);
+  --btn-saved-border: oklch(0.420 0.140 155 / 0.3);
+
+  /* Legacy & Semantic Compatibility Aliases */
+  --glass-rail: oklch(0.940 0.005 250 / 0.92);
+  --glass-canvas: oklch(1 0 0 / 0.94);
+  --glass-surface: oklch(0.965 0.004 250);
+  --glass-surface-subtle: oklch(0.950 0.004 250);
+  --glass-surface-strong: oklch(0.925 0.007 250);
+  --glass-surface-hover: oklch(0.945 0.005 250);
+  --glass-border: var(--color-border);
+  --glass-border-subtle: var(--color-border-subtle);
+  --glass-border-specular: oklch(1 0 0 / 0.95);
+  --border-subtle: var(--color-border-subtle);
+  --surface-card: var(--color-surface);
+  --surface-float: var(--color-surface-raised);
+  --surface-input: var(--control-bg);
+  --text-muted: var(--color-muted);
+  --danger: var(--color-danger);
 }
 
 * {
@@ -107,8 +201,83 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
+}
+
+/* Universal Editable Controls Styling (Requirement 3) */
+input[type="text"],
+input[type="search"],
+input[type="password"],
+input[type="email"],
+input:not([type]),
+textarea,
+select {
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  color: var(--control-ink);
+  border-radius: var(--radius-md, 8px);
+  font-family: inherit;
+  font-size: 0.75rem;
+  box-sizing: border-box;
+  transition: border-color var(--motion-fast) var(--motion-smooth),
+              background-color var(--motion-fast) var(--motion-smooth),
+              box-shadow var(--motion-fast) var(--motion-smooth);
+}
+
+input[type="text"],
+input[type="search"],
+input[type="password"],
+input[type="email"],
+input:not([type]),
+select {
+  height: 28px;
+  padding: 0 10px;
+}
+
+textarea {
+  padding: 8px 10px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--control-placeholder);
+  opacity: 1;
+}
+
+input:hover:not(:disabled),
+textarea:hover:not(:disabled),
+select:hover:not(:disabled) {
+  background: var(--control-bg-hover);
+  border-color: var(--control-border-hover);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  background: var(--control-bg-focus);
+  border-color: var(--control-border-focus);
+  box-shadow: var(--control-focus-ring);
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  background: var(--control-bg-disabled);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+input.is-error,
+textarea.is-error,
+select.is-error,
+input[aria-invalid="true"],
+textarea[aria-invalid="true"],
+select[aria-invalid="true"] {
+  border-color: var(--control-border-error);
 }
 
 :focus-visible {
@@ -117,21 +286,21 @@ input {
 }
 
 ::selection {
-  background: var(--glass-surface-strong);
+  background: var(--color-primary-subtle);
   color: var(--color-ink);
 }
 
 html,
 body,
 #root {
-  transition: background-color 0.28s cubic-bezier(0.16, 1, 0.3, 1),
-              color 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: background-color 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 /* View Transitions API smooth cross-fade animation */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 0.28s;
+  animation-duration: 0.22s;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
