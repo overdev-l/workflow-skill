@@ -25,7 +25,7 @@ module.exports = {
   appId: 'dev.trace.desktop',
   productName: 'Trace',
   directories: { output: '../../dist/desktop', buildResources: 'resources' },
-  files: ['dist/**', 'dist-electron/**', 'package.json', '!**/*.map'],
+  files: ['dist/**', 'dist-electron/**', 'package.json', '!**/*.map', '!**/.turbo/**', '!**/*.log', '!node_modules/@workflow-skill/**'],
   extraMetadata: { traceUpdatesEnabled: release },
   extraResources: [
     { from: 'resources', to: '.', filter: ['*.png'] },

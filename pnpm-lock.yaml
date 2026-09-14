@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@electron/asar':
+        specifier: 3.4.1
+        version: 3.4.1
       turbo:
         specifier: 2.10.11
         version: 2.10.11
