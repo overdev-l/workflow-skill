@@ -1,27 +1,29 @@
 #!/usr/bin/env node
 /**
- * Trace Desktop Updates Publishing Script (OPC-53)
+ * Trace Desktop Updates Publishing Script
  *
- * Verifies and publishes release artifacts to Cloudflare R2:
- * - Validates TWO platform manifests (latest-mac.yml and latest.yml)
+ * Publishes release artifacts to GitHub Releases using GitHub CLI (`gh`):
+ * - Verifies dual platform manifests (latest-mac.yml and latest.yml)
  * - Requires exact stable semver (major.minor.patch) matching --version or GITHUB_REF tag
  * - Enforces exact safe filenames: Trace-${version}-mac-arm64.zip/dmg and Trace-${version}-win-x64.exe
  * - Rejects path traversal, url encoding, duplicate entries, and symlinks
  * - Validates required sha512 and positive integer size on every manifest file entry
  * - Validates compressed blockmaps (.zip.blockmap, .exe.blockmap) by decompressing gzip/deflate JSON
- * - Preflight verification via HTTPS HEAD/GET to TRACE_UPDATE_URL:
- *   - 404 explicitly required for new artifacts
- *   - 200 with identical SHA-512 skipped for resumable partial publishing
- *   - 200 with differing SHA-512 rejected (immutability violation)
- *   - Any other status (401, 403, 500, 503) fails closed
- * - Preflights ALL immutable artifacts before any upload occurs
- * - Uploads immutable artifacts sequentially first, manifests last
- * - Uses `pnpm --filter @workflow-skill/web exec wrangler r2 object put <bucket>/<key> --file <path> --remote`
- * - Defaults to dry-run; requires explicit `--publish`
- * - Strictly avoids leaking secrets or echoing raw remote error outputs
+ *
+ * SECURITY & GOVERNANCE:
+ * - Source repository is strictly PRIVATE; releases are published to a separate CI/release repo.
+ * - Release notes are user-facing generic notes; no private commit logs or source metadata are leaked.
+ * - Code signing & signature enforcement is the responsibility of the supervisor CI pipeline before invoking this script.
+ * - Stable publishing publishes full platform manifests and sets latest=true, requiring explicit caller authorization.
+ * - Preview publishing creates unsigned pre-releases (prerelease=true, latest=false, preview-vX.Y.Z tag)
+ *   and strictly NEVER uploads platform manifests (latest*.yml), only binaries, blockmaps, and checksums.
+ * - Draft release remains hidden until all remote assets are uploaded and their names & sizes verified.
+ * - Public releases are immutable: re-running against a published release verifies existing assets or rejects safely; NEVER --clobber.
+ * - Resumable draft uploads: existing draft assets are verified via hash/digest; collisions reject.
+ * - Fail closed on auth, network, or unknown errors; never leaks stdout/stderr credentials or tokens.
  *
  * Usage:
- *   node scripts/publish-desktop-updates.mjs [--dir <dist/desktop>] [--version <0.1.0>] [--publish] [--bucket <name>]
+ *   node scripts/publish-desktop-updates.mjs [--dir <dist/desktop>] [--version <0.1.0>] [--publish] [--repository <owner/name>] [--preview]
  */
 
 import { spawnSync } from 'node:child_process'
@@ -29,10 +31,14 @@ import crypto from 'node:crypto'
 import {
   existsSync,
   lstatSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
+  rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import zlib from 'node:zlib'
@@ -47,6 +53,7 @@ const rootDir = path.resolve(__dirname, '..')
 
 export const STABLE_SEMVER_REGEX = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 export const SHA512_BASE64_REGEX = /^[A-Za-z0-9+/=]{86,88}$/
+export const REPOSITORY_REGEX = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
 export function normalizeVersion(v) {
   return String(v ?? '').trim().replace(/^v/, '')
@@ -61,33 +68,50 @@ export function computeSha512Base64(buffer) {
   return crypto.createHash('sha512').update(buffer).digest('base64')
 }
 
+export function computeSha256Hex(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex')
+}
+
 /**
- * Validates a generic HTTPS update URL without credentials, query, or fragment.
+ * Validates target GitHub repository in strict owner/name format.
  */
-export function validateUpdateUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') {
-    throw new Error('Update URL is required.')
+export function validateRepository(repo) {
+  if (!repo || typeof repo !== 'string') {
+    throw new Error('Repository is required and must be in owner/name format.')
   }
-  let parsed
-  try {
-    parsed = new URL(rawUrl.trim())
-  } catch {
-    throw new Error('Invalid update URL format.')
+  const trimmed = repo.trim()
+  if (!REPOSITORY_REGEX.test(trimmed)) {
+    throw new Error(`Invalid repository format: '${repo}'. Expected 'owner/name'.`)
   }
-  if (parsed.protocol !== 'https:') {
-    throw new Error(`Protocol must be https:, got '${parsed.protocol}'`)
+  return trimmed
+}
+
+/**
+ * Generates user-facing generic release notes without private source commits or logs.
+ */
+export function generateGenericReleaseNotes({ version, tag, preview }) {
+  if (preview) {
+    return [
+      `# Trace Desktop Preview v${version}`,
+      '',
+      'Automated preview build of Trace Desktop.',
+      '',
+      `- Version: ${version}`,
+      `- Tag: ${tag}`,
+      '- Pre-release: true',
+      '- Note: Unsigned build for preview testing and verification.',
+    ].join('\n')
   }
-  if (parsed.username || parsed.password) {
-    throw new Error('Update URL must not contain username or password credentials.')
-  }
-  if (parsed.search || parsed.hash) {
-    throw new Error('Update URL must not contain query strings or hash fragments.')
-  }
-  let href = parsed.href
-  if (href.endsWith('/')) {
-    href = href.slice(0, -1)
-  }
-  return href
+
+  return [
+    `# Trace Desktop v${version}`,
+    '',
+    'Official production release of Trace Desktop.',
+    '',
+    `- Version: ${version}`,
+    `- Tag: ${tag}`,
+    '- Platforms: macOS (arm64), Windows (x64)',
+  ].join('\n')
 }
 
 /**
@@ -128,18 +152,24 @@ export function validateBlockmapFile(filePath) {
 /**
  * Verifies the release directory, both platform manifests, all files, hashes, and sizes.
  */
-export function verifyReleaseDirectory(options) {
+export function verifyReleaseDirectory(options = {}) {
   const dir = path.resolve(options.dir)
   if (!existsSync(dir)) {
     throw new Error(`Release directory does not exist: ${dir}`)
   }
 
-  if (options.publish && !options.version && !options.expectedVersion && !/^refs\/tags\/v/.test(process.env.GITHUB_REF ?? '')) throw new Error('Publishing requires --version or a stable GITHUB_REF tag.')
+  if (options.publish && !options.version && !options.expectedVersion && !/^refs\/tags\/v/.test(process.env.GITHUB_REF ?? '')) {
+    throw new Error('Publishing requires explicit --version or expectedVersion.')
+  }
 
   // Determine expected target version
   let expectedVersion = (options.expectedVersion || options.version) ? normalizeVersion(options.expectedVersion || options.version) : undefined
-  if (!expectedVersion && process.env.GITHUB_REF && process.env.GITHUB_REF.startsWith('refs/tags/v')) {
-    expectedVersion = normalizeVersion(process.env.GITHUB_REF.slice('refs/tags/v'.length))
+  if (!expectedVersion && process.env.GITHUB_REF) {
+    if (process.env.GITHUB_REF.startsWith('refs/tags/v')) {
+      expectedVersion = normalizeVersion(process.env.GITHUB_REF.slice('refs/tags/v'.length))
+    } else if (process.env.GITHUB_REF.startsWith('refs/tags/preview-v')) {
+      expectedVersion = normalizeVersion(process.env.GITHUB_REF.slice('refs/tags/preview-v'.length))
+    }
   }
   if (!expectedVersion) {
     try {
@@ -155,10 +185,17 @@ export function verifyReleaseDirectory(options) {
   }
 
   // If GITHUB_REF is set and differs from expectedVersion, fail immediately
-  if (process.env.GITHUB_REF && process.env.GITHUB_REF.startsWith('refs/tags/v')) {
-    const tagVersion = normalizeVersion(process.env.GITHUB_REF.slice('refs/tags/v'.length))
-    if (expectedVersion && tagVersion !== expectedVersion) {
-      throw new Error(`GITHUB_REF tag version '${tagVersion}' does not match target version '${expectedVersion}'.`)
+  if (process.env.GITHUB_REF) {
+    if (process.env.GITHUB_REF.startsWith('refs/tags/v')) {
+      const tagVersion = normalizeVersion(process.env.GITHUB_REF.slice('refs/tags/v'.length))
+      if (expectedVersion && tagVersion !== expectedVersion) {
+        throw new Error(`GITHUB_REF tag version '${tagVersion}' does not match target version '${expectedVersion}'.`)
+      }
+    } else if (process.env.GITHUB_REF.startsWith('refs/tags/preview-v')) {
+      const tagVersion = normalizeVersion(process.env.GITHUB_REF.slice('refs/tags/preview-v'.length))
+      if (expectedVersion && tagVersion !== expectedVersion) {
+        throw new Error(`GITHUB_REF tag version '${tagVersion}' does not match target version '${expectedVersion}'.`)
+      }
     }
   }
 
@@ -173,7 +210,9 @@ export function verifyReleaseDirectory(options) {
   }
 
   for (const manifest of [macManifestPath, winManifestPath]) {
-    if (!lstatSync(manifest).isFile() || lstatSync(manifest).isSymbolicLink()) throw new Error('Manifest must be a regular file, not a symlink.')
+    if (!lstatSync(manifest).isFile() || lstatSync(manifest).isSymbolicLink()) {
+      throw new Error('Manifest must be a regular file, not a symlink.')
+    }
   }
   let macManifest
   let winManifest
@@ -218,9 +257,6 @@ export function verifyReleaseDirectory(options) {
   const expectedMacDmg = `Trace-${version}-mac-arm64.dmg`
   const expectedWinExe = `Trace-${version}-win-x64.exe`
 
-  /**
-   * Validates manifest files entries without silently normalizing paths
-   */
   const validateManifestFiles = (manifest, manifestName, platform) => {
     if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
       throw new Error(`${manifestName} must contain a non-empty 'files' array.`)
@@ -310,7 +346,7 @@ export function verifyReleaseDirectory(options) {
 
   // Check physical files on disk: verify size, sha512, and non-symlink
   const allArtifactEntries = [...macEntries, ...winEntries]
-  const immutableFilesMap = new Map() // filename -> { sha512, size, isBlockmap: boolean }
+  const immutableFilesMap = new Map()
 
   for (const entry of allArtifactEntries) {
     const filePath = path.join(dir, entry.filename)
@@ -361,7 +397,6 @@ export function verifyReleaseDirectory(options) {
         throw new Error(`Blockmap is not a regular file: ${blockmapPath}`)
       }
 
-      // Validate compressed blockmap payload is valid non-empty gzip/deflate JSON
       validateBlockmapFile(blockmapPath)
 
       const bmContent = readFileSync(blockmapPath)
@@ -405,138 +440,433 @@ export function verifyReleaseDirectory(options) {
 }
 
 // =========================================================================
-// Preflight & Upload Execution Engine
+// GitHub CLI Interaction & Error Handling Helpers
 // =========================================================================
 
 /**
- * Default remote preflight checker using HTTPS HEAD and GET against TRACE_UPDATE_URL
+ * Checks if a gh command result represents an explicit 404 (Not Found).
  */
-async function defaultReadRemote(baseUrl, filename) {
-  const url = `${baseUrl}/${filename}`
-  let headRes
-  try {
-    headRes = await fetch(url, { method: 'HEAD', redirect: 'error', signal: AbortSignal.timeout(30_000) })
-  } catch (err) {
-    throw new Error(`Network failure during preflight probe of '${filename}'.`)
+export function isGhNotFound(result) {
+  if (!result || result.status === 0) {
+    return false
+  }
+  if (result.notFound === true || result.status === 404) {
+    return true
+  }
+  const stderr = String(result.stderr || '')
+  const stdout = String(result.stdout || '')
+  const combined = `${stderr}\n${stdout}`
+
+  // If auth, network, or permission errors are indicated, it is NOT not-found
+  if (/401|403|bad credentials|unauthorized|forbidden|authentication|permission|rate limit|saml|timeout|network|could not resolve host|econnrefused/i.test(combined)) {
+    return false
   }
 
-  if (headRes.status === 404) {
-    return { status: 404 }
+  // Explicit 404 / Not Found detection
+  if (/HTTP 404|release not found|Not Found/i.test(combined)) {
+    return true
   }
 
-  if (headRes.status === 200) {
-    let getRes
-    try {
-      getRes = await fetch(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(120_000) })
-    } catch {
-      throw new Error(`Failed to download existing remote artifact '${filename}' for verification.`)
-    }
-
-    if (getRes.status !== 200) {
-      throw new Error(`Unexpected response when verifying existing remote artifact '${filename}' (status ${getRes.status}).`)
-    }
-
-    const buf = Buffer.from(await getRes.arrayBuffer())
-    return {
-      status: 200,
-      sha512: computeSha512Base64(buf),
-      size: buf.length,
-    }
-  }
-
-  // Fail closed on any other status (401, 403, 500, 503) without leaking raw remote messages
-  throw new Error(`Remote preflight failed for '${filename}' with unexpected HTTP status ${headRes.status}.`)
+  return false
 }
 
 /**
- * Default wrangler R2 upload execution
+ * Checks if a gh command result represents an auth, permission, or network failure.
  */
-function defaultUpload(bucket, filename, filePath) {
-  console.log(`[publish-desktop-updates] Uploading: ${filename} -> r2://${bucket}/${filename}`)
-  const result = spawnSync(
-    'pnpm',
-    [
-      '--filter', '@workflow-skill/web',
-      'exec', 'wrangler', 'r2', 'object', 'put',
-      `${bucket}/${filename}`,
-      '--file', filePath,
-      '--remote',
-    ],
-    {
-      cwd: rootDir,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf8',
-    },
-  )
+export function isGhAuthOrNetworkError(result) {
+  if (!result || result.status === 0) {
+    return false
+  }
+  if (result.status === 401 || result.status === 403) {
+    return true
+  }
+  const combined = `${String(result.stderr || '')}\n${String(result.stdout || '')}`
+  return /401|403|bad credentials|unauthorized|forbidden|authentication|permission|rate limit|saml|timeout|network|could not resolve host|econnrefused/i.test(combined)
+}
 
-  if (result.status !== 0) {
-    // Fail closed without leaking command or credentials
-    throw new Error(`Upload failed for '${filename}'. Check R2 permissions and network.`)
+function defaultExecGh(args, options = {}) {
+  const result = spawnSync('gh', args, {
+    cwd: options.cwd || rootDir,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    encoding: 'utf8',
+    env: options.env || process.env,
+  })
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+    error: result.error,
   }
 }
 
+// =========================================================================
+// Core Publishing Workflow Orchestrator
+// =========================================================================
+
 /**
- * Core publishing workflow orchestrator
+ * Core publishing workflow orchestrator for GitHub Releases.
+ *
+ * @param {Object} options
+ * @param {string} options.dir - Release directory containing built artifacts and manifests
+ * @param {string} [options.version] - Explicit target version (e.g. '1.0.0')
+ * @param {string} [options.expectedVersion] - Alternative explicit expected version
+ * @param {boolean} [options.publish=false] - True to execute real publishing; defaults to dry-run
+ * @param {string} [options.repository] - GitHub target repository ('owner/name')
+ * @param {boolean} [options.preview=false] - True for unsigned preview release (prerelease=true, latest=false, no manifests)
+ * @param {string} [options.tagSuffix] - Optional immutable suffix for preview tag
+ * @param {Object} [dependencies={}] - Injected dependencies for testing (gh CLI interaction)
  */
-export async function publishDesktopUpdates(options, dependencies = {}) {
-  const plan = verifyReleaseDirectory(options)
+export async function publishDesktopUpdates(options = {}, dependencies = {}) {
   const isPublish = Boolean(options.publish)
+  const isPreview = Boolean(options.preview)
 
-  const readRemote = dependencies.readRemote || (async (f) => defaultReadRemote(validateUpdateUrl(process.env.TRACE_UPDATE_URL), f))
-  const upload = dependencies.upload || defaultUpload
+  // Step 1: Validate all local files before any network call or mutation
+  const plan = verifyReleaseDirectory(options)
 
-  console.log(`[publish-desktop-updates] Verified release version: ${plan.version}`)
-  console.log(`[publish-desktop-updates] Immutable artifacts count: ${plan.immutableFiles.length}`)
+  if (isPublish && !options.version && !options.expectedVersion) {
+    throw new Error('Publishing requires explicit --version or expectedVersion.')
+  }
 
+  const rawRepo = options.repository || (isPublish ? process.env.GITHUB_REPOSITORY : undefined)
+  if (options.repository) {
+    validateRepository(options.repository)
+  }
+  if (isPublish && !rawRepo) {
+    throw new Error('Repository is required for publishing. Provide --repository <owner/name> or GITHUB_REPOSITORY.')
+  }
+  const repository = rawRepo ? validateRepository(rawRepo) : undefined
+
+  if (options.tagSuffix && !/^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$/.test(options.tagSuffix)) throw new Error('Invalid preview tag suffix.')
+  const tag = isPreview
+    ? `preview-v${plan.version}${options.tagSuffix ? `-${options.tagSuffix}` : ''}`
+    : `v${plan.version}`
+
+  console.log(`[publish-desktop-updates] Target tag: ${tag}`)
+  console.log(`[publish-desktop-updates] Mode: ${isPublish ? (isPreview ? 'PREVIEW PUBLISH' : 'STABLE PUBLISH') : 'DRY-RUN'}`)
+  if (repository) {
+    console.log(`[publish-desktop-updates] Target repository: ${repository}`)
+  }
+
+  // Dry-run mode: strictly zero file writes and zero gh command calls
   if (!isPublish) {
     console.log('[DRY-RUN] Release directory verified. Zero files uploaded. Pass --publish to execute.')
-    return { success: true, dryRun: true, plan }
-  }
-
-  const bucket = options.bucket || process.env.TRACE_UPDATE_BUCKET
-  if (!bucket) {
-    throw new Error('Missing R2 bucket. Provide --bucket or TRACE_UPDATE_BUCKET environment variable.')
-  }
-
-  // Phase 1: Preflight ALL immutable artifacts BEFORE any upload
-  console.log('\nPhase 1: Preflighting all immutable artifacts against remote origin...')
-  const filesToUpload = []
-
-  for (const filename of plan.immutableFiles) {
-    const localInfo = plan.immutableFilesMap.get(filename)
-    const remote = await readRemote(filename)
-
-    if (remote.status === 404) {
-      filesToUpload.push(filename)
-    } else if (remote.status === 200) {
-      if (remote.sha512 === localInfo.sha512) {
-        console.log(`  - [SKIP] '${filename}' already uploaded with identical SHA-512 (resumable retry).`)
-      } else {
-        throw new Error(`Immutability violation: Remote artifact '${filename}' already exists with differing SHA-512 content. Release versions are strictly immutable.`)
-      }
-    } else {
-      throw new Error(`Remote preflight check failed closed for '${filename}'.`)
+    return {
+      success: true,
+      dryRun: true,
+      plan,
+      tag,
+      repository,
+      preview: isPreview,
     }
   }
 
-  console.log(`Preflight complete: ${filesToUpload.length} artifacts to upload, ${plan.immutableFiles.length - filesToUpload.length} skipped.`)
+  const execGh = dependencies.gh || dependencies.execGh || defaultExecGh
 
-  // Phase 2: Upload immutable artifacts sequentially
-  console.log('\nPhase 2: Uploading immutable artifacts...')
-  for (const filename of filesToUpload) {
-    const localPath = path.join(plan.dir, filename)
-    await upload(bucket, filename, localPath)
+  // Step 2: Inspect remote release by gh release view
+  console.log(`\nPhase 1: Inspecting release '${tag}' in repository '${repository}'...`)
+  const viewArgs = ['release', 'view', tag, '--repo', repository, '--json', 'id,isDraft,isPrerelease,assets,tagName']
+  let viewRes
+  try {
+    viewRes = await execGh(viewArgs, { cwd: rootDir, env: process.env })
+  } catch {
+    throw new Error('Failed to execute GitHub CLI command.')
   }
 
-  // Phase 3: Upload manifests last
-  console.log('\nPhase 3: Uploading platform manifests...')
-  for (const manifestName of plan.manifestFiles) {
-    const localPath = path.join(plan.dir, manifestName)
-    await upload(bucket, manifestName, localPath)
+  let existingRelease = null
+  if (viewRes.status === 0) {
+    try {
+      existingRelease = typeof viewRes.stdout === 'object' ? viewRes.stdout : JSON.parse(viewRes.stdout)
+    } catch {
+      throw new Error('Failed to parse GitHub release details.')
+    }
+  } else if (isGhNotFound(viewRes)) {
+    existingRelease = null
+  } else if (isGhAuthOrNetworkError(viewRes)) {
+    throw new Error('GitHub CLI authentication or network failure. Fail closed.')
+  } else {
+    throw new Error('GitHub CLI release view failed closed.')
   }
 
-  console.log(`\n[PUBLISH SUCCESS] Release ${plan.version} successfully published to r2://${bucket}.`)
-  return { success: true, dryRun: false, plan }
+  // Step 3: Build local expected files map & sha512 checksum file
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), 'trace-release-'))
+  try {
+    const expectedFilesMap = new Map()
+
+    for (const filename of plan.immutableFiles) {
+      const localPath = path.join(plan.dir, filename)
+      const buf = readFileSync(localPath)
+      expectedFilesMap.set(filename, {
+        filePath: localPath,
+        size: buf.length,
+        sha512: computeSha512Base64(buf),
+        sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+        isManifest: false,
+      })
+    }
+
+    // Generate sha512 checksum file
+    const checksumLines = plan.immutableFiles.map((fn) => {
+      const item = expectedFilesMap.get(fn)
+      return `${Buffer.from(item.sha512, 'base64').toString('hex')}  ${fn}`
+    }).join('\n') + '\n'
+    const checksumBuf = Buffer.from(checksumLines, 'utf8')
+    const checksumPath = path.join(tempDir, 'checksums-sha512.txt')
+    writeFileSync(checksumPath, checksumBuf)
+    expectedFilesMap.set('checksums-sha512.txt', {
+      filePath: checksumPath,
+      size: checksumBuf.length,
+      sha512: computeSha512Base64(checksumBuf),
+      sha256: crypto.createHash('sha256').update(checksumBuf).digest('hex'),
+      isManifest: false,
+    })
+
+    // For stable release, include manifests (preview NEVER uploads manifests)
+    if (!isPreview) {
+      for (const manifestName of plan.manifestFiles) {
+        const localPath = path.join(plan.dir, manifestName)
+        const buf = readFileSync(localPath)
+        expectedFilesMap.set(manifestName, {
+          filePath: localPath,
+          size: buf.length,
+          sha512: computeSha512Base64(buf),
+          sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+          isManifest: true,
+        })
+      }
+    }
+
+    if (existingRelease) {
+      if (existingRelease.tagName !== tag || existingRelease.isPrerelease !== isPreview) throw new Error('Existing release tag/channel differs from requested release.')
+      for (const asset of existingRelease.assets || []) {
+        if (!expectedFilesMap.has(asset.name)) throw new Error('Release contains an unexpected asset; review the draft manually.')
+      }
+    }
+
+    // Step 4: Immutability guard for already published (public) releases
+    if (existingRelease && !existingRelease.isDraft) {
+      console.log(`Release '${tag}' is already published. Checking immutability guard...`)
+      const remoteAssets = Array.isArray(existingRelease.assets) ? existingRelease.assets : []
+
+      for (const [filename, info] of expectedFilesMap.entries()) {
+        const remoteAsset = remoteAssets.find((a) => a.name === filename)
+        if (!remoteAsset) {
+          throw new Error(`Immutability violation: Published release '${tag}' is missing required asset '${filename}'. Never clobber published releases.`)
+        }
+        if (remoteAsset.size !== info.size) {
+          throw new Error(`Immutability violation: Published release '${tag}' asset '${filename}' size (${remoteAsset.size}) does not match local (${info.size}).`)
+        }
+        if (!remoteAsset.digest) throw new Error('Published asset has no verifiable digest; refusing to mark it verified.')
+        if (remoteAsset.digest) {
+          const norm = remoteAsset.digest.replace(/^sha256:/i, '').toLowerCase()
+          if (norm !== info.sha256.toLowerCase()) {
+            throw new Error(`Immutability violation: Published release '${tag}' asset '${filename}' digest differs.`)
+          }
+        }
+      }
+
+      console.log(`[publish-desktop-updates] Verified intact existing public release: ${tag}`)
+      return {
+        success: true,
+        dryRun: false,
+        verifiedExisting: true,
+        plan,
+        tag,
+        repository,
+        version: plan.version,
+        preview: isPreview,
+      }
+    }
+
+    // Step 5: Handle existing draft (resumable / collision check) or create new draft
+    const verifiedInDraft = new Set()
+    if (existingRelease && existingRelease.isDraft) {
+      console.log(`Existing draft release found for '${tag}'. Checking existing assets for resume / collision...`)
+      const remoteAssets = Array.isArray(existingRelease.assets) ? existingRelease.assets : []
+
+      for (const remoteAsset of remoteAssets) {
+        const name = remoteAsset.name
+        if (!expectedFilesMap.has(name)) {
+          throw new Error(`Collision detected: Existing draft contains unknown or unexpected asset '${name}'.`)
+        }
+        const localInfo = expectedFilesMap.get(name)
+        if (remoteAsset.size !== localInfo.size) {
+          throw new Error(`Collision detected: Existing draft asset '${name}' size (${remoteAsset.size}) does not match local (${localInfo.size}).`)
+        }
+
+        if (remoteAsset.digest) {
+          const norm = remoteAsset.digest.replace(/^sha256:/i, '').toLowerCase()
+          if (norm !== localInfo.sha256.toLowerCase()) {
+            throw new Error(`Collision detected: Existing draft asset '${name}' SHA-256 digest differs from local.`)
+          }
+        } else if (remoteAsset.sha256) {
+          if (remoteAsset.sha256.toLowerCase() !== localInfo.sha256.toLowerCase()) {
+            throw new Error(`Collision detected: Existing draft asset '${name}' SHA-256 digest differs from local.`)
+          }
+        } else if (remoteAsset.sha512) {
+          if (remoteAsset.sha512 !== localInfo.sha512) {
+            throw new Error(`Collision detected: Existing draft asset '${name}' SHA-512 digest differs from local.`)
+          }
+        } else {
+          // Download and verify hash via temp file
+          const dlDir = mkdtempSync(path.join(tempDir, 'dl-'))
+          const dlRes = await execGh([
+            'release', 'download', tag,
+            '--repo', repository,
+            '--pattern', name,
+            '--dir', dlDir,
+          ], { cwd: rootDir, env: process.env })
+          if (dlRes.status !== 0) {
+            throw new Error(`Failed to download draft asset '${name}' for verification.`)
+          }
+          const dlPath = path.join(dlDir, name)
+          if (!existsSync(dlPath)) {
+            throw new Error(`Downloaded draft asset '${name}' missing.`)
+          }
+          const dlBuf = readFileSync(dlPath)
+          const dlSha512 = computeSha512Base64(dlBuf)
+          if (dlSha512 !== localInfo.sha512) {
+            throw new Error(`Collision detected: Downloaded draft asset '${name}' hash differs from local.`)
+          }
+        }
+
+        verifiedInDraft.add(name)
+        console.log(`  - [SKIP] '${name}' already uploaded with verified digest (resumable draft).`)
+      }
+    } else {
+      // Create new draft release (hidden until all assets validated)
+      console.log(`Creating new draft release '${tag}'...`)
+      const notesContent = generateGenericReleaseNotes({
+        version: plan.version,
+        tag,
+        preview: isPreview,
+      })
+      const notesPath = path.join(tempDir, 'release-notes.md')
+      writeFileSync(notesPath, notesContent, 'utf8')
+
+      const createArgs = [
+        'release', 'create', tag,
+        '--repo', repository,
+        '--draft',
+        '--title', isPreview ? `Trace Desktop Preview v${plan.version}` : `Trace Desktop v${plan.version}`,
+        '--notes-file', notesPath,
+      ]
+      if (isPreview) {
+        createArgs.push('--prerelease')
+      }
+
+      const createRes = await execGh(createArgs, { cwd: rootDir, env: process.env })
+      if (createRes.status !== 0) {
+        if (isGhAuthOrNetworkError(createRes)) {
+          throw new Error('GitHub CLI authentication or network error during draft creation.')
+        }
+        throw new Error('Failed to create draft release on GitHub.')
+      }
+    }
+
+    // Step 6: Upload assets in strict order:
+    // 1. Binaries/blockmaps
+    // 2. Checksum file
+    // 3. Platform manifests strictly last for stable (never for preview)
+    const filesToUpload = []
+
+    for (const filename of plan.immutableFiles) {
+      if (!verifiedInDraft.has(filename)) {
+        filesToUpload.push({ filename, filePath: expectedFilesMap.get(filename).filePath })
+      }
+    }
+
+    if (!verifiedInDraft.has('checksums-sha512.txt')) {
+      filesToUpload.push({ filename: 'checksums-sha512.txt', filePath: expectedFilesMap.get('checksums-sha512.txt').filePath })
+    }
+
+    if (!isPreview) {
+      for (const manifest of plan.manifestFiles) {
+        if (!verifiedInDraft.has(manifest)) {
+          filesToUpload.push({ filename: manifest, filePath: expectedFilesMap.get(manifest).filePath })
+        }
+      }
+    }
+
+    console.log(`Uploading ${filesToUpload.length} remaining assets to draft release...`)
+    for (const item of filesToUpload) {
+      console.log(`  - Uploading: ${item.filename}`)
+      const uploadArgs = ['release', 'upload', tag, item.filePath, '--repo', repository]
+      const uploadRes = await execGh(uploadArgs, { cwd: rootDir, env: process.env })
+      if (uploadRes.status !== 0) {
+        if (isGhAuthOrNetworkError(uploadRes)) {
+          throw new Error(`GitHub CLI authentication or network error during upload of '${item.filename}'.`)
+        }
+        throw new Error(`Failed to upload asset '${item.filename}' to GitHub release.`)
+      }
+    }
+
+    // Step 7: Verify all remote assets names & sizes before publishing draft
+    console.log('\nPhase 6: Verifying all remote assets on draft before publishing...')
+    let postViewRes
+    try {
+      postViewRes = await execGh(viewArgs, { cwd: rootDir, env: process.env })
+    } catch {
+      throw new Error('Failed to inspect draft release after upload.')
+    }
+
+    if (postViewRes.status !== 0) {
+      throw new Error('Failed to inspect draft release after upload.')
+    }
+
+    let postRelease
+    try {
+      postRelease = typeof postViewRes.stdout === 'object' ? postViewRes.stdout : JSON.parse(postViewRes.stdout)
+    } catch {
+      throw new Error('Failed to parse release details after upload.')
+    }
+
+    const postAssets = Array.isArray(postRelease.assets) ? postRelease.assets : []
+    if (postRelease.isDraft !== true || postRelease.tagName !== tag) throw new Error('Draft release state changed during upload.')
+    if (postAssets.some(asset => !expectedFilesMap.has(asset.name))) throw new Error('Draft contains unexpected assets.')
+    for (const [filename, info] of expectedFilesMap.entries()) {
+      const match = postAssets.find((a) => a.name === filename)
+      if (!match) {
+        throw new Error(`Remote asset verification failed: Asset '${filename}' is missing from release.`)
+      }
+      if (match.size !== info.size) {
+        throw new Error(`Remote asset verification failed: Asset '${filename}' size (${match.size}) does not match expected size (${info.size}).`)
+      }
+    }
+
+    // Step 8: Publish draft release
+    console.log(`Publishing release '${tag}' (draft=false, prerelease=${isPreview}, latest=${!isPreview})...`)
+    const editArgs = [
+      'release', 'edit', tag,
+      '--repo', repository,
+      '--draft=false',
+      `--prerelease=${isPreview ? 'true' : 'false'}`,
+      `--latest=${isPreview ? 'false' : 'true'}`,
+    ]
+    const editRes = await execGh(editArgs, { cwd: rootDir, env: process.env })
+    if (editRes.status !== 0) {
+      if (isGhAuthOrNetworkError(editRes)) {
+        throw new Error('GitHub CLI authentication or network error while publishing draft release.')
+      }
+      throw new Error('Failed to publish draft release on GitHub.')
+    }
+
+    console.log(`\n[PUBLISH SUCCESS] Release '${tag}' successfully published to GitHub repository '${repository}'.`)
+    return {
+      success: true,
+      dryRun: false,
+      tag,
+      repository,
+      version: plan.version,
+      preview: isPreview,
+      plan,
+    }
+  } finally {
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {
+      // Ignored
+    }
+  }
 }
 
 // =========================================================================
@@ -552,20 +882,27 @@ async function runCli() {
   }
 
   const isPublish = args.includes('--publish')
+  const isPreview = args.includes('--preview')
   const dir = getArg('--dir', path.join(rootDir, 'dist', 'desktop'))
   const version = getArg('--version', undefined)
-  const bucket = getArg('--bucket', process.env.TRACE_UPDATE_BUCKET)
+  const repository = getArg('--repository', process.env.GITHUB_REPOSITORY)
+  const tagSuffix = getArg('--tag-suffix', undefined)
 
-  console.log('=== Trace Desktop Updates Publisher (OPC-53) ===')
-  console.log(`Mode: ${isPublish ? 'REAL PUBLISH (--publish)' : 'DRY-RUN (default)'}`)
+  console.log('=== Trace Desktop Updates Publisher ===')
+  console.log(`Mode: ${isPublish ? (isPreview ? 'PREVIEW PUBLISH (--preview)' : 'STABLE PUBLISH (--publish)') : 'DRY-RUN (default)'}`)
   console.log(`Directory: ${dir}`)
+  if (repository) {
+    console.log(`Repository: ${repository}`)
+  }
 
   try {
     await publishDesktopUpdates({
       dir,
       version,
       publish: isPublish,
-      bucket,
+      preview: isPreview,
+      repository,
+      tagSuffix,
     })
   } catch (err) {
     console.error(`\n[PUBLISH FAILED]: ${err.message}`)

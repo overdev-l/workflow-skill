@@ -46,3 +46,9 @@ On Windows, the first capture in an app session uses the system picker to select
 ### macOS permission guidance
 
 Trace follows the interaction model demonstrated by [zats/permiso](https://github.com/zats/permiso): the helper expands from the permission button along a curved 720 ms path, anchors to the bottom of the relevant System Settings window, and follows that window while it moves. A dedicated Swift `CGWindowList` observer supplies window geometry every 150 ms without requiring Accessibility permission. The helper is non-activating, hides whenever System Settings is not frontmost, supports multiple displays, and closes as soon as the requested permission is detected.
+
+## Desktop builds and downloads
+
+Application source remains private. Build workflows and desktop releases are hosted separately in [trace-releases](https://github.com/overdev-l/trace-releases). Download macOS Apple Silicon and Windows x64 packages from its [Releases](https://github.com/overdev-l/trace-releases/releases) page. Unsigned previews are marked as prereleases and do not enable automatic updates.
+
+See [desktop build and update documentation](docs/DESKTOP_AUTO_UPDATE.md) for CI inputs, source access, signing, and release verification.

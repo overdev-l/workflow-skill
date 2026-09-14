@@ -12,7 +12,7 @@
     "dev:desktop": "pnpm --filter @workflow-skill/desktop dev",
     "dev:web": "pnpm --filter @workflow-skill/web dev",
     "build": "turbo run build",
-    "typecheck": "turbo run typecheck && tsc -p infra/update-worker/tsconfig.json",
+    "typecheck": "turbo run typecheck",
     "build:recorder": "node scripts/build-recorder.mjs",
     "build:recorder:release": "node scripts/build-recorder.mjs --release",
     "build:recorder:macos": "swift build --package-path recorders/macos",
@@ -25,7 +25,7 @@
     "verify:mcp": "node --experimental-strip-types scripts/verify-mcp-management.mjs",
     "verify:accounts": "node --experimental-strip-types scripts/verify-account-store.mjs && node --experimental-strip-types scripts/verify-account-adapters.mjs && node --experimental-strip-types scripts/verify-account-management.mjs && node --experimental-strip-types scripts/verify-account-quota.mjs && node --experimental-strip-types scripts/verify-account-discovery.mjs && node --experimental-strip-types scripts/verify-account-oauth.mjs && node --experimental-strip-types scripts/verify-account-oauth-providers.mjs && node --experimental-strip-types scripts/verify-antigravity-keychain.mjs && node --experimental-strip-types scripts/verify-antigravity-native.mjs && node --experimental-strip-types scripts/verify-account-refresh-providers.mjs && node --experimental-strip-types scripts/verify-account-refresh.mjs && node --experimental-strip-types scripts/verify-account-renewal-boundaries.mjs",
     "build:account-keychain": "node scripts/build-account-keychain.mjs",
-    "verify:updates": "node --experimental-strip-types scripts/verify-app-updates.mjs && node --experimental-strip-types scripts/verify-update-install.mjs && node --experimental-strip-types scripts/verify-update-worker.mjs && node scripts/verify-update-publishing.mjs",
+    "verify:updates": "node --experimental-strip-types scripts/verify-app-updates.mjs && node --experimental-strip-types scripts/verify-update-install.mjs && node scripts/verify-update-publishing.mjs",
     "prepare:desktop-package": "node scripts/prepare-desktop-package.mjs",
     "package:desktop": "pnpm prepare:desktop-package && pnpm --filter @workflow-skill/desktop build && pnpm --filter @workflow-skill/desktop exec electron-builder --config electron-builder.config.cjs --publish never",
     "verify:desktop-updates": "node scripts/publish-desktop-updates.mjs"

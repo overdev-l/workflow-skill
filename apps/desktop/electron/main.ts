@@ -1875,7 +1875,11 @@ ${skill.description || ''}
   ipcMain.handle('accounts:delete', (_event, id: string) => accountCall(manager => manager.deleteAccount(id), true))
 
   const simulatedUpdates = !app.isPackaged && process.env.TRACE_SIMULATE_UPDATE === '1'
-  const updatesEnabled = simulatedUpdates || (app.isPackaged && ['darwin', 'win32'].includes(process.platform)
+  let packagedUpdatesEnabled = false
+  if (app.isPackaged) {
+    try { packagedUpdatesEnabled = JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')).traceUpdatesEnabled === true } catch {}
+  }
+  const updatesEnabled = simulatedUpdates || (packagedUpdatesEnabled && ['darwin', 'win32'].includes(process.platform)
     && existsSync(path.join(process.resourcesPath, 'app-update.yml')))
   const updates = new AppUpdateService({
     currentVersion: app.getVersion(), enabled: updatesEnabled, simulated: simulatedUpdates,

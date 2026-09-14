@@ -2,19 +2,13 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const release = process.env.TRACE_RELEASE === '1'
-const rawUrl = process.env.TRACE_UPDATE_URL?.trim()
-let publish = null
-if (rawUrl) {
-  let url
-  try { url = new URL(rawUrl) } catch { throw new Error('TRACE_UPDATE_URL must be a valid HTTPS URL.') }
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
-    throw new Error('TRACE_UPDATE_URL must use HTTPS without credentials, query, or fragment.')
-  }
-  publish = { provider: 'generic', url: url.href.replace(/\/$/, ''), useMultipleRangeRequest: false }
-}
+const repository = process.env.TRACE_RELEASE_REPOSITORY || 'overdev-l/trace-releases'
+if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error('Invalid GitHub release repository.')
+const [owner, repo] = repository.split('/')
+const publish = { provider: 'github', owner, repo, private: false, releaseType: 'release' }
 if (release) {
-  if (!publish || !process.env.CSC_LINK || !process.env.CSC_KEY_PASSWORD) {
-    throw new Error('Release packaging requires TRACE_UPDATE_URL and signing credentials.')
+  if (!process.env.CSC_LINK || !process.env.CSC_KEY_PASSWORD) {
+    throw new Error('Release packaging requires signing credentials.')
   }
   if (process.platform === 'darwin' && (!process.env.APPLE_ID || !process.env.APPLE_APP_SPECIFIC_PASSWORD || !process.env.APPLE_TEAM_ID)) {
     throw new Error('Release packaging requires Apple notarization credentials.')
@@ -31,7 +25,8 @@ module.exports = {
   appId: 'dev.trace.desktop',
   productName: 'Trace',
   directories: { output: '../../dist/desktop', buildResources: 'resources' },
-  files: ['dist/**', 'dist-electron/**', 'package.json'],
+  files: ['dist/**', 'dist-electron/**', 'package.json', '!**/*.map'],
+  extraMetadata: { traceUpdatesEnabled: release },
   extraResources: [
     { from: 'resources', to: '.', filter: ['*.png'] },
     { from: 'release-resources', to: '.', filter: ['recorders/**', 'native-bin/**'] },
