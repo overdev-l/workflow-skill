@@ -72,3 +72,7 @@ TRACE_SIMULATE_UPDATE=1 pnpm dev:desktop
 - 检查/下载去重，下载完成状态不被后台事件覆盖；退出保护由 Trace 统一管理，因此 transport 使用 `autoInstallOnAppQuit=false`。
 
 真实签名包的 macOS/Windows N→N+1 增量下载、断网重试、退出安装、版本确认和数据保留，仍须发布环境单独验收。
+
+### CI 失败诊断
+
+公开 Actions 日志只输出阶段状态和诊断码。失败阶段的完整日志先用 AES-256-GCM 加密，随机密钥再用维护者 RSA-OAEP/SHA-256 公钥包装，仅上传 `.log.encrypted`（保留 1 天）。私钥留在维护者本机 `~/.trace-ci/diagnostics.pem`，不进入仓库或 Actions。更换维护者时应替换 CI 仓库的 `scripts/diagnostics-public.pem`，并保管对应私钥。
