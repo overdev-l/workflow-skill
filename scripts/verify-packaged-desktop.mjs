@@ -9,7 +9,8 @@ const resources = platform === 'mac'
   ? 'dist/desktop/mac-arm64/Trace.app/Contents/Resources'
   : 'dist/desktop/win-unpacked/resources'
 const archive = path.join(resources, 'app.asar')
-const files = asar.listPackage(archive)
+// ASAR lists paths using the host platform separator. Normalize before auditing.
+const files = asar.listPackage(archive).map(file => file.replaceAll('\\', '/'))
 const forbidden = files.filter(file => /\.map$|\.log$|\/\.turbo(?:\/|$)|\/node_modules\/@workflow-skill\//.test(file))
 assert.equal(forbidden.length, 0, 'Package contains source maps, private workspace sources, or build logs')
 for (const file of ['dist/index.html', 'dist-electron/main.js', 'dist-electron/preload.cjs']) {
