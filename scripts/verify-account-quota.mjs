@@ -1068,6 +1068,8 @@ await test('Localized labels preserve Claude model scope and Antigravity model n
 
 await test('Antigravity quota UI keeps the visible model set and groups two periods per model', async () => {
   const models = [
+    ['gemini-3.8-flash-high', 'Gemini 3.8 Flash High'],
+    ['gemini-3.7-flash-medium', 'Gemini 3.7 Flash Medium'],
     ['gemini-3.6-flash-medium', 'Gemini 3.6 Flash Medium'],
     ['gemini-3.1-pro-low', 'Gemini 3.1 Pro Low'],
     ['claude-sonnet-4.6-thinking', 'Claude Sonnet 4.6 (Thinking)'],
@@ -1078,15 +1080,11 @@ await test('Antigravity quota UI keeps the visible model set and groups two peri
     { id, label, modelLabel: label, period: 'five-hour', remainingPercent: 90 - index },
     { id: `${id}:weekly`, label, modelLabel: label, period: 'weekly', remainingPercent: 80 - index },
   ])
-  windows.push(
-    { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash High', period: 'five-hour', remainingPercent: 98 },
-    { id: 'gemini-3.7-flash-medium', label: 'Gemini 3.7 Flash Medium', period: 'weekly', remainingPercent: 97 },
-  )
   windows.push({ id: 'internal-model', label: 'Internal Model', period: 'five-hour', remainingPercent: 99 })
 
   const groups = groupAntigravityQuotaWindows(windows)
   assert.deepEqual(groups.map((group) => group.label), models.map(([, label]) => label))
-  assert.equal(groups.length, 5)
+  assert.equal(groups.length, 7)
   assert.ok(groups.every((group) => group.windows.length === 2))
   assert.deepEqual(groups[0].windows.map((window) => window.period), ['weekly', 'five-hour'])
 })
