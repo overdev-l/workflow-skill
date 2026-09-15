@@ -1032,6 +1032,41 @@
   margin-top: 2px;
 }
 
+.account-quota-model-group {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 7px 7px;
+  border: 1px solid color-mix(in oklch, var(--color-border-subtle) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--glass-surface-subtle) 74%, transparent);
+}
+
+.account-quota-model-group-header {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.account-quota-model-group-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink, #ffffff);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-quota-model-windows {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .account-plan-notice {
   flex-shrink: 0;
   margin: 0;

@@ -91,6 +91,8 @@ pnpm build
 
 2026-09-15 额度展示修复：Antigravity 每个可识别模型分别显示 5 小时与周额度；周额度来自 `retrieveUserQuotaSummary` 的 Gemini／Claude-GPT 模型组，查询失败只将周额度标为未知，不影响有效的 5 小时额度。Codex 与 Claude Code 的既有周期展示保持不变。
 
+2026-09-16 Antigravity UI 展示修复：账号管理按当前模型选择器的 7 个可见模型收敛展示——4 个 Gemini 变体、Claude Sonnet/Opus Thinking、GPT-OSS 120B；每个模型作为一个分组，组内显示周额度与 5 小时额度，不再平铺内部模型变体或重复模型名称。
+
 ### OPC-54 主动切换与进程生命周期
 
 参考 ai-accounts-hub `beb39efe` 的按账号认证写入与 AntigravityManager `8e95ed65` 的 `switchFlow.ts`：CLI 不执行关闭／启动，客户端退出后切换并重启。Trace 保留认证事务、逐次写入 CAS 及回滚，不修改设备指纹。客户端退出采用正常退出请求，取消、超时或残留进程会阻止写入，不强杀任务；只重新打开本来就在运行的客户端。重启失败但凭据已提交时仍报告切换成功，同时提示手动打开客户端。主动操作的 CLI 放行仅限本次异步作用域，结束后撤销；后台刷新始终检查客户端与 CLI。

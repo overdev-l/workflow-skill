@@ -27,6 +27,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { groupAntigravityQuotaWindows } from '../apps/desktop/src/utils/quota-grouping.ts'
 import { formatQuotaWindowLabel } from '../apps/desktop/src/utils/quota-label.ts'
 import { randomUUID } from 'node:crypto'
 import {
@@ -1063,6 +1064,29 @@ await test('Localized labels preserve Claude model scope and Antigravity model n
   assert.equal(formatQuotaWindowLabel({id: 'model', label: 'Claude Sonnet'}, 'antigravity', 'zh-CN'), 'Claude Sonnet')
   assert.equal(formatQuotaWindowLabel({id: 'gemini-pro', label: 'Gemini Pro', modelLabel: 'Gemini Pro', period: 'five-hour', durationSeconds: 18000}, 'antigravity', 'zh-CN'), 'Gemini Pro · 5 小时额度')
   assert.equal(formatQuotaWindowLabel({id: 'gemini-pro:weekly', label: 'Gemini Pro', modelLabel: 'Gemini Pro', period: 'weekly', durationSeconds: 604800}, 'antigravity', 'en-US'), 'Gemini Pro · Weekly quota')
+})
+
+await test('Antigravity quota UI keeps the visible model set and groups two periods per model', async () => {
+  const models = [
+    ['gemini-3.8-flash-high', 'Gemini 3.8 Flash High'],
+    ['gemini-3.7-flash-medium', 'Gemini 3.7 Flash Medium'],
+    ['gemini-3.6-flash-medium', 'Gemini 3.6 Flash Medium'],
+    ['gemini-3.1-pro-low', 'Gemini 3.1 Pro Low'],
+    ['claude-sonnet-4.6-thinking', 'Claude Sonnet 4.6 (Thinking)'],
+    ['claude-opus-4.6-thinking', 'Claude Opus 4.6 (Thinking)'],
+    ['gpt-oss-120b-medium', 'GPT-OSS 120B (Medium)'],
+  ]
+  const windows = models.flatMap(([id, label], index) => [
+    { id, label, modelLabel: label, period: 'five-hour', remainingPercent: 90 - index },
+    { id: `${id}:weekly`, label, modelLabel: label, period: 'weekly', remainingPercent: 80 - index },
+  ])
+  windows.push({ id: 'internal-model', label: 'Internal Model', period: 'five-hour', remainingPercent: 99 })
+
+  const groups = groupAntigravityQuotaWindows(windows)
+  assert.deepEqual(groups.map((group) => group.label), models.map(([, label]) => label))
+  assert.equal(groups.length, 7)
+  assert.ok(groups.every((group) => group.windows.length === 2))
+  assert.deepEqual(groups[0].windows.map((window) => window.period), ['weekly', 'five-hour'])
 })
 
 console.log(`\n========================================`)

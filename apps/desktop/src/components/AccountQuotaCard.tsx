@@ -4,6 +4,7 @@
  * Renders an individual AI developer account card within the auto-fit grid.
  * Displays username, email, active badge, real quota windows with remaining %
  * and reset time, honest status badges, last updated time, and one-click actions.
+ * Antigravity windows are filtered to the visible model set and grouped by model.
  *
  * Core Guarantees:
  * - Real quota windows: remaining % and reset time; unknown quota is NOT 0%
@@ -14,7 +15,8 @@
  */
 
 import React from 'react'
-import { formatQuotaWindowLabel } from '../utils/quota-label.ts'
+import { groupAntigravityQuotaWindows } from '../utils/quota-grouping.ts'
+import { formatQuotaPeriodLabel, formatQuotaWindowLabel } from '../utils/quota-label.ts'
 import {
   AlertCircle,
   AlertTriangle,
@@ -246,6 +248,72 @@ export function AccountQuotaCard({
     switchTooltip = 'Recovery needed before switching'
   }
 
+  const antigravityModelGroups = account.tool === 'antigravity' && snapshot?.windows
+    ? groupAntigravityQuotaWindows(snapshot.windows)
+    : []
+  const hasRenderableQuotaWindows = account.tool === 'antigravity'
+    ? antigravityModelGroups.some((group) => group.windows.length > 0)
+    : Boolean(snapshot?.windows && snapshot.windows.length > 0)
+
+  const renderQuotaWindow = (win: AccountQuotaWindow, modelLabel?: string) => {
+    const isGroupedModelWindow = account.tool === 'antigravity' && Boolean(modelLabel)
+    const label = isGroupedModelWindow && win.period
+      ? formatQuotaPeriodLabel(win, account.tool, locale)
+      : formatQuotaWindowLabel(win, account.tool, locale)
+    const accessibleLabel = modelLabel && label !== modelLabel ? `${modelLabel} · ${label}` : label
+    const hasPercent =
+      typeof win.remainingPercent === 'number' &&
+      Number.isFinite(win.remainingPercent) && win.remainingPercent >= 0 && win.remainingPercent <= 100
+    const percent = hasPercent ? win.remainingPercent! : null
+    const percentLabel = percent !== null && percent > 0 && percent < 1
+      ? '<1'
+      : percent?.toLocaleString(locale, { maximumFractionDigits: 1 })
+    const resetTime = formatResetTime(win.resetsAt, locale)
+
+    // Determine fill bar color based on percentage
+    let fillModifier = 'account-quota-fill--high'
+    if (percent !== null) {
+      if (percent < 20) {
+        fillModifier = 'account-quota-fill--low'
+      } else if (percent <= 50) {
+        fillModifier = 'account-quota-fill--mid'
+      }
+    }
+
+    return (
+      <div key={win.id} className="account-quota-window-item">
+        <div className="account-quota-window-header">
+          <span className="account-quota-window-label" title={accessibleLabel}>
+            {label}
+          </span>
+          <span className="account-quota-window-value">
+            {hasPercent ? `${loc.quotaRemaining} ${percentLabel}%` : loc.quotaUnknown}
+          </span>
+        </div>
+
+        {/* Progress Bar (Only render when percent is explicitly known, never false 0%) */}
+        {hasPercent && (
+          <div className="account-quota-bar-track" role="progressbar" aria-label={`${accessibleLabel} ${loc.quotaRemaining}`} aria-valuenow={percent!} aria-valuemin={0} aria-valuemax={100}>
+            <div
+              className={`account-quota-bar-fill ${fillModifier}`}
+              style={{
+                width: `${Math.max(0, Math.min(100, percent!))}%`,
+              }}
+            />
+          </div>
+        )}
+
+        {/* Reset Time (omitted if not provided or invalid) */}
+        {resetTime && (
+          <div className="account-quota-window-reset">
+            <Clock size={9} />
+            <span>{loc.quotaResetsAt(resetTime)}</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div
       className={`account-quota-card ${
@@ -376,67 +444,30 @@ export function AccountQuotaCard({
         )}
 
         {/* Quota Windows List */}
-        {snapshot && snapshot.windows && snapshot.windows.length > 0 ? (
+        {hasRenderableQuotaWindows ? (
           <div
             className="account-quota-windows"
             tabIndex={0}
             role="region"
             aria-label={`${account.name} · ${locale.startsWith('zh') ? '模型配额' : 'Model quotas'}`}
           >
-            {snapshot.windows.map((win: AccountQuotaWindow) => {
-              const label = formatQuotaWindowLabel(win, account.tool, locale)
-              const hasPercent =
-                typeof win.remainingPercent === 'number' &&
-                Number.isFinite(win.remainingPercent) && win.remainingPercent >= 0 && win.remainingPercent <= 100
-              const percent = hasPercent ? win.remainingPercent! : null
-              const percentLabel = percent !== null && percent > 0 && percent < 1
-                ? '<1'
-                : percent?.toLocaleString(locale, { maximumFractionDigits: 1 })
-              const resetTime = formatResetTime(win.resetsAt, locale)
-
-              // Determine fill bar color based on percentage
-              let fillModifier = 'account-quota-fill--high'
-              if (percent !== null) {
-                if (percent < 20) {
-                  fillModifier = 'account-quota-fill--low'
-                } else if (percent <= 50) {
-                  fillModifier = 'account-quota-fill--mid'
-                }
-              }
-
-              return (
-                <div key={win.id} className="account-quota-window-item">
-                  <div className="account-quota-window-header">
-                    <span className="account-quota-window-label" title={label}>
-                      {label}
-                    </span>
-                    <span className="account-quota-window-value">
-                      {hasPercent ? `${loc.quotaRemaining} ${percentLabel}%` : loc.quotaUnknown}
-                    </span>
+            {account.tool === 'antigravity'
+              ? antigravityModelGroups.map((group, index) => {
+                const titleId = `${account.id}-quota-model-${index}`
+                return (
+                  <div key={group.id} className="account-quota-model-group" role="group" aria-labelledby={titleId}>
+                    <div className="account-quota-model-group-header">
+                      <span id={titleId} className="account-quota-model-group-title" title={group.label}>
+                        {group.label}
+                      </span>
+                    </div>
+                    <div className="account-quota-model-windows">
+                      {group.windows.map((win) => renderQuotaWindow(win, group.label))}
+                    </div>
                   </div>
-
-                  {/* Progress Bar (Only render when percent is explicitly known, never false 0%) */}
-                  {hasPercent && (
-                    <div className="account-quota-bar-track" role="progressbar" aria-label={`${label} ${loc.quotaRemaining}`} aria-valuenow={percent!} aria-valuemin={0} aria-valuemax={100}>
-                      <div
-                        className={`account-quota-bar-fill ${fillModifier}`}
-                        style={{
-                          width: `${Math.max(0, Math.min(100, percent!))}%`,
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {/* Reset Time (omitted if not provided or invalid) */}
-                  {resetTime && (
-                    <div className="account-quota-window-reset">
-                      <Clock size={9} />
-                      <span>{loc.quotaResetsAt(resetTime)}</span>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                )
+              })
+              : snapshot?.windows.map((win) => renderQuotaWindow(win))}
           </div>
         ) : isQuotaLoading ? (
           <div className="account-quota-loading-placeholder">

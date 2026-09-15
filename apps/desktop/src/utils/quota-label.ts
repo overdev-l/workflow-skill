@@ -1,14 +1,16 @@
 import type { AccountQuotaWindow, AccountTool } from '@workflow-skill/workflow-model/accounts'
 
-/** Keep model quotas separate from subscription usage periods. */
-export function formatQuotaWindowLabel(window: AccountQuotaWindow, tool: AccountTool, locale: string): string {
+/** Format only the provider period, without repeating the model name. */
+export function formatQuotaPeriodLabel(window: AccountQuotaWindow, tool: AccountTool, locale: string): string {
   const zh = locale.startsWith('zh')
   if (tool === 'antigravity') {
-    if (!window.period) return window.label
-    const periodLabel = window.period === 'weekly'
-      ? (zh ? '周额度' : 'Weekly quota')
-      : (zh ? '5 小时额度' : '5-hour quota')
-    return `${window.modelLabel ?? window.label} · ${periodLabel}`
+    if (window.period === 'weekly') {
+      return zh ? '周额度' : 'Weekly quota'
+    }
+    if (window.period === 'five-hour') {
+      return zh ? '5 小时额度' : '5-hour quota'
+    }
+    return zh ? '额度（周期未知）' : 'Quota (period unknown)'
   }
   const claudePeriods: Record<string, number> = {
     five_hour: 18000, seven_day: 604800, seven_day_opus: 604800, seven_day_sonnet: 604800,
@@ -31,4 +33,13 @@ export function formatQuotaWindowLabel(window: AccountQuotaWindow, tool: Account
     if (window.id === 'seven_day_sonnet') return `${label} · Sonnet`
   }
   return label
+}
+
+/** Keep model quotas separate from subscription usage periods. */
+export function formatQuotaWindowLabel(window: AccountQuotaWindow, tool: AccountTool, locale: string): string {
+  if (tool === 'antigravity') {
+    if (!window.period) return window.label
+    return `${window.modelLabel ?? window.label} · ${formatQuotaPeriodLabel(window, tool, locale)}`
+  }
+  return formatQuotaPeriodLabel(window, tool, locale)
 }
