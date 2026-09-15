@@ -296,7 +296,7 @@
   height: 22px;
   min-height: 22px;
   padding: 0 8px;
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
 }
 
 .account-btn--danger {
@@ -358,7 +358,7 @@
   background: transparent;
   border: none;
   color: var(--color-muted, rgba(255, 255, 255, 0.6));
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   cursor: pointer;
   padding: 2px 4px;
   border-radius: var(--radius-sm, 4px);
@@ -460,8 +460,9 @@
 }
 
 .account-modal-box {
-  width: 100%;
-  max-width: 440px;
+  width: min(520px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
   border-radius: var(--radius-md, 12px);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
@@ -470,6 +471,24 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: hidden;
+}
+
+.account-modal-box--sm {
+  width: min(400px, calc(100vw - 32px));
+}
+
+.account-modal-box--lg {
+  width: min(720px, calc(100vw - 32px));
+}
+
+/* OAuth/import forms keep their submit actions reachable while the body scrolls. */
+.account-modal-body .account-modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding-top: 12px;
+  background: var(--color-surface-raised);
 }
 
 .account-modal-header {
@@ -477,6 +496,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .account-modal-title {
@@ -495,6 +515,7 @@
   border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.08));
   gap: 2px;
   align-self: flex-start;
+  flex-shrink: 0;
 }
 
 .account-modal-tab-btn {
@@ -534,6 +555,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .account-modal-help {
@@ -559,7 +583,8 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: auto;
+  flex-shrink: 0;
 }
 
 /* =========================================================================
@@ -574,7 +599,7 @@
   background: var(--glass-canvas, rgba(15, 15, 18, 0.6));
   backdrop-filter: blur(40px) saturate(190%);
   -webkit-backdrop-filter: blur(40px) saturate(190%);
-  padding: 38px 20px 24px 20px;
+  padding: 38px 16px 24px 16px;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -686,7 +711,7 @@
 .account-capability-label {
   display: inline-flex;
   align-items: center;
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   padding: 1px 6px;
   border-radius: var(--radius-pill, 9999px);
@@ -714,7 +739,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   color: var(--color-muted, rgba(255, 255, 255, 0.55));
   background: transparent;
   border: none;
@@ -735,7 +760,7 @@
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.06));
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   color: var(--color-muted, rgba(255, 255, 255, 0.55));
   word-break: break-all;
 }
@@ -786,6 +811,12 @@
   border-color: var(--color-success) !important;
   background: var(--color-surface) !important;
   box-shadow: none !important;
+}
+
+.account-quota-card--detail {
+  height: auto;
+  min-height: 0;
+  justify-content: flex-start;
 }
 
 /* Card Header */
@@ -975,7 +1006,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.5625rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   padding: 1px 5px;
   border-radius: var(--radius-pill, 9999px);
@@ -986,7 +1017,7 @@
 
 .account-quota-updated-time {
   font-family: var(--font-mono);
-  font-size: 0.5625rem;
+  font-size: 0.6875rem;
   color: var(--color-muted, rgba(255, 255, 255, 0.45));
 }
 
@@ -1004,7 +1035,7 @@
 .account-plan-notice {
   flex-shrink: 0;
   margin: 0;
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   line-height: 1.4;
   color: var(--color-muted);
 }
@@ -1014,7 +1045,7 @@
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   line-height: 1.4;
   color: var(--color-muted);
 }
@@ -1090,7 +1121,7 @@
   align-items: center;
   gap: 3px;
   font-family: var(--font-mono);
-  font-size: 0.5625rem;
+  font-size: 0.6875rem;
   color: var(--color-muted, rgba(255, 255, 255, 0.45));
 }
 
@@ -1101,7 +1132,7 @@
   justify-content: center;
   gap: 6px;
   padding: 10px 0;
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   color: var(--color-muted, rgba(255, 255, 255, 0.45));
 }
 
@@ -1329,4 +1360,52 @@
 
 [data-theme='light'] .account-oauth-status-title {
   color: var(--color-ink);
+}
+
+/* =========================================================================
+   Responsive Container Adaptations (D < 600px)
+   ========================================================================= */
+@container (max-width: 600px) {
+  .account-tool-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .account-tool-identity-group {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .account-tool-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .account-active-identity-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .account-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .account-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-recovery-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .account-recovery-banner button {
+    align-self: flex-start;
+  }
 }

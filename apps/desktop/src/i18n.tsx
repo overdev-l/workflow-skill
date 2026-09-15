@@ -499,7 +499,7 @@ export const translations = {
       aboutTitle: 'Trace Desktop Workspace',
       aboutBuild: 'v1.0.0 (Build 2026.08)',
       aboutManifesto:
-        'Trace 致力于为专业开发者与创作者打造下一代静默、无感、纯本地的跨应用工作流提炼与技能沉淀工具。遵循 Liquid Glass 极简设计美学与 Benji Taylor《Honkish》物理交互哲学。',
+        'Trace 致力于为开发者与团队打造静默、高效、纯本地的跨应用工作流提炼与技能沉淀工具。',
     },
     command: {
       searchPlaceholder: '搜索操作或执行命令… (↑↓ 移动, Enter 执行)',
@@ -1027,7 +1027,7 @@ export const translations = {
       aboutTitle: 'Trace Desktop Workspace',
       aboutBuild: 'v1.0.0 (Build 2026.08)',
       aboutManifesto:
-        'Trace is built for developers and creators to distill silent, seamless, 100% local cross-app workflows into reusable skills. Crafted with Liquid Glass aesthetics and tactile spring physics.',
+        'Trace is built for developers and teams to distill silent, efficient, 100% local cross-app workflows into reusable skills.',
     },
     command: {
       searchPlaceholder: 'Search actions or run commands… (↑↓ Move, Enter Execute)',

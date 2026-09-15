@@ -1,0 +1,86 @@
+/* Canvas owns its viewport; controls remain in document order above it. */
+.flow-graph-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 320px;
+}
+
+.flow-canvas-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 0;
+  flex-shrink: 0;
+}
+
+.flow-canvas-hint {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.flow-canvas-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.flow-canvas-scale {
+  min-width: 40px;
+  text-align: center;
+  font-size: 11px;
+}
+
+.flow-graph-container .flow-graph__scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.flow-graph-container .flow-graph__scroll.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.flow-graph__stage-scaler {
+  overflow: hidden;
+}
+
+/* The detail column, rather than the window, determines editor capacity. */
+@container (max-width: 600px) {
+  .workflow-editor-stage .workflow-steps-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    overflow: visible;
+    flex: none;
+  }
+
+  .workflow-editor-stage .workflow-step-list-pane {
+    height: 220px;
+  }
+
+  .workflow-editor-stage .workflow-step-editor {
+    min-width: 0;
+    overflow: visible;
+  }
+
+  .workflow-editor-stage .workflow-editor-field-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workflow-step-editor__header,
+  .workflow-step-editor__header-actions,
+  .workflow-step-editor__actions {
+    flex-wrap: wrap;
+  }
+}

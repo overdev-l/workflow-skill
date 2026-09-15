@@ -1,7 +1,9 @@
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import './WorkflowGraph.css'
 import {
   Check,
   Clock3,
+  Crosshair,
   FileSpreadsheet,
   FileText,
   Files,
@@ -10,8 +12,11 @@ import {
   Globe2,
   Layers,
   Mail,
+  Maximize2,
   Terminal,
   Zap,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import type { Workflow, WorkflowNode } from '@workflow-skill/workflow-model'
 import { useI18n } from '../i18n'
@@ -81,6 +86,11 @@ export function WorkflowGraph({
   const isZh = resolvedLocale === 'zh-CN'
   const graphLabelId = useId()
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null)
+  const [zoom, setZoom] = useState(1)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const pendingCenter = useRef<{ x: number; y: number } | null>(null)
+  const dragOrigin = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
+  const [panning, setPanning] = useState(false)
 
   const activeSelectedId = controlledSelectedId !== undefined ? controlledSelectedId : internalSelectedId
 
@@ -111,18 +121,14 @@ export function WorkflowGraph({
       }
     })
 
-    if (queue.length === 0 && nodes.length > 0) {
-      colAssign[nodes[0].id] = 0
-      queue.push(nodes[0].id)
-    }
-
     while (queue.length > 0) {
       const curr = queue.shift()!
       const currCol = colAssign[curr] ?? 0
       for (const next of outgoing[curr] || []) {
-        const nextCol = Math.max(colAssign[next] ?? 0, currCol + 1)
-        colAssign[next] = nextCol
-        queue.push(next)
+        if (inDegree[next] === undefined) continue
+        colAssign[next] = Math.max(colAssign[next] ?? 0, currCol + 1)
+        inDegree[next]--
+        if (inDegree[next] === 0) queue.push(next)
       }
     }
 
@@ -142,14 +148,23 @@ export function WorkflowGraph({
     const colSpacing = 76
     const rowSpacing = 20
     const startX = 28
-    const centerY = 120
-
-    const layoutNodes: LayoutNode[] = []
-    const nodePosMap: Record<string, { x: number; y: number; width: number; height: number }> = {}
 
     const colKeys = Object.keys(columns)
       .map(Number)
       .sort((a, b) => a - b)
+
+    let maxColHeight = 0
+    colKeys.forEach((colIdx) => {
+      const colNodes = columns[colIdx]
+      const totalHeight = colNodes.length * nodeHeight + (colNodes.length - 1) * rowSpacing
+      if (totalHeight > maxColHeight) maxColHeight = totalHeight
+    })
+
+    const stageHeight = Math.max(340, maxColHeight + 80)
+    const centerY = stageHeight / 2
+
+    const layoutNodes: LayoutNode[] = []
+    const nodePosMap: Record<string, { x: number; y: number; width: number; height: number }> = {}
 
     let counter = 1
     colKeys.forEach((colIdx) => {
@@ -177,7 +192,6 @@ export function WorkflowGraph({
 
     const maxCol = Math.max(...colKeys, 0)
     const stageWidth = Math.max(760, startX * 2 + (maxCol + 1) * (nodeWidth + colSpacing) - colSpacing)
-    const stageHeight = 240
 
     const layoutEdges: LayoutEdge[] = []
     edges.forEach((edge) => {
@@ -208,6 +222,85 @@ export function WorkflowGraph({
     return { layoutNodes, layoutEdges, stageWidth, stageHeight }
   }, [workflow])
 
+  const centerView = (x: number, y: number, scale: number) => {
+    const viewport = scrollRef.current
+    if (!viewport) return
+    viewport.scrollTo({
+      left: Math.max(0, x * scale - viewport.clientWidth / 2),
+      top: Math.max(0, y * scale - viewport.clientHeight / 2),
+      behavior: 'instant',
+    })
+  }
+
+  useLayoutEffect(() => {
+    const point = pendingCenter.current
+    if (point) {
+      centerView(point.x, point.y, zoom)
+      pendingCenter.current = null
+    }
+  }, [zoom])
+
+  useEffect(() => {
+    setZoom(1)
+    pendingCenter.current = null
+    scrollRef.current?.scrollTo({ left: 0, top: 0, behavior: 'instant' })
+  }, [workflow.id])
+
+  const changeZoom = (next: number) => {
+    const viewport = scrollRef.current
+    if (!viewport) return
+    pendingCenter.current = {
+      x: (viewport.scrollLeft + viewport.clientWidth / 2) / zoom,
+      y: (viewport.scrollTop + viewport.clientHeight / 2) / zoom,
+    }
+    setZoom(Math.min(2, Math.max(0.005, next)))
+  }
+
+  const fitView = () => {
+    const viewport = scrollRef.current
+    if (!viewport) return
+    const next = Math.min(1, (viewport.clientWidth - 16) / layout.stageWidth,
+      (viewport.clientHeight - 16) / layout.stageHeight)
+    pendingCenter.current = null
+    setZoom(Math.max(0.005, next))
+    viewport.scrollTo({ left: 0, top: 0, behavior: 'instant' })
+  }
+
+  const locateSelected = () => {
+    const target = layout.layoutNodes.find((n) => n.node.id === activeSelectedId)
+    if (!target) return
+    const point = { x: target.x + target.width / 2, y: target.y + target.height / 2 }
+    if (zoom < 0.5) {
+      pendingCenter.current = point
+      setZoom(1)
+    } else centerView(point.x, point.y, zoom)
+  }
+
+  const handleGraphKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    const nodes = layout.layoutNodes
+    if (!nodes.length) return
+    const current = nodes.findIndex((n) => n.node.id === activeSelectedId)
+    let next: number
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = Math.min(nodes.length - 1, current + 1)
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = Math.max(0, current - 1)
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = nodes.length - 1
+    else return
+    event.preventDefault()
+    const target = nodes[next]
+    setInternalSelectedId(target.node.id)
+    onNodeSelect?.(target.node)
+    const button = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-node-id]'))
+      .find((el) => el.dataset.nodeId === target.node.id)
+    button?.focus({ preventScroll: true })
+    const point = { x: target.x + target.width / 2, y: target.y + target.height / 2 }
+    if (zoom < 0.5) {
+      pendingCenter.current = point
+      setZoom(1)
+    } else centerView(point.x, point.y, zoom)
+  }
+
   if (compact) {
     return (
       <div className="flow-mini-spark" aria-label={`${workflow.name} ${isZh ? '步骤简图' : 'step preview'}`}>
@@ -230,12 +323,74 @@ export function WorkflowGraph({
       <h3 id={graphLabelId} className="sr-only">
         {workflow.name} {isZh ? '完整工作流拓扑' : 'complete workflow graph'}
       </h3>
-
-      <div className="flow-graph__scroll">
+      <div className="flow-canvas-toolbar" aria-label={isZh ? '画布视图' : 'Canvas view'}>
+        <span className="flow-canvas-hint">{isZh ? '拖动画布 · 方向键选择步骤' : 'Drag to pan · Arrow keys select steps'}</span>
+        <div className="flow-canvas-actions">
+          <button type="button" className="btn btn--sm" onClick={() => changeZoom(zoom / 1.25)}
+            aria-label={isZh ? '缩小画布' : 'Zoom out'} disabled={zoom <= 0.005}>
+            <ZoomOut size={12} />
+          </button>
+          <span className="font-mono flow-canvas-scale">{Math.round(zoom * 1000) / 10}%</span>
+          <button type="button" className="btn btn--sm" onClick={() => changeZoom(zoom * 1.25)}
+            aria-label={isZh ? '放大画布' : 'Zoom in'} disabled={zoom >= 2}>
+            <ZoomIn size={12} />
+          </button>
+          <button type="button" className="btn btn--sm" onClick={fitView}
+            aria-label={isZh ? '适应画布' : 'Fit view'} title={isZh ? '适应画布' : 'Fit view'}>
+            <Maximize2 size={12} />
+          </button>
+          <button type="button" className="btn btn--sm" onClick={locateSelected} disabled={!activeSelectedId}
+            aria-label={isZh ? '定位选中步骤' : 'Locate selected step'} title={isZh ? '定位选中步骤' : 'Locate selected step'}>
+            <Crosshair size={12} />
+          </button>
+        </div>
+      </div>
+      <div className={`flow-graph__scroll${panning ? ' is-panning' : ''}`} ref={scrollRef}
+        tabIndex={layout.layoutNodes.length ? -1 : 0} onKeyDown={handleGraphKeyDown}
+        aria-label={isZh ? '流程画布，使用方向键选择步骤' : 'Workflow canvas, use arrow keys to select steps'}
+        onPointerDown={(event) => {
+          if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return
+          const viewport = event.currentTarget
+          dragOrigin.current = { x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop }
+          viewport.setPointerCapture(event.pointerId)
+          setPanning(true)
+        }}
+        onPointerMove={(event) => {
+          const origin = dragOrigin.current
+          if (!origin) return
+          event.currentTarget.scrollLeft = origin.left - (event.clientX - origin.x)
+          event.currentTarget.scrollTop = origin.top - (event.clientY - origin.y)
+        }}
+        onPointerUp={(event) => {
+          dragOrigin.current = null
+          setPanning(false)
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+        }}
+        onLostPointerCapture={() => { dragOrigin.current = null; setPanning(false) }}
+      >
         <div
-          className="flow-graph__stage"
-          style={{ width: `${layout.stageWidth}px`, height: `${layout.stageHeight}px` }}
+          className="flow-graph__stage-scaler"
+          style={{
+            width: `${layout.stageWidth * zoom}px`,
+            height: `${layout.stageHeight * zoom}px`,
+            minWidth: `${layout.stageWidth * zoom}px`,
+            minHeight: `${layout.stageHeight * zoom}px`,
+            position: 'relative',
+            margin: '0 auto',
+          }}
         >
+          <div
+            className="flow-graph__stage"
+            style={{
+              width: `${layout.stageWidth}px`,
+              height: `${layout.stageHeight}px`,
+              transform: `scale(${zoom})`,
+              transformOrigin: 'top left',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+            }}
+          >
           {/* Animated Living Data Splines with Real Traveling Particles */}
           <svg
             className="flow-graph__svg"
@@ -294,6 +449,9 @@ export function WorkflowGraph({
                   width: `${width}px`,
                   minHeight: `${height}px`,
                 }}
+                data-node-id={node.id}
+                tabIndex={isSelected || (!activeSelectedId && stepNum === 1) ? 0 : -1}
+                aria-label={`${stepNum}. ${node.app ? node.app + ': ' : ''}${node.label}`}
                 aria-pressed={isSelected}
                 onClick={() => {
                   const nextId = isSelected ? null : node.id
@@ -308,7 +466,7 @@ export function WorkflowGraph({
                 </div>
                 <div className="flow-node__content">
                   <div className="flow-node__topline">
-                    <span className="flow-node__stepnum font-mono">0{stepNum}</span>
+                    <span className="flow-node__stepnum font-mono">{String(stepNum).padStart(2, '0')}</span>
                     {node.app ? <span className="flow-node__app font-mono">{node.app}</span> : null}
                   </div>
                   <span className="flow-node__title" title={node.label}>
@@ -318,6 +476,7 @@ export function WorkflowGraph({
               </button>
             )
           })}
+          </div>
         </div>
       </div>
     </section>

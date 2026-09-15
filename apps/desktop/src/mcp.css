@@ -525,48 +525,7 @@
   background: var(--color-danger-bg);
 }
 
-/* --- Distribution Matrix --- */
-.mcp-dist-matrix {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 10px;
-}
-
-.mcp-dist-card {
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--surface-float);
-  border: 1px solid var(--border-subtle);
-  gap: 10px;
-  transition: border-color var(--motion-fast) ease;
-}
-
-.mcp-dist-card.is-current {
-  border-color: var(--color-accent);
-  background: var(--color-accent-subtle);
-}
-
-.mcp-dist-card__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.mcp-dist-card__tool {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.mcp-dist-card__name {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--color-ink);
-}
-
+/* --- Target Association Status Badge --- */
 .mcp-dist-status-badge {
   display: inline-flex;
   flex-shrink: 0;
@@ -594,7 +553,47 @@
   background: var(--surface-input);
 }
 
-.mcp-dist-card__path {
+/* --- Flat Distribution List & Rows (DESIGN.md §8.7) --- */
+.mcp-dist-flat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.mcp-dist-flat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  min-height: 36px;
+  transition: background var(--motion-fast) ease;
+}
+
+.mcp-dist-flat-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.mcp-dist-flat-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mcp-dist-flat-name {
+  font-size: 0.8125rem;
+  font-weight: 550;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.mcp-dist-flat-path {
   font-size: 0.6875rem;
   font-family: var(--font-mono);
   color: var(--color-muted);
@@ -603,15 +602,62 @@
   white-space: nowrap;
 }
 
-.mcp-dist-card__footer {
+.mcp-dist-flat-right {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-  padding-top: 6px;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-/* Modal and Preflight Dialogs */
+@container (max-width: 600px) {
+  .mcp-dist-flat-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .mcp-dist-flat-left {
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .mcp-dist-flat-name {
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mcp-dist-flat-path {
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mcp-dist-flat-right {
+    width: 100%;
+    justify-content: space-between;
+    margin-left: 0;
+  }
+
+  .mcp-kv-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .mcp-kv-input {
+    width: 100%;
+  }
+
+  .mcp-kv-delete-btn {
+    align-self: flex-end;
+  }
+}
+
+/* Modal and Preflight Dialogs (Standard Modal Spec: Item 4) */
 .mcp-dialog-overlay {
   position: fixed;
   inset: 0;
@@ -624,8 +670,9 @@
 }
 
 .mcp-dialog-box {
-  width: 500px;
-  max-width: 90vw;
+  width: min(520px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
   background: var(--surface-card);
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
@@ -635,12 +682,21 @@
   overflow: hidden;
 }
 
+.mcp-dialog-box--sm {
+  width: min(400px, calc(100vw - 32px));
+}
+
+.mcp-dialog-box--lg {
+  width: min(720px, calc(100vw - 32px));
+}
+
 .mcp-dialog-header {
   padding: 14px 18px;
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .mcp-dialog-title {
@@ -655,7 +711,8 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: 70vh;
+  min-height: 0;
+  flex: 1;
   overflow-y: auto;
 }
 
@@ -667,4 +724,5 @@
   justify-content: flex-end;
   gap: 8px;
   background: var(--surface-float);
+  flex-shrink: 0;
 }

@@ -651,6 +651,7 @@ function SafeDeleteSkillModal({
           </div>
         </div>
 
+        <div className="dialog-body" style={{ minHeight: 0, overflowY: 'auto' }}>
         <fieldset className="safe-delete-mode-fieldset" disabled={deleting}>
           <legend>{t.skills.safeDeleteModeLabel}</legend>
           <div className="safe-delete-mode-options">
@@ -709,6 +710,7 @@ function SafeDeleteSkillModal({
           </div>
         ) : null}
 
+        </div>
         <div className="safe-delete-actions">
           <button
             ref={cancelButtonRef}
@@ -1186,6 +1188,28 @@ function ManageSkillLinksModal({
   )
 }
 
+function ExpandableSkillDesc({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const isLong = text.length > 100
+  return (
+    <div style={{ marginTop: '6px', fontSize: '0.8125rem', color: 'var(--color-muted)', lineHeight: 1.5 }}>
+      <p style={{ margin: 0, display: expanded || !isLong ? 'block' : '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+        {text}
+      </p>
+      {isLong && (
+        <button
+          type="button"
+          className="btn btn--capsule-ghost btn--sm"
+          style={{ padding: 0, height: '18px', fontSize: '0.6875rem', marginTop: '2px', color: 'var(--color-accent)', cursor: 'pointer' }}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? '收起描述' : '展开描述'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 /* =========================================================================
    3-Column macOS Pro View: Skills Architecture (Column 2 + Column 3)
    ========================================================================= */
@@ -1537,68 +1561,74 @@ function SkillsThreeColumn({
           activeLocalSkill ? (
             <div className="detail-stage-wrap">
               {/* Clean macOS Pro Document Header */}
-              <div className="detail-doc-header">
-                <div className="detail-doc-top-row">
-                  <div className="detail-doc-title-box">
-                    <Folder size={16} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
-                    <h1 className="detail-doc-title">{activeLocalSkill.name}</h1>
+              <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
+                <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                    <Folder size={20} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
+                    <h1 className="detail-hero-name" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>
+                      {activeLocalSkill.name}
+                    </h1>
                   </div>
 
-                  <div className="detail-doc-actions">
-                    {/* Interactive Avatar Stack as the Environment Link/Switcher Button */}
-                    {activeLinkedTools.length > 0 ? (
-                      <button
-                        type="button"
-                        className="linked-tools-avatar-btn"
-                        onClick={() => {
-                          if (window.workflowSkill?.openSkillLinkWindow) {
-                            void window.workflowSkill.openSkillLinkWindow(activeLocalSkill.id)
-                          } else {
-                            setLinkModalSkill(activeLocalSkill)
-                          }
-                        }}
-                        title={`已链接到 ${activeLinkedTools.length} 个 AI 环境: ${activeLinkedTools.map((t) => getAIToolDisplayName(t)).join('、')} (点击在新窗口中管理分发树)`}
-                      >
-                        <div className="linked-tools-avatar-stack">
-                          {activeLinkedTools.slice(0, 4).map((tool, idx) => (
-                            <div
-                              key={tool.id}
-                              className="linked-tool-avatar"
-                              style={{ zIndex: 10 + idx }}
-                            >
-                              <AIToolLogo toolId={tool.id} size={18} color />
-                            </div>
-                          ))}
+                  <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {/* Explicit Distribution / Link Management Button as sole action */}
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--secondary btn--sm"
+                      onClick={() => {
+                        if (window.workflowSkill?.openSkillLinkWindow) {
+                          void window.workflowSkill.openSkillLinkWindow(activeLocalSkill.id)
+                        } else {
+                          setLinkModalSkill(activeLocalSkill)
+                        }
+                      }}
+                      title={`已分发至 ${activeLinkedTools.length} 个 AI 环境`}
+                    >
+                      <Link2 size={12} />
+                      <span>管理分发 {activeLinkedTools.length > 0 ? `(${activeLinkedTools.length})` : ''}</span>
+                    </button>
 
-                          {activeLinkedTools.length > 4 ? (
-                            <div className="linked-tool-avatar-more" style={{ zIndex: 20 }}>
-                              +{activeLinkedTools.length - 4}
-                            </div>
-                          ) : null}
-                        </div>
-                      </button>
-                    ) : (
+                    {/* Indicative Avatar Stack (Purely visual display, non-clickable) */}
+                    {activeLinkedTools.length > 0 ? (
+                      <div
+                        className="linked-tools-avatar-stack"
+                        style={{ pointerEvents: 'none', userSelect: 'none' }}
+                        title={activeLinkedTools.map((t) => getAIToolDisplayName(t)).join('、')}
+                      >
+                        {activeLinkedTools.slice(0, 4).map((tool, idx) => (
+                          <div
+                            key={tool.id}
+                            className="linked-tool-avatar"
+                            style={{ zIndex: 10 + idx }}
+                          >
+                            <AIToolLogo toolId={tool.id} size={16} color />
+                          </div>
+                        ))}
+                        {activeLinkedTools.length > 4 ? (
+                          <div className="linked-tool-avatar-more" style={{ zIndex: 20 }}>
+                            +{activeLinkedTools.length - 4}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {/* Export Code if has workflow */}
+                    {activeLocalSkill.workflow ? (
                       <button
                         type="button"
-                        className="btn btn--capsule-ghost btn--capsule btn--sm"
-                        onClick={() => {
-                          if (window.workflowSkill?.openSkillLinkWindow) {
-                            void window.workflowSkill.openSkillLinkWindow(activeLocalSkill.id)
-                          } else {
-                            setLinkModalSkill(activeLocalSkill)
-                          }
-                        }}
-                        title="在新窗口中设置要链接的 AI 环境"
+                        className="btn btn--capsule btn--secondary btn--sm"
+                        onClick={() => onExportCode(activeLocalSkill.workflow!, activeLocalSkill.name)}
+                        title="导出代码"
                       >
-                        <Link2 size={12} />
-                        <span>链接环境</span>
+                        <Code size={12} />
+                        <span>导出</span>
                       </button>
-                    )}
+                    ) : null}
 
                     {/* Delete Button */}
                     <button
                       type="button"
-                      className="btn btn--danger btn--capsule btn--sm"
+                      className="btn btn--capsule btn--danger btn--sm"
                       onClick={() => setDeleteModalSkill(activeLocalSkill)}
                     >
                       <Trash2 size={12} />
@@ -1607,12 +1637,11 @@ function SkillsThreeColumn({
                   </div>
                 </div>
 
+                {/* Row 3: Description with expandable toggle if long */}
                 {activeLocalSkill.description ? (
-                  <p className="detail-doc-desc">
-                    {activeLocalSkill.description}
-                  </p>
+                  <ExpandableSkillDesc text={activeLocalSkill.description} />
                 ) : null}
-              </div>
+              </header>
 
               {/* Pure Document View (Read-Only) */}
               <div className="skill-doc-wrap">
@@ -1638,14 +1667,14 @@ function SkillsThreeColumn({
           /* Remote Skill Detail View (No Card) */
           activeRepositorySkill && repositoryResultIsCurrent && repositorySearchResult ? (
             <div className="detail-stage-wrap repository-result-detail">
-              <div className="detail-doc-header">
-                <div className="detail-doc-top-row">
-                  <div className="detail-doc-title-box">
-                    <GitBranch size={16} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
-                    <h1 className="detail-doc-title">{activeRepositorySkill.name}</h1>
+              <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
+                <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                    <GitBranch size={20} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
+                    <h1 className="detail-hero-name" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>{activeRepositorySkill.name}</h1>
                     <span className="master-item-mounted-chip font-mono">GitHub</span>
                   </div>
-                  <div className="detail-doc-actions">
+                  <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <button
                       type="button"
                       className="btn btn--secondary btn--capsule btn--sm"
@@ -1661,8 +1690,13 @@ function SkillsThreeColumn({
                     </button>
                   </div>
                 </div>
-                <p className="detail-doc-desc">{activeRepositorySkill.description || '仓库未提供 Skill 描述。'}</p>
-              </div>
+
+                <div className="detail-hero-header__row2" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  <span className="font-mono">{repositorySearchResult.repository}</span>
+                </div>
+
+                <ExpandableSkillDesc text={activeRepositorySkill.description || '仓库未提供 Skill 描述。'} />
+              </header>
 
               <div className="repository-source-summary">
                 <div className="repository-source-row">
@@ -1680,18 +1714,17 @@ function SkillsThreeColumn({
             </div>
           ) : activeRemoteSkill ? (
             <div className="detail-stage-wrap">
-              {/* Clean macOS Pro Document Header */}
-              <div className="detail-doc-header">
-                <div className="detail-doc-top-row">
-                  <div className="detail-doc-title-box">
-                    <Globe size={16} style={{ color: '#38bdf8', flexShrink: 0 }} />
-                    <h1 className="detail-doc-title">{activeRemoteSkill.name}</h1>
+              <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
+                <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                    <Globe size={20} style={{ color: '#38bdf8', flexShrink: 0 }} />
+                    <h1 className="detail-hero-name" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>{activeRemoteSkill.name}</h1>
                     <span className="master-item-mounted-chip font-mono" style={{ marginLeft: '4px' }}>
                       {activeRemoteSkill.verified ? '官方认证' : '社区开源'}
                     </span>
                   </div>
 
-                  <div className="detail-doc-actions">
+                  <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     {skills.some((s) => s.id === activeRemoteSkill.id) ? (
                       <button type="button" className="btn btn--saved btn--capsule btn--sm" disabled>
                         <Check size={12} />
@@ -1710,16 +1743,18 @@ function SkillsThreeColumn({
                   </div>
                 </div>
 
-                <div className="detail-doc-desc">
-                  <span>{activeRemoteSkill.description}</span>
-                  <span style={{ margin: '0 6px', opacity: 0.4 }}>|</span>
+                <div className="detail-hero-header__row2" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   <span>作者: <strong style={{ color: 'var(--color-ink)' }}>{activeRemoteSkill.author}</strong></span>
-                  <span style={{ margin: '0 4px' }}>·</span>
+                  <span style={{ opacity: 0.4 }}>•</span>
                   <span style={{ color: '#f59e0b' }}>★ {activeRemoteSkill.stars}</span>
-                  <span style={{ margin: '0 4px' }}>·</span>
+                  <span style={{ opacity: 0.4 }}>•</span>
                   <span>{activeRemoteSkill.downloads} 次安装</span>
                 </div>
-              </div>
+
+                {activeRemoteSkill.description ? (
+                  <ExpandableSkillDesc text={activeRemoteSkill.description} />
+                ) : null}
+              </header>
 
               {/* Pure Document Preview (Read-Only) */}
               <div className="skill-doc-wrap">
@@ -2136,54 +2171,88 @@ function AIEnvironmentsThreeColumn({
         {envTab === 'global' && activeTool ? (
           /* Global AI Tool Stage */
           <div className="detail-stage-wrap">
-            <div className="detail-hero-header">
-              <div className="detail-hero-left">
-                <div className="detail-hero-logo">
-                  <AIToolLogo toolId={activeTool.id} size={22} color />
+            <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
+              <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <div className="detail-hero-logo" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <AIToolLogo toolId={activeTool.id} size={20} color />
+                  </div>
+                  <h1 className="detail-hero-name" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>
+                    {getAIToolDisplayName(activeTool)}
+                  </h1>
+                  <span className={`badge ${activeTool.installed ? 'badge--success' : 'badge--neutral'}`} style={{ fontSize: '0.6875rem' }}>
+                    {activeTool.installed ? '已就绪' : '未就绪'}
+                  </span>
+                  <span className="badge badge--neutral font-mono" style={{ fontSize: '0.6875rem' }}>
+                    全局环境
+                  </span>
                 </div>
 
-                <div className="detail-hero-titles">
-                  <div className="detail-hero-title-row">
-                    <h1 className="detail-hero-name">{getAIToolDisplayName(activeTool)}</h1>
-                    <span className="pinned-ver-pill font-mono">全局环境</span>
-                  </div>
+                <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary btn--sm"
+                    onClick={onDetectTools}
+                    title="刷新探测环境"
+                  >
+                    <RefreshCw size={12} />
+                    <span>刷新探测</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary btn--sm"
+                    onClick={() => handleOpenToolDir(activeTool.detectedPath || activeTool.defaultDir)}
+                    title="在访达中打开环境目录"
+                  >
+                    <ExternalLink size={12} />
+                    <span>在访达中打开</span>
+                  </button>
+
+                  {activeMountedSkills.length === skills.length && skills.length > 0 ? (
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--secondary btn--sm"
+                      onClick={() => void onBulkUnlink(activeTool.id)}
+                    >
+                      <Unlink size={12} />
+                      <span>清空软链</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--primary btn--sm"
+                      onClick={() => void onBulkLink(activeTool.id)}
+                    >
+                      <Link2 size={12} />
+                      <span>挂载全部 Skill</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="detail-hero-right">
-                {activeMountedSkills.length === skills.length && skills.length > 0 ? (
-                  <button
-                    type="button"
-                    className="btn btn--secondary btn--capsule btn--sm"
-                    onClick={() => void onBulkUnlink(activeTool.id)}
-                  >
-                    <Unlink size={12} />
-                    <span>清空此环境软链</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--capsule btn--sm"
-                    onClick={() => void onBulkLink(activeTool.id)}
-                  >
-                    <Link2 size={12} />
-                    <span>一键挂载全部 Skill</span>
-                  </button>
-                )}
-
+              <div className="detail-hero-header__row2" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {activeTool.detectedPath || activeTool.defaultDir}
+                </span>
                 <button
                   type="button"
                   className="btn btn--capsule-ghost btn--capsule btn--sm"
-                  onClick={() => handleOpenToolDir(activeTool.detectedPath || activeTool.defaultDir)}
+                  style={{ height: '20px', padding: '0 6px', fontSize: '0.6875rem' }}
+                  onClick={() => {
+                    void navigator.clipboard.writeText(activeTool.detectedPath || activeTool.defaultDir)
+                    notify?.('已复制环境目录路径')
+                  }}
+                  title="复制路径"
                 >
-                  <ExternalLink size={12} />
-                  <span>打开目录</span>
+                  <Copy size={11} />
+                  <span>复制</span>
                 </button>
               </div>
-            </div>
+            </header>
 
             {/* Global Tool Skills Table */}
-            <div className="detail-section-card" style={{ flex: 1, padding: '12px 14px' }}>
+            <div className="environment-skill-section">
               <div className="detail-section-card-title" style={{ marginBottom: '6px' }}>
                 <span>
                   Skill 资产挂载列表 ({activeMountedSkills.length} / {skills.length})
@@ -2261,57 +2330,80 @@ function AIEnvironmentsThreeColumn({
         ) : envTab === 'project' && activeProject ? (
           /* Project Workspace Stage */
           <div className="detail-stage-wrap">
-            <div className="detail-hero-header">
-              <div className="detail-hero-left">
-                <div className="detail-hero-titles">
-                  <div className="detail-hero-title-row">
-                    <h1 className="detail-hero-name">{activeProject.name}</h1>
-                    <span className="pinned-ver-pill font-mono">项目工作区</span>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: '4px' }}>
-                      {activeProject.sources.map((src) => (
-                        <span key={src} className="env-source-logo-chip" title={`在 ${src} 中打开过`}>
-                          <AIToolLogo toolId={getToolIdFromSource(src)} size={12} />
-                        </span>
-                      ))}
-                    </div>
+            <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
+              <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <Folder size={20} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
+                  <h1 className="detail-hero-name" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>
+                    {activeProject.name}
+                  </h1>
+                  <span className="badge badge--neutral font-mono" style={{ fontSize: '0.6875rem' }}>
+                    项目工作区
+                  </span>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: '2px' }}>
+                    {activeProject.sources.map((src) => (
+                      <span key={src} className="env-source-logo-chip" title={`在 ${src} 中打开过`}>
+                        <AIToolLogo toolId={getToolIdFromSource(src)} size={12} />
+                      </span>
+                    ))}
                   </div>
+                </div>
+
+                <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary btn--sm"
+                    onClick={() => handleOpenToolDir(activeProject.path)}
+                    title="在访达中打开项目根目录"
+                  >
+                    <ExternalLink size={12} />
+                    <span>在访达中打开</span>
+                  </button>
+
+                  {activeProjectMountedSkills.length === skills.length && skills.length > 0 ? (
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--secondary btn--sm"
+                      onClick={() => void handleBulkUnlinkProject(activeProject.path)}
+                    >
+                      <Unlink size={12} />
+                      <span>清空软链</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--primary btn--sm"
+                      onClick={() => void handleBulkLinkProject(activeProject.path)}
+                    >
+                      <Link2 size={12} />
+                      <span>挂载全部 Skill</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="detail-hero-right">
-                {activeProjectMountedSkills.length === skills.length && skills.length > 0 ? (
-                  <button
-                    type="button"
-                    className="btn btn--secondary btn--capsule btn--sm"
-                    onClick={() => void handleBulkUnlinkProject(activeProject.path)}
-                  >
-                    <Unlink size={12} />
-                    <span>清空此项目软链</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--capsule btn--sm"
-                    onClick={() => void handleBulkLinkProject(activeProject.path)}
-                  >
-                    <Link2 size={12} />
-                    <span>一键挂载全部 Skill</span>
-                  </button>
-                )}
-
+              <div className="detail-hero-header__row2" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {activeProject.path}
+                </span>
                 <button
                   type="button"
                   className="btn btn--capsule-ghost btn--capsule btn--sm"
-                  onClick={() => handleOpenToolDir(activeProject.path)}
+                  style={{ height: '20px', padding: '0 6px', fontSize: '0.6875rem' }}
+                  onClick={() => {
+                    void navigator.clipboard.writeText(activeProject.path)
+                    notify?.('已复制项目路径')
+                  }}
+                  title="复制路径"
                 >
-                  <ExternalLink size={12} />
-                  <span>打开项目</span>
+                  <Copy size={11} />
+                  <span>复制</span>
                 </button>
               </div>
-            </div>
+            </header>
 
             {/* Project Skills Table - Only show skills mounted in this project */}
-            <div className="detail-section-card" style={{ flex: 1, padding: '12px 14px' }}>
+            <div className="environment-skill-section">
               <div className="detail-section-card-title" style={{ marginBottom: '6px' }}>
                 <span>
                   项目 Skill 列表 ({filteredProjectMountedSkills.length})
@@ -3037,6 +3129,64 @@ function WorkflowsThreeColumn({
           </div>
         ) : draft && activeWf ? (
           <div className="detail-stage-wrap workflow-editor-stage">
+            {/* Unified Hero Header per DESIGN §8.7 */}
+            <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
+              <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <div className="detail-hero-header__icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-accent)' }}>
+                    <WorkflowIcon size={20} />
+                  </div>
+                  <h1 className="detail-hero-header__title" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>
+                    {draft.name}
+                  </h1>
+                </div>
+
+                <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--primary btn--sm"
+                    onClick={() => void saveDraft()}
+                    disabled={!isDirty || saving}
+                    title={t.workflows.saveChanges}
+                  >
+                    <Save size={12} />
+                    <span>{saving ? t.workflows.savingChanges : t.workflows.saveChanges}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary btn--sm"
+                    onClick={() => void saveAsSkill()}
+                    disabled={Boolean(savedMap[activeWf.id])}
+                    title={t.workflows.saveAsSkill}
+                  >
+                    <Sparkles size={12} />
+                    <span>{savedMap[activeWf.id] ? t.workflows.savedAsSkill : t.workflows.saveAsSkill}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary btn--sm"
+                    onClick={() => onExportCode(draft, draft.name)}
+                    title={t.detail.exportCodeBtn}
+                  >
+                    <Code size={12} />
+                    <span>{t.detail.exportCodeBtn}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="detail-hero-header__row2" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                {draft.summary ? (
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '600px' }}>
+                    {draft.summary}
+                  </span>
+                ) : null}
+                {draft.summary ? <span style={{ opacity: 0.4 }}>•</span> : null}
+                <span className="font-mono">{t.workflows.stepCount(draft.nodes.length)}</span>
+              </div>
+            </header>
+
             <nav className="master-tab-segmented workflow-detail-tabs" role="tablist" aria-label={t.workflows.workspaceTabsLabel}>
               <button
                 type="button"
@@ -3732,6 +3882,7 @@ function SettingsMainPage({
   recorderStatus,
   onRequestPermissions,
   onShowToast,
+  onNavigateToAccounts,
 }: {
   tab: SettingsTab
   themeMode: ThemeMode
@@ -3742,6 +3893,7 @@ function SettingsMainPage({
   recorderStatus?: RecorderStatus
   onRequestPermissions: (type?: 'accessibility' | 'screenRecording' | 'all', e?: React.MouseEvent) => void
   onShowToast?: (msg: string) => void
+  onNavigateToAccounts?: () => void
 }) {
   const { t, locale, setLocale, resolvedLocale } = useI18n()
   const [storagePath, setStoragePath] = useState<string>('')
@@ -3830,161 +3982,194 @@ function SettingsMainPage({
             </div>
           </header>
 
-          {/* Unified Flat Settings Group (Zero Nested Cards) */}
-          <div className="flat-settings-card stagger-item">
-            {/* Row 1: Appearance Theme */}
-            <div className="flat-setting-row">
-              <div className="flat-setting-info">
-                <strong className="flat-setting-title">{t.settings.themeTitle}</strong>
-                <p className="flat-setting-desc">{t.settings.themeDesc}</p>
-              </div>
-              <div className="flat-setting-control">
-                <ThemeSegmentedTabs value={themeMode} onChange={onChangeThemeMode} />
-              </div>
-            </div>
-
-            {/* Row 2: Interface Language */}
-            <div className="flat-setting-row">
-              <div className="flat-setting-info">
-                <strong className="flat-setting-title">{t.settings.langTitle}</strong>
-                <p className="flat-setting-desc">{t.settings.langDesc}</p>
-              </div>
-              <div className="flat-setting-control">
-                <LanguageSegmentedTabs value={locale} onChange={setLocale} />
-              </div>
-            </div>
-
-            {/* Row 3: Local Data Storage Path */}
-            <div className="flat-setting-row">
-              <div className="flat-setting-info">
-                <strong className="flat-setting-title">{t.settings.dataStoragePathTitle}</strong>
-                <p className="flat-setting-desc font-mono" title={storagePath}>
-                  {storagePath
-                    ? storagePath
-                        .replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~')
-                        .replace(/^\/Users\/[^/]+/, '~')
-                        .replace(/^\\Users\\[^\\]+/, '~')
-                    : t.settings.dataStoragePathPlaceholder}
-                </p>
-              </div>
-              <div className="flat-setting-control">
-                <div className="setting-actions-group">
-                  <button
-                    type="button"
-                    className="btn btn--capsule btn--secondary btn--sm"
-                    onClick={handleSelectStoragePath}
-                  >
-                    <FolderOpen size={12} />
-                    <span>{t.settings.dataStoragePathSelectBtn}</span>
-                  </button>
-                  {(() => {
-                    const isMac = typeof navigator !== 'undefined' && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform || navigator.userAgent)
-                    const revealTitle = isMac ? t.settings.dataStoragePathRevealBtnMac : t.settings.dataStoragePathRevealBtnWin
-                    const isDefault =
-                      storagePath.endsWith('.trace') ||
-                      storagePath.endsWith('.trace\\') ||
-                      storagePath.endsWith('.trace/') ||
-                      storagePath.endsWith('/.trace') ||
-                      storagePath.endsWith('\\.trace')
-
-                    return (
-                      <>
-                        <button
-                          type="button"
-                          className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
-                          onClick={handleRevealStoragePath}
-                          title={revealTitle}
-                          aria-label={revealTitle}
-                        >
-                          <ExternalLink size={12} />
-                        </button>
-                        {storagePath && !isDefault ? (
-                          <button
-                            type="button"
-                            className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
-                            onClick={handleResetStoragePath}
-                            title={t.settings.dataStoragePathResetBtn}
-                            aria-label={t.settings.dataStoragePathResetBtn}
-                          >
-                            <RotateCcw size={12} />
-                          </button>
-                        ) : null}
-                      </>
-                    )
-                  })()}
+          {/* Card 1: 外观与语言 */}
+          <div className="settings-section-block stagger-item">
+            <span className="settings-section-label">外观与语言</span>
+            <div className="flat-settings-card">
+              {/* Row 1: Appearance Theme */}
+              <div className="flat-setting-row">
+                <div className="flat-setting-info">
+                  <strong className="flat-setting-title">{t.settings.themeTitle}</strong>
+                  <p className="flat-setting-desc">{t.settings.themeDesc}</p>
+                </div>
+                <div className="flat-setting-control">
+                  <ThemeSegmentedTabs value={themeMode} onChange={onChangeThemeMode} />
                 </div>
               </div>
-            </div>
 
-            {/* Row 4: Project Workspace */}
-            <div className="flat-setting-row">
-              <div className="flat-setting-info">
-                <strong className="flat-setting-title">当前项目工作区</strong>
-                <p className="flat-setting-desc font-mono" title={projectWorkspace || '未设置项目工作区'}>
-                  {projectWorkspace
-                    ? projectWorkspace
-                        .replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~')
-                        .replace(/^\/Users\/[^/]+/, '~')
-                        .replace(/^\\Users\\[^\\]+/, '~')
-                    : '使用默认启动目录'}
-                </p>
-              </div>
-              <div className="flat-setting-control">
-                <div className="setting-actions-group">
-                  <button
-                    type="button"
-                    className="btn btn--capsule btn--secondary btn--sm"
-                    onClick={handleSelectProjectWorkspace}
-                  >
-                    <FolderOpen size={12} />
-                    <span>选择工作区</span>
-                  </button>
-                  {projectWorkspace ? (
-                    <button
-                      type="button"
-                      className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
-                      onClick={() => {
-                        if (window.workflowSkill?.openPathInFinder) {
-                          void window.workflowSkill.openPathInFinder(projectWorkspace)
-                        }
-                      }}
-                      title="在访达中打开项目工作区"
-                      aria-label="在访达中打开项目工作区"
-                    >
-                      <ExternalLink size={12} />
-                    </button>
-                  ) : null}
+              {/* Row 2: Interface Language */}
+              <div className="flat-setting-row">
+                <div className="flat-setting-info">
+                  <strong className="flat-setting-title">{t.settings.langTitle}</strong>
+                  <p className="flat-setting-desc">{t.settings.langDesc}</p>
                 </div>
-              </div>
-            </div>
-
-            {/* Row 5: One-Click Migration to Current Project */}
-            <div className="flat-setting-row">
-              <div className="flat-setting-info">
-                <strong className="flat-setting-title">一键迁移 Skill 到当前项目</strong>
-                <p className="flat-setting-desc">
-                  将所有 Skill 物理文件迁移至当前项目工作区的 <code className="font-mono">.agents/skills</code> 中，并在原位置创建软链接以保持全局环境兼容。
-                </p>
-              </div>
-              <div className="flat-setting-control">
-                <button
-                  type="button"
-                  className="btn btn--capsule btn--primary btn--sm"
-                  onClick={handleMigrateAllSkills}
-                  disabled={migrating}
-                  style={{ minWidth: '136px' }}
-                >
-                  {migrating ? (
-                    <RefreshCw size={12} className="spin-slow" />
-                  ) : (
-                    <FolderTree size={12} />
-                  )}
-                  <span>{migrating ? '正在迁移...' : '一键迁移到项目'}</span>
-                </button>
+                <div className="flat-setting-control">
+                  <LanguageSegmentedTabs value={locale} onChange={setLocale} />
+                </div>
               </div>
             </div>
           </div>
-          <AccountSettings api={window.workflowSkill?.accounts} onNotify={onShowToast} />
+
+          {/* Card 2: 存储与工作区 */}
+          <div className="settings-section-block stagger-item" style={{ marginTop: '16px' }}>
+            <span className="settings-section-label">存储与工作区</span>
+            <div className="flat-settings-card">
+              {/* Local Data Storage Path */}
+              <div className="flat-setting-row">
+                <div className="flat-setting-info">
+                  <strong className="flat-setting-title">{t.settings.dataStoragePathTitle}</strong>
+                  <p className="flat-setting-desc font-mono" title={storagePath}>
+                    {storagePath
+                      ? storagePath
+                          .replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~')
+                          .replace(/^\/Users\/[^/]+/, '~')
+                          .replace(/^\\Users\\[^\\]+/, '~')
+                      : t.settings.dataStoragePathPlaceholder}
+                  </p>
+                </div>
+                <div className="flat-setting-control">
+                  <div className="setting-actions-group">
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--secondary btn--sm"
+                      onClick={handleSelectStoragePath}
+                    >
+                      <FolderOpen size={12} />
+                      <span>{t.settings.dataStoragePathSelectBtn}</span>
+                    </button>
+                    {(() => {
+                      const isMac = typeof navigator !== 'undefined' && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform || navigator.userAgent)
+                      const revealTitle = isMac ? t.settings.dataStoragePathRevealBtnMac : t.settings.dataStoragePathRevealBtnWin
+                      const isDefault =
+                        storagePath.endsWith('.trace') ||
+                        storagePath.endsWith('.trace\\') ||
+                        storagePath.endsWith('.trace/') ||
+                        storagePath.endsWith('/.trace') ||
+                        storagePath.endsWith('\\.trace')
+
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
+                            onClick={handleRevealStoragePath}
+                            title={revealTitle}
+                            aria-label={revealTitle}
+                          >
+                            <ExternalLink size={12} />
+                          </button>
+                          {storagePath && !isDefault ? (
+                            <button
+                              type="button"
+                              className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
+                              onClick={handleResetStoragePath}
+                              title={t.settings.dataStoragePathResetBtn}
+                              aria-label={t.settings.dataStoragePathResetBtn}
+                            >
+                              <RotateCcw size={12} />
+                            </button>
+                          ) : null}
+                        </>
+                      )
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Project Workspace */}
+              <div className="flat-setting-row">
+                <div className="flat-setting-info">
+                  <strong className="flat-setting-title">当前项目工作区</strong>
+                  <p className="flat-setting-desc font-mono" title={projectWorkspace || '未设置项目工作区'}>
+                    {projectWorkspace
+                      ? projectWorkspace
+                          .replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~')
+                          .replace(/^\/Users\/[^/]+/, '~')
+                          .replace(/^\\Users\\[^\\]+/, '~')
+                      : '使用默认启动目录'}
+                  </p>
+                </div>
+                <div className="flat-setting-control">
+                  <div className="setting-actions-group">
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--secondary btn--sm"
+                      onClick={handleSelectProjectWorkspace}
+                    >
+                      <FolderOpen size={12} />
+                      <span>选择工作区</span>
+                    </button>
+                    {projectWorkspace ? (
+                      <button
+                        type="button"
+                        className="btn btn--capsule btn--capsule-ghost btn--sm icon-only"
+                        onClick={() => {
+                          if (window.workflowSkill?.openPathInFinder) {
+                            void window.workflowSkill.openPathInFinder(projectWorkspace)
+                          }
+                        }}
+                        title="在访达中打开项目工作区"
+                        aria-label="在访达中打开项目工作区"
+                      >
+                        <ExternalLink size={12} />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {/* One-Click Migration to Current Project */}
+              <div className="flat-setting-row">
+                <div className="flat-setting-info">
+                  <strong className="flat-setting-title">一键迁移 Skill 到当前项目</strong>
+                  <p className="flat-setting-desc">
+                    将所有 Skill 物理文件迁移至当前项目工作区的 <code className="font-mono">.agents/skills</code> 中，并在原位置创建软链接以保持全局环境兼容。
+                  </p>
+                </div>
+                <div className="flat-setting-control">
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary btn--sm"
+                    onClick={handleMigrateAllSkills}
+                    disabled={migrating}
+                    style={{ minWidth: '136px' }}
+                  >
+                    {migrating ? (
+                      <RefreshCw size={12} className="spin-slow" />
+                    ) : (
+                      <FolderTree size={12} />
+                    )}
+                    <span>{migrating ? '正在迁移...' : '一键迁移到项目'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: AI 账号管理 */}
+          <div className="settings-section-block stagger-item" style={{ marginTop: '16px' }}>
+            <span className="settings-section-label">AI 账号管理</span>
+            <div className="flat-settings-card">
+              <div className="flat-setting-row">
+                <div className="flat-setting-info">
+                  <strong className="flat-setting-title">AI 账号管理</strong>
+                  <p className="flat-setting-desc">
+                    配置 Claude Code、Codex、Antigravity 等官方账号，管理使用额度与凭据。
+                  </p>
+                </div>
+                <div className="flat-setting-control">
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary btn--sm"
+                    onClick={onNavigateToAccounts}
+                  >
+                    <Users size={12} />
+                    <span>前往账号管理</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </>
       ) : null}
 
@@ -4051,7 +4236,7 @@ function SettingsMainPage({
                         ) : (
                           <button
                             type="button"
-                            className="btn btn--capsule btn--primary btn--sm"
+                            className="btn btn--capsule btn--secondary btn--sm"
                             onClick={(e) => onRequestPermissions?.('screenRecording', e)}
                           >
                             <span>{t.settings.waitingAuth}</span>
@@ -4076,7 +4261,7 @@ function SettingsMainPage({
                         ) : (
                           <button
                             type="button"
-                            className="btn btn--capsule btn--primary btn--sm"
+                            className="btn btn--capsule btn--secondary btn--sm"
                             onClick={(e) => onRequestPermissions?.('accessibility', e)}
                           >
                             <span>{t.settings.waitingAuth}</span>
@@ -4434,7 +4619,7 @@ end tell
           </button>
         </div>
 
-        <div className="code-glass-frame">
+        <div className="code-glass-frame dialog-body">
           <pre>
             <code>{code}</code>
           </pre>
@@ -4504,7 +4689,7 @@ function NewSkillDialog({
           </button>
         </div>
 
-        <div className="dialog-input-area">
+        <div className="dialog-input-area dialog-body">
           <label>
             <span>{t.skills.skillNameLabel}</span>
             <input
@@ -4582,7 +4767,7 @@ function BrowserCaptureDialog({
           </button>
         </div>
 
-        <div className="dialog-input-area">
+        <div className="dialog-input-area dialog-body">
           <label>
             <span>{t.workflows.browserUrlLabel}</span>
             <input
@@ -5343,7 +5528,7 @@ export function App() {
   }
 
   return (
-    <div className={`app-shell ${inSettings ? 'is-settings' : view === 'accounts' ? 'is-accounts' : ''}`} data-theme={resolvedTheme}>
+    <div className={`app-shell ${inSettings ? 'is-settings' : ''}`} data-theme={resolvedTheme}>
       {/* Global Top Window Drag Strip for macOS */}
       <div className="app-window-drag-strip" />
 
@@ -5369,7 +5554,7 @@ export function App() {
         }}
       />
 
-      {!inSettings && view !== 'accounts' ? <MasterColumnResizeHandle /> : null}
+      {!inSettings ? <MasterColumnResizeHandle /> : null}
 
       {/* Settings Mode: Clean 2-Pane Architecture (Sidebar + Full Width Settings Stage) */}
       {inSettings ? (
@@ -5384,6 +5569,10 @@ export function App() {
             recorderStatus={recorderStatus}
             onRequestPermissions={requestRecorderPermissions}
             onShowToast={setToast}
+            onNavigateToAccounts={() => {
+              setInSettings(false)
+              setView('accounts')
+            }}
           />
         </main>
       ) : view === 'mcp' ? (

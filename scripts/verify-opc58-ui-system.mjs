@@ -47,11 +47,11 @@ assert.match(
   '.app-sidebar width must be fixed at 160px'
 )
 
-// 1.3 Settings / Accounts 2-column mode: 160px + minmax(0, 1fr)
+// 1.3 Settings alone uses 2 columns; account workbench follows business 3-column layout.
 assert.match(
   appCss,
-  /\.app-shell\.is-settings,\s*\.app-shell\.is-accounts\s*\{[^}]*grid-template-columns:\s*160px\s+minmax\(0,\s*1fr\);/,
-  '.app-shell settings and accounts modes must declare 2-column layout: 160px minmax(0, 1fr)'
+  /\.app-shell\.is-settings\s*\{[^}]*grid-template-columns:\s*160px\s+minmax\(0,\s*1fr\);/,
+  '.app-shell settings mode must declare 2-column layout: 160px minmax(0, 1fr)'
 )
 
 // 1.4 Grid children min-width: 0 protection against overflow blowout

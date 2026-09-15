@@ -78,6 +78,7 @@ export interface AccountQuotaCardProps {
     expiresDatePrefix: string
   }
   locale: string
+  presentation?: 'card' | 'detail'
 }
 
 function formatQuotaTime(timestamp?: number, locale: string = 'zh-CN'): string | null {
@@ -158,6 +159,7 @@ export function AccountQuotaCard({
   formatDate,
   loc,
   locale,
+  presentation = 'card',
 }: AccountQuotaCardProps) {
   const createdDate = formatDate(account.createdAt)
   const expiresDate = formatDate(account.expiresAt)
@@ -246,76 +248,78 @@ export function AccountQuotaCard({
   return (
     <div
       className={`account-quota-card ${
-        isActive ? 'account-quota-card--active' : ''
-      }`}
+        presentation === 'detail' ? 'account-quota-card--detail' : ''
+      } ${isActive ? 'account-quota-card--active' : ''}`}
     >
-      {/* 1. Card Top: User Info & Top-Right Action Controls */}
-      <div className="account-card-header">
-        <div className="account-card-identity">
-          <div className="account-card-avatar">
-            <User size={13} />
-          </div>
-          <div className="account-card-name-group">
-            <div className="account-card-name-row">
-              <span className="account-card-name" title={account.name}>
-                {account.name}
-              </span>
-              {isActive && (
-                <span className="account-active-badge">
-                  <Check size={9} />
-                  <span>{loc.activeBadge}</span>
+      {/* 1. Card Top: User Info & Top-Right Action Controls (Omitted in detail presentation) */}
+      {presentation !== 'detail' && (
+        <div className="account-card-header">
+          <div className="account-card-identity">
+            <div className="account-card-avatar">
+              <User size={13} />
+            </div>
+            <div className="account-card-name-group">
+              <div className="account-card-name-row">
+                <span className="account-card-name" title={account.name}>
+                  {account.name}
+                </span>
+                {isActive && (
+                  <span className="account-active-badge">
+                    <Check size={9} />
+                    <span>{loc.activeBadge}</span>
+                  </span>
+                )}
+              </div>
+              {account.email && (
+                <span className="account-card-email" title={account.email}>
+                  {account.email}
                 </span>
               )}
             </div>
-            {account.email && (
-              <span className="account-card-email" title={account.email}>
-                {account.email}
-              </span>
-            )}
+          </div>
+
+          <div className="account-card-top-actions">
+            {/* Refresh Quota Icon Button */}
+            <button
+              type="button"
+              className="account-icon-btn"
+              onClick={() => onRefreshQuota(account.id)}
+              disabled={isBusy || isQuotaLoading}
+              title={loc.refreshQuotaBtn}
+              aria-label={loc.refreshQuotaBtn}
+            >
+              <RefreshCw
+                size={11}
+                className={isQuotaLoading ? 'animate-spin' : ''}
+              />
+            </button>
+
+            {/* Rename Icon Button */}
+            <button
+              type="button"
+              className="account-icon-btn"
+              onClick={() => onRename(account)}
+              disabled={isBusy}
+              title={loc.renameBtn}
+              aria-label={loc.renameBtn}
+            >
+              <Pencil size={11} />
+            </button>
+
+            {/* Delete Icon Button */}
+            <button
+              type="button"
+              className="account-icon-btn account-icon-btn--danger"
+              onClick={() => onDelete(account)}
+              disabled={isBusy}
+              title={loc.removeBtn}
+              aria-label={loc.removeBtn}
+            >
+              <Trash2 size={11} />
+            </button>
           </div>
         </div>
-
-        <div className="account-card-top-actions">
-          {/* Refresh Quota Icon Button */}
-          <button
-            type="button"
-            className="account-icon-btn"
-            onClick={() => onRefreshQuota(account.id)}
-            disabled={isBusy || isQuotaLoading}
-            title={loc.refreshQuotaBtn}
-            aria-label={loc.refreshQuotaBtn}
-          >
-            <RefreshCw
-              size={11}
-              className={isQuotaLoading ? 'animate-spin' : ''}
-            />
-          </button>
-
-          {/* Rename Icon Button */}
-          <button
-            type="button"
-            className="account-icon-btn"
-            onClick={() => onRename(account)}
-            disabled={isBusy}
-            title={loc.renameBtn}
-            aria-label={loc.renameBtn}
-          >
-            <Pencil size={11} />
-          </button>
-
-          {/* Delete Icon Button */}
-          <button
-            type="button"
-            className="account-icon-btn account-icon-btn--danger"
-            onClick={() => onDelete(account)}
-            disabled={isBusy}
-            title={loc.removeBtn}
-            aria-label={loc.removeBtn}
-          >
-            <Trash2 size={11} />
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* 2. Quota & Usage Stage */}
       <div className="account-card-quota-section">
@@ -444,51 +448,53 @@ export function AccountQuotaCard({
         )}
       </div>
 
-      {/* 3. Card Footer: Metadata & One-Click Switch Button */}
-      <div className="account-card-footer">
-        <div className="account-card-meta">
-          {createdDate && (
-            <span className="account-card-meta-item">
-              {loc.createdDatePrefix} {createdDate}
-            </span>
-          )}
-          {expiresDate && (
-            <span className="account-card-meta-item">
-              {loc.expiresDatePrefix}: {expiresDate}
-            </span>
-          )}
-        </div>
+      {/* 3. Card Footer: Metadata & One-Click Switch Button (Omitted in detail presentation) */}
+      {presentation !== 'detail' && (
+        <div className="account-card-footer">
+          <div className="account-card-meta">
+            {createdDate && (
+              <span className="account-card-meta-item">
+                {loc.createdDatePrefix} {createdDate}
+              </span>
+            )}
+            {expiresDate && (
+              <span className="account-card-meta-item">
+                {loc.expiresDatePrefix}: {expiresDate}
+              </span>
+            )}
+          </div>
 
-        {/* One-Click Direct Switch Action Button */}
-        <button
-          type="button"
-          className={`account-btn account-card-switch-btn ${
-            isActive
-              ? 'account-card-switch-btn--active'
-              : 'account-btn--primary'
-          }`}
-          onClick={() => onSwitch(account)}
-          disabled={isSwitchDisabled}
-          title={switchTooltip}
-        >
-          {isSwitching ? (
-            <>
-              <RefreshCw size={11} className="animate-spin" />
-              <span>{loc.switchingBtn}</span>
-            </>
-          ) : isActive ? (
-            <>
-              <Check size={11} />
-              <span>{loc.currentAccountInUse}</span>
-            </>
-          ) : (
-            <>
-              <ArrowRightLeft size={11} />
-              <span>{loc.switchBtn}</span>
-            </>
-          )}
-        </button>
-      </div>
+          {/* One-Click Direct Switch Action Button */}
+          <button
+            type="button"
+            className={`account-btn account-card-switch-btn ${
+              isActive
+                ? 'account-card-switch-btn--active'
+                : 'account-btn--primary'
+            }`}
+            onClick={() => onSwitch(account)}
+            disabled={isSwitchDisabled}
+            title={switchTooltip}
+          >
+            {isSwitching ? (
+              <>
+                <RefreshCw size={11} className="animate-spin" />
+                <span>{loc.switchingBtn}</span>
+              </>
+            ) : isActive ? (
+              <>
+                <Check size={11} />
+                <span>{loc.currentAccountInUse}</span>
+              </>
+            ) : (
+              <>
+                <ArrowRightLeft size={11} />
+                <span>{loc.switchBtn}</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

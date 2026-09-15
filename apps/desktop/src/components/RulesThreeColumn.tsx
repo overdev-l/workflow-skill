@@ -14,6 +14,8 @@ import {
   RefreshCw,
   Search,
   ExternalLink,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import type {
   ClaudeLinkStatus,
@@ -36,6 +38,14 @@ export function RulesThreeColumn({
   const [projects, setProjects] = useState<ProjectRecord[]>([])
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null)
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null)
+  const [isCreatingNew, setIsCreatingNew] = useState(false)
+  const [projectsExpanded, setProjectsExpanded] = useState(false)
+  const [previewExpanded, setPreviewExpanded] = useState(false)
+  const selectionRef = React.useRef({ selectedRuleId, selectedProjectPath, isCreatingNew })
+  selectionRef.current = { selectedRuleId, selectedProjectPath, isCreatingNew }
+
+  // Drafts state ref to preserve edits across switches or background rule syncs
+  const draftsRef = React.useRef<Map<string, { name: string; desc: string; content: string }>>(new Map())
 
   // Rule Editor State
   const [formName, setFormName] = useState('')
@@ -57,18 +67,18 @@ export function RulesThreeColumn({
       if (window.workflowSkill.listRules) {
         const r = await window.workflowSkill.listRules()
         setRules(r)
-        if (!selectedRuleId && r.length > 0) {
-          setSelectedRuleId(r[0].id)
+        if (!selectionRef.current.isCreatingNew) {
+          setSelectedRuleId(current => current && r.some(rule => rule.id === current) ? current : r[0]?.id || null)
         }
       }
       if (window.workflowSkill.listProjects) {
         const p = await window.workflowSkill.listProjects()
         setProjects(p)
-        if (!selectedProjectPath && p.length > 0) {
+        if (!selectionRef.current.selectedProjectPath && p.length > 0) {
           const active = window.workflowSkill.getActiveProject
             ? await window.workflowSkill.getActiveProject()
             : null
-          setSelectedProjectPath(active ? active.path : p[0].path)
+          setSelectedProjectPath(current => current || (active ? active.path : p[0].path))
         }
       }
     } catch (err: any) {
@@ -94,12 +104,17 @@ export function RulesThreeColumn({
 
   // Sync selected rule to editor form
   useEffect(() => {
+    if (isCreatingNew) {
+      return
+    }
     if (selectedRuleId) {
-      const found = rules.find((r) => r.id === selectedRuleId)
-      if (found) {
-        setFormName(found.name)
-        setFormDesc(found.description || '')
-        setFormContent(found.content)
+      if (!draftsRef.current.has(selectedRuleId)) {
+        const found = rules.find((r) => r.id === selectedRuleId)
+        if (found) {
+          setFormName(found.name)
+          setFormDesc(found.description || '')
+          setFormContent(found.content)
+        }
       }
     } else if (rules.length > 0) {
       setSelectedRuleId(rules[0].id)
@@ -108,7 +123,7 @@ export function RulesThreeColumn({
       setFormDesc('')
       setFormContent('')
     }
-  }, [selectedRuleId, rules])
+  }, [selectedRuleId, rules, isCreatingNew])
 
   // Sync project configuration when selected project changes
   const refreshProjectDetails = async (path: string) => {
@@ -154,10 +169,64 @@ export function RulesThreeColumn({
 
   // Rule Handlers
   const handleNewRule = () => {
+    setIsCreatingNew(true)
     setSelectedRuleId(null)
-    setFormName('新公共规则')
-    setFormDesc('')
-    setFormContent('# 新规则\n\n- 规则条目 1\n- 规则条目 2\n')
+    const draft = draftsRef.current.get('__new__')
+    if (draft) {
+      setFormName(draft.name)
+      setFormDesc(draft.desc)
+      setFormContent(draft.content)
+    } else {
+      setFormName('新公共规则')
+      setFormDesc('')
+      setFormContent('# 新规则\n\n- 规则条目 1\n- 规则条目 2\n')
+    }
+  }
+
+  const handleSelectRule = (ruleId: string) => {
+    if (selectedRuleId === ruleId && !isCreatingNew) return
+    setIsCreatingNew(false)
+    setSelectedRuleId(ruleId)
+    const draft = draftsRef.current.get(ruleId)
+    if (draft) {
+      setFormName(draft.name)
+      setFormDesc(draft.desc)
+      setFormContent(draft.content)
+    } else {
+      const found = rules.find((r) => r.id === ruleId)
+      if (found) {
+        setFormName(found.name)
+        setFormDesc(found.description || '')
+        setFormContent(found.content)
+      }
+    }
+  }
+
+  const updateFormName = (val: string) => {
+    setFormName(val)
+    const key = isCreatingNew ? '__new__' : selectedRuleId
+    if (key) {
+      const cur = draftsRef.current.get(key) || { name: val, desc: formDesc, content: formContent }
+      draftsRef.current.set(key, { ...cur, name: val })
+    }
+  }
+
+  const updateFormDesc = (val: string) => {
+    setFormDesc(val)
+    const key = isCreatingNew ? '__new__' : selectedRuleId
+    if (key) {
+      const cur = draftsRef.current.get(key) || { name: formName, desc: val, content: formContent }
+      draftsRef.current.set(key, { ...cur, desc: val })
+    }
+  }
+
+  const updateFormContent = (val: string) => {
+    setFormContent(val)
+    const key = isCreatingNew ? '__new__' : selectedRuleId
+    if (key) {
+      const cur = draftsRef.current.get(key) || { name: formName, desc: formDesc, content: val }
+      draftsRef.current.set(key, { ...cur, content: val })
+    }
   }
 
   const handleSaveRule = async () => {
@@ -177,6 +246,10 @@ export function RulesThreeColumn({
       })
       if (res.success) {
         notify?.(t.rules.savedToast(res.rule.name))
+        draftsRef.current.delete(res.rule.id)
+        if (selectedRuleId) draftsRef.current.delete(selectedRuleId)
+        draftsRef.current.delete('__new__')
+        setIsCreatingNew(false)
         setSelectedRuleId(res.rule.id)
         refreshData()
         if (selectedProjectPath) refreshProjectDetails(selectedProjectPath)
@@ -200,6 +273,8 @@ export function RulesThreeColumn({
       const res = await window.workflowSkill.deleteRule(selectedRuleId)
       if (res.success) {
         notify?.(t.rules.deletedToast(found.name))
+        draftsRef.current.delete(selectedRuleId)
+        setIsCreatingNew(false)
         setSelectedRuleId(null)
         refreshData()
         if (selectedProjectPath) refreshProjectDetails(selectedProjectPath)
@@ -424,34 +499,43 @@ export function RulesThreeColumn({
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   {query ? '未匹配到规则' : '暂无公共规则'}
                 </p>
-                <button
-                  type="button"
-                  className="btn btn--capsule btn--sm"
-                  style={{ marginTop: '8px' }}
-                  onClick={handleNewRule}
-                >
-                  <Plus size={12} /> {t.rules.newRule}
-                </button>
+                {query ? (
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary btn--sm"
+                    style={{ marginTop: '8px' }}
+                    onClick={() => setQuery('')}
+                  >
+                    清空搜索
+                  </button>
+                ) : (
+                  <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', opacity: 0.7, marginTop: '4px' }}>
+                    点击上方「+」新建规则
+                  </span>
+                )}
               </div>
             ) : (
               filteredRules.map((rule) => {
-                const isSelected = rule.id === selectedRuleId
+                const isSelected = rule.id === selectedRuleId && !isCreatingNew
                 return (
-                  <div
+                  <button
                     key={rule.id}
-                    className={`master-item ${isSelected ? 'is-selected' : ''}`}
-                    onClick={() => setSelectedRuleId(rule.id)}
+                    type="button"
+                    className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
+                    onClick={() => handleSelectRule(rule.id)}
                   >
-                    <div className="master-item-icon">
+                    <div className="master-item-logo">
                       <FileText size={14} />
                     </div>
-                    <div className="master-item-body">
-                      <div className="master-item-title">{rule.name}</div>
-                      <div className="master-item-sub">
-                        {rule.description || `${rule.content.slice(0, 30)}...`}
+                    <div className="master-item-content">
+                      <div className="master-item-title-row">
+                        <span className="master-item-title">{rule.name}</span>
                       </div>
+                      <span className="master-item-sub">
+                        {rule.description || `${rule.content.slice(0, 30)}...`}
+                      </span>
                     </div>
-                  </div>
+                  </button>
                 )
               })
             )
@@ -460,29 +544,41 @@ export function RulesThreeColumn({
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 {query ? '未匹配到项目' : t.rules.noProjects}
               </p>
-              <button
-                type="button"
-                className="btn btn--capsule btn--sm"
-                style={{ marginTop: '8px' }}
-                onClick={handleAddProject}
-              >
-                <FolderPlus size={12} /> {t.rules.addProjectBtn}
-              </button>
+              {query ? (
+                <button
+                  type="button"
+                  className="btn btn--capsule btn--secondary btn--sm"
+                  style={{ marginTop: '8px' }}
+                  onClick={() => setQuery('')}
+                >
+                  清空搜索
+                </button>
+              ) : (
+                <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', opacity: 0.7, marginTop: '4px' }}>
+                  点击上方「+」添加项目
+                </span>
+              )}
             </div>
           ) : (
             filteredProjects.map((p) => {
               const isSelected = p.path === selectedProjectPath
               return (
-                <div
+                <button
                   key={p.id}
-                  className={`master-item ${isSelected ? 'is-selected' : ''}`}
+                  type="button"
+                  className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
                   onClick={() => setSelectedProjectPath(p.path)}
                 >
-                  <div className="master-item-body">
-                    <div className="master-item-title">{p.name}</div>
-                    <div className="master-item-sub font-mono">{p.path}</div>
+                  <div className="master-item-logo">
+                    <FolderPlus size={14} />
                   </div>
-                </div>
+                  <div className="master-item-content">
+                    <div className="master-item-title-row">
+                      <span className="master-item-title">{p.name}</span>
+                    </div>
+                    <span className="master-item-sub font-mono">{p.path}</span>
+                  </div>
+                </button>
               )
             })
           )}
@@ -492,76 +588,128 @@ export function RulesThreeColumn({
       {/* Column 3: Detail Stage (Width: minmax(0, 1fr)) */}
       <main className="app-col-detail view-enter">
         {activeTab === 'rules' ? (
-          /* Rule Editor & Association Matrix */
-          <div className="detail-stage-wrap rules-stage">
-            {/* Header & Actions */}
-            <div className="rules-detail-header">
-              <div className="rules-detail-header__fields">
-                <input
-                  type="text"
-                  className="dialog-capsule-input"
-                  style={{ fontSize: '0.75rem', fontWeight: 600, width: '100%' }}
-                  placeholder={t.rules.ruleNamePlaceholder}
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                />
-                <input
-                  type="text"
-                  className="dialog-capsule-input"
-                  style={{ fontSize: '0.75rem', width: '100%' }}
-                  placeholder={t.rules.ruleDescPlaceholder}
-                  value={formDesc}
-                  onChange={(e) => setFormDesc(e.target.value)}
-                />
-              </div>
-
-              <div className="rules-detail-header__actions">
-                {selectedRuleId && (
-                  <button
-                    type="button"
-                    className="btn btn--capsule btn--danger"
-                    onClick={handleDeleteRule}
-                    title={t.rules.deleteRuleBtn}
-                  >
-                    <Trash2 size={13} /> {t.rules.deleteRuleBtn}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn btn--capsule btn--primary"
-                  onClick={handleSaveRule}
-                  disabled={formSaving}
-                >
-                  <Save size={13} /> {formSaving ? '保存中…' : t.rules.saveRuleBtn}
-                </button>
+          !selectedRuleId && !isCreatingNew ? (
+            <div className="detail-stage-wrap rules-stage" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '300px' }}>
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                <FileText size={32} style={{ opacity: 0.35, marginBottom: '12px' }} />
+                <p style={{ margin: 0, fontSize: '0.875rem' }}>未选择规则，请在左侧选择或新建规则</p>
               </div>
             </div>
+          ) : (
+            /* Rule Editor & Association Matrix */
+            <div className="detail-stage-wrap rules-stage">
+              {/* Header & Actions */}
+              <div className="rules-detail-header" style={{ alignItems: 'flex-start' }}>
+                <div className="rules-detail-header__fields" style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label className="form-label rules-form-label" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      规则名称
+                    </label>
+                    <input
+                      type="text"
+                      className="dialog-capsule-input"
+                      style={{ fontSize: '0.8125rem', fontWeight: 600, width: '100%' }}
+                      placeholder={t.rules.ruleNamePlaceholder}
+                      value={formName}
+                      onChange={(e) => updateFormName(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label className="form-label rules-form-label" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      简短描述
+                    </label>
+                    <input
+                      type="text"
+                      className="dialog-capsule-input"
+                      style={{ fontSize: '0.75rem', width: '100%' }}
+                      placeholder={t.rules.ruleDescPlaceholder}
+                      value={formDesc}
+                      onChange={(e) => updateFormDesc(e.target.value)}
+                    />
+                  </div>
+                </div>
 
-            {/* Split Content: Markdown Editor on Left, Injected Projects Matrix on Right */}
-            <div className="rules-editor-layout">
-              {/* Markdown Editor */}
-              <div className="rules-editor-pane">
-                <label className="form-label rules-form-label" style={{ marginBottom: '6px' }}>
+                <div className="rules-detail-header__actions" style={{ display: 'flex', gap: '8px', alignSelf: 'flex-start', paddingTop: '18px' }}>
+                  {selectedRuleId && (
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--danger"
+                      onClick={handleDeleteRule}
+                      title={t.rules.deleteRuleBtn}
+                    >
+                      <Trash2 size={13} /> {t.rules.deleteRuleBtn}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--primary"
+                    onClick={handleSaveRule}
+                    disabled={formSaving}
+                  >
+                    <Save size={13} /> {formSaving ? '保存中…' : t.rules.saveRuleBtn}
+                  </button>
+                </div>
+              </div>
+
+              {/* Markdown Editor - Full Width */}
+              <div className="rules-full-editor-pane" style={{ marginTop: '16px' }}>
+                <label className="form-label rules-form-label" style={{ marginBottom: '6px', display: 'block', fontSize: '12px' }}>
                   Markdown 规则定义
                 </label>
                 <textarea
-                  className="mcp-textarea font-mono"
+                  className="mcp-textarea font-mono skill-md-editor"
                   style={{
-                    lineHeight: '1.5',
+                    width: '100%',
+                    minHeight: '320px',
+                    lineHeight: '1.6',
                     fontSize: '0.8125rem',
-                    padding: '12px 16px',
+                    padding: '14px 16px',
                     borderRadius: '8px',
+                    resize: 'vertical',
                   }}
                   placeholder={t.rules.ruleContentPlaceholder}
                   value={formContent}
-                  onChange={(e) => setFormContent(e.target.value)}
+                  onChange={(e) => updateFormContent(e.target.value)}
                 />
               </div>
 
-              {/* Injected Projects Matrix */}
-              <div className="rules-matrix-pane">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <label className="form-label rules-form-label">{t.rules.injectedProjectsTitle}</label>
+              {/* Collapsible Applied Projects Section */}
+              <div className="rules-collapsible-section" style={{ marginTop: '16px' }}>
+                <div
+                  className="section-collapse-header"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                    padding: '4px 0',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setProjectsExpanded(!projectsExpanded)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      color: 'inherit',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <FolderPlus size={15} style={{ opacity: 0.8 }} />
+                    <span style={{ fontSize: '15px', fontWeight: 600 }}>
+                      {t.rules.injectedProjectsTitle}
+                    </span>
+                    <span className="badge badge--neutral" style={{ fontSize: '12px' }}>
+                      共 {projects.length} 个项目
+                    </span>
+                    {projectsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+
                   <button
                     type="button"
                     className="btn btn--capsule btn--sm"
@@ -571,27 +719,27 @@ export function RulesThreeColumn({
                   </button>
                 </div>
 
-                <div className="rules-matrix-card">
-                  {projects.length === 0 ? (
-                    <div style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
-                      {t.rules.noProjects}
-                    </div>
-                  ) : (
-                    projects.map((proj) => {
-                      return (
+                {projectsExpanded && (
+                  <div className="rules-matrix-card" style={{ marginTop: '8px' }}>
+                    {projects.length === 0 ? (
+                      <div style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        暂未关联任何项目，点击上方「+」添加项目文件夹进行注入
+                      </div>
+                    ) : (
+                      projects.map((proj) => (
                         <ProjectRuleMatrixRow
                           key={proj.id}
                           project={proj}
                           ruleId={selectedRuleId}
                           onToggle={() => (selectedRuleId ? handleToggleProject(proj.path, selectedRuleId) : Promise.resolve(false))}
                         />
-                      )
-                    })
-                  )}
-                </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          )
         ) : (
           /* Project Rules Configuration Mode */
           <div className="detail-stage-wrap rules-stage" style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
@@ -636,56 +784,60 @@ export function RulesThreeColumn({
             </div>
 
             {selectedProjectPath ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Card 1: CLAUDE.md Helper */}
                 <div
                   style={{
-                    padding: '14px',
+                    padding: claudeStatus?.isCorrect ? '8px 12px' : '14px',
                     borderRadius: '8px',
                     background: 'var(--color-surface)',
                     border: '1px solid var(--color-border-subtle)',
+                    transition: 'padding 0.2s ease',
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Link size={15} />
-                        <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>{t.rules.claudeLinkTitle}</span>
-                        {claudeStatus?.isCorrect ? (
-                          <span className="badge badge--success" style={{ fontSize: '0.6875rem' }}>
-                            <CheckCircle2 size={11} style={{ marginRight: '4px' }} />
-                            {t.rules.claudeLinkedBadge}
-                          </span>
-                        ) : claudeStatus?.conflict ? (
-                          <span className="badge badge--danger" style={{ fontSize: '0.6875rem' }}>
-                            <AlertCircle size={11} style={{ marginRight: '4px' }} />
-                            {t.rules.claudeConflictBadge}
-                          </span>
-                        ) : (
-                          <span className="badge badge--neutral" style={{ fontSize: '0.6875rem' }}>
-                            {t.rules.claudeMissingBadge}
-                          </span>
-                        )}
-                      </div>
-                      <p style={{ margin: '4px 0 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-                        {t.rules.claudeLinkDesc}
-                      </p>
-                      {claudeStatus?.reason && (
-                        <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: claudeStatus.conflict ? 'var(--color-danger-ink)' : 'var(--color-muted)' }}>
-                          {claudeStatus.reason}
-                        </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+                      <Link size={14} style={{ flexShrink: 0 }} />
+                      <span style={{ fontWeight: 600, fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>{t.rules.claudeLinkTitle}</span>
+                      {claudeStatus?.isCorrect ? (
+                        <span className="badge badge--success" style={{ fontSize: '0.6875rem' }}>
+                          <CheckCircle2 size={11} style={{ marginRight: '4px' }} />
+                          {t.rules.claudeLinkedBadge}
+                        </span>
+                      ) : claudeStatus?.conflict ? (
+                        <span className="badge badge--danger" style={{ fontSize: '0.6875rem' }}>
+                          <AlertCircle size={11} style={{ marginRight: '4px' }} />
+                          {t.rules.claudeConflictBadge}
+                        </span>
+                      ) : (
+                        <span className="badge badge--neutral" style={{ fontSize: '0.6875rem' }}>
+                          {t.rules.claudeMissingBadge}
+                        </span>
+                      )}
+                      {!claudeStatus?.isCorrect && (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                          {claudeStatus?.reason || t.rules.claudeLinkDesc}
+                        </span>
                       )}
                     </div>
 
-                    <button
-                      type="button"
-                      className="btn btn--capsule btn--primary"
-                      onClick={handleCreateClaudeLink}
-                      disabled={claudeOperating || Boolean(claudeStatus?.isCorrect)}
-                    >
-                      {claudeOperating ? '处理中…' : t.rules.createClaudeLinkBtn}
-                    </button>
+                    {!claudeStatus?.isCorrect && (
+                      <button
+                        type="button"
+                        className="btn btn--capsule btn--primary btn--sm"
+                        onClick={handleCreateClaudeLink}
+                        disabled={claudeOperating}
+                        style={{ flexShrink: 0 }}
+                      >
+                        {claudeOperating ? '处理中…' : t.rules.createClaudeLinkBtn}
+                      </button>
+                    )}
                   </div>
+                  {claudeStatus?.conflict && claudeStatus?.reason && (
+                    <p style={{ margin: '6px 0 0 0', fontSize: '0.75rem', color: 'var(--color-danger-ink)' }}>
+                      {claudeStatus.reason}
+                    </p>
+                  )}
                 </div>
 
                 {/* Card 2: Rule Selection and Ordering */}
@@ -829,33 +981,59 @@ export function RulesThreeColumn({
                   )}
                 </div>
 
-                {/* Card 3: Preview */}
+                {/* Card 3: Preview (Collapsible on demand) */}
                 <div
                   style={{
-                    padding: '14px',
+                    padding: '12px 14px',
                     borderRadius: '8px',
                     background: 'var(--color-surface)',
                     border: '1px solid var(--color-border-subtle)',
                   }}
                 >
-                  <label className="form-label rules-form-label" style={{ marginBottom: '8px', display: 'block' }}>
-                    {t.rules.previewTitle}
-                  </label>
-                  <textarea
-                    className="mcp-textarea font-mono"
-                    readOnly
+                  <button
+                    type="button"
                     style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
                       width: '100%',
-                      height: '180px',
-                      resize: 'none',
-                      lineHeight: '1.5',
-                      fontSize: '0.75rem',
-                      padding: '12px 16px',
-                      borderRadius: '8px',
-                      background: 'var(--control-bg)',
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      color: 'inherit',
                     }}
-                    value={previewContent}
-                  />
+                    onClick={() => setPreviewExpanded(!previewExpanded)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <label className="form-label rules-form-label" style={{ margin: 0, cursor: 'pointer' }}>
+                        {t.rules.previewTitle}
+                      </label>
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
+                        ({previewContent.split('\n').length} 行)
+                      </span>
+                    </div>
+                    {previewExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+
+                  {previewExpanded && (
+                    <textarea
+                      className="mcp-textarea font-mono skill-md-editor"
+                      readOnly
+                      style={{
+                        width: '100%',
+                        height: '240px',
+                        resize: 'vertical',
+                        lineHeight: '1.5',
+                        fontSize: '0.75rem',
+                        padding: '12px 16px',
+                        borderRadius: '8px',
+                        background: 'var(--control-bg)',
+                        marginTop: '10px',
+                      }}
+                      value={previewContent}
+                    />
+                  )}
                 </div>
               </div>
             ) : (

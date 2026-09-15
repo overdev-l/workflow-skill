@@ -30,6 +30,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Search,
   Trash2,
   Upload,
   User,
@@ -95,6 +96,12 @@ const TOOLS: readonly ToolDefinition[] = [
     brand: 'Antigravity (Google)',
   },
 ] as const
+
+const TOOL_SHORT_NAMES: Record<AccountTool, string> = {
+  'claude-code': 'Claude',
+  'codex': 'Codex',
+  'antigravity': 'AGY',
+}
 
 const MAX_CONCURRENT_QUOTA_REQUESTS = 2
 const QUOTA_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
@@ -416,6 +423,21 @@ export function AccountSettings({
 
   // Tool Selection strictly Claude / Codex / Antigravity
   const [selectedTool, setSelectedTool] = useState<AccountTool>('claude-code')
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
+  const [accountQuery, setAccountQuery] = useState('')
+
+  useEffect(() => {
+    setSelectedAccountId(null)
+    setAccountQuery('')
+  }, [selectedTool])
+
+  const selectedItemRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    if (selectedAccountId && selectedItemRef.current) {
+      selectedItemRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [selectedAccountId])
 
   // Top Tabs Ref for Keyboard Navigation
   const tabButtonRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -606,6 +628,23 @@ export function AccountSettings({
   const activeAccount = useMemo<AccountMetadata | undefined>(() => {
     return toolSavedAccounts.find((a) => a.id === activeAccountId)
   }, [toolSavedAccounts, activeAccountId])
+
+  const filteredAccounts = useMemo(() => {
+    const q = accountQuery.trim().toLowerCase()
+    if (!q) return toolSavedAccounts
+    return toolSavedAccounts.filter((a) => {
+      const searchStr = `${a.name} ${a.email || ''} ${a.accountId || ''} ${a.id}`.toLowerCase()
+      return searchStr.includes(q)
+    })
+  }, [toolSavedAccounts, accountQuery])
+
+  const targetAccount = useMemo(() => {
+    if (selectedAccountId) {
+      const found = toolSavedAccounts.find((a) => a.id === selectedAccountId)
+      if (found) return found
+    }
+    return activeAccount || toolSavedAccounts[0] || null
+  }, [toolSavedAccounts, selectedAccountId, activeAccount])
 
   const currentToolDefinition = useMemo<ToolDefinition>(() => {
     return TOOLS.find((t) => t.id === selectedTool) || TOOLS[0]
@@ -913,6 +952,7 @@ export function AccountSettings({
       await loadData()
 
       if (session.accountId) {
+        setSelectedAccountId(session.accountId)
         handleRefreshAccountQuota(session.accountId)
       } else {
         enqueueVisibleQuotas(true)
@@ -1240,7 +1280,9 @@ export function AccountSettings({
       </button>
     ) : null
 
-  const contextualNoticeNode = currentDiscoveryNotice ? (
+  const discoveryNoticeDuplicatesToolError = Boolean(currentDiscoveryNotice && currentToolState?.error &&
+    (currentDiscoveryNotice.message === currentToolState.error || getDiscoveryNoticeText(currentDiscoveryNotice) === currentToolState.error))
+  const contextualNoticeNode = currentDiscoveryNotice && !discoveryNoticeDuplicatesToolError ? (
     <div
       className={`account-contextual-callout account-contextual-callout--${currentDiscoveryNotice.status}`}
       role="status"
@@ -1295,6 +1337,7 @@ export function AccountSettings({
       setShowAddAccountModal(false)
       onNotify?.(loc.importSuccess(created.name), 'success')
       await loadData()
+      setSelectedAccountId(created.id)
     } catch (err: unknown) {
       setImportCredential('')
       await handleFailure(err, 'Failed to import credential.')
@@ -1476,9 +1519,38 @@ export function AccountSettings({
 
     if (presentation === 'workspace') {
       return (
-        <section className="app-col-detail account-workbench-stage view-enter">
-          <div className="account-workbench-wrap">{unavailableContent}</div>
-        </section>
+        <>
+          <aside className="app-col-master view-enter">
+            <div className="master-header">
+              <div className="master-header-top">
+                <div role="tablist" aria-label="AI Tools" className="master-tab-segmented" style={{ width: '100%' }}>
+                  {TOOLS.map((tool) => (
+                    <button
+                      key={tool.id}
+                      type="button"
+                      role="tab"
+                      aria-label={loc[tool.labelKey] || tool.brand}
+                      className="master-tab-btn"
+                      disabled
+                      style={{ height: '24px', padding: '0 4px', fontSize: '0.6875rem' }}
+                    >
+                      <AIToolLogo toolId={tool.id} size={12} color />
+                      <span>{TOOL_SHORT_NAMES[tool.id]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="master-list-scroll">
+              <div className="master-empty-state">
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{loc.unavailableTitle}</p>
+              </div>
+            </div>
+          </aside>
+          <main className="app-col-detail view-enter">
+            <div className="detail-stage-wrap">{unavailableContent}</div>
+          </main>
+        </>
       )
     }
 
@@ -1771,7 +1843,7 @@ export function AccountSettings({
           }
         >
           <div
-            className="account-modal-box"
+            className="account-modal-box account-modal-box--sm"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="account-modal-header">
@@ -1853,7 +1925,7 @@ export function AccountSettings({
           }
         >
           <div
-            className="account-modal-box"
+            className="account-modal-box account-modal-box--sm"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="account-modal-header">
@@ -2023,18 +2095,19 @@ export function AccountSettings({
     </div>
   )
 
-  // 1. Workspace Presentation (Two Columns overall: Left app nav + full right workbench)
+  // 1. Workspace Presentation (macOS Pro 3-Column: Left app nav + Master accounts list + Detail stage)
   if (presentation === 'workspace') {
     return (
       <>
-        <section className="app-col-detail account-workbench-stage view-enter" aria-label={loc.headerTitle}>
-          <div className="account-workbench-wrap">
-            {/* Compact header: tool tabs on the left, account actions on the right. */}
-            <div className="account-workbench-header">
+        {/* Column 2: Master List of Accounts for Selected Tool (Width: 210px) */}
+        <aside className="app-col-master view-enter">
+          <div className="master-header">
+            <div className="master-header-top">
               <div
                 role="tablist"
                 aria-label="AI Tools"
-                className="account-tool-tabs"
+                className="master-tab-segmented"
+                style={{ width: '100%' }}
               >
                 {TOOLS.map((tool, index) => {
                   const isSelected = selectedTool === tool.id
@@ -2047,12 +2120,10 @@ export function AccountSettings({
                       id={`account-tab-${tool.id}`}
                       type="button"
                       role="tab"
+                      aria-label={loc[tool.labelKey] || tool.brand}
                       aria-selected={isSelected}
-                      aria-controls={`account-panel-${tool.id}`}
                       tabIndex={isSelected ? 0 : -1}
-                      className={`account-tool-tab-btn ${
-                        isSelected ? 'account-tool-tab-btn--active' : ''
-                      }`}
+                      className={`master-tab-btn ${isSelected ? 'is-active' : ''}`}
                       onClick={() => {
                         if (!isBusy && !isOAuthPending && selectedTool !== tool.id) {
                           setSelectedTool(tool.id)
@@ -2061,41 +2132,106 @@ export function AccountSettings({
                       }}
                       onKeyDown={(e) => handleTabKeyDown(e, index)}
                       disabled={isBusy || isOAuthPending}
+                      style={{ height: '24px', padding: '0 4px', fontSize: '0.6875rem' }}
                     >
-                      <AIToolLogo toolId={tool.id} size={13} color />
-                      <span>{loc[tool.pureLabelKey] || tool.pureName}</span>
+                      <AIToolLogo toolId={tool.id} size={12} color />
+                      <span>{TOOL_SHORT_NAMES[tool.id]}</span>
                     </button>
                   )
                 })}
               </div>
-              <div className="account-workbench-actions">
-                {canRollback && (
-                  <button
-                    type="button"
-                    className="account-btn account-btn--sm"
-                    onClick={handleRollback}
-                    disabled={isBusy || isOAuthPending}
-                    title={loc.rollbackBtn}
-                  >
-                    <RotateCcw size={11} />
-                    <span>{isBusy ? loc.rollingBackBtn : loc.rollbackBtn}</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="account-btn account-btn--primary"
-                  onClick={() => openAddAccount('oauth')}
-                  disabled={isBusy || isOAuthPending}
-                >
-                  <Plus size={12} />
-                  <span>{loc.addAccountBtn}</span>
-                </button>
-              </div>
             </div>
 
-            {/* Error Callout */}
-            {errorMessage && (
-              <div className="account-error-callout" role="alert">
+            <div className="master-search-row">
+              <label className="master-search-input">
+                <Search size={13} />
+                <input
+                  type="text"
+                  placeholder="搜索账号…"
+                  value={accountQuery}
+                  onChange={(e) => setAccountQuery(e.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn--capsule btn--primary"
+                style={{ height: '24px', padding: '0 8px', fontSize: '0.75rem' }}
+                onClick={() => openAddAccount('oauth')}
+                disabled={isBusy || isOAuthPending}
+                title={loc.addAccountBtn}
+              >
+                <Plus size={13} />
+              </button>
+            </div>
+          </div>
+
+          <div className="master-list-scroll">
+            {toolSavedAccounts.length === 0 ? (
+              <div className="master-empty-state">
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', padding: '16px 8px' }}>
+                  {loc.emptyAccountsTitle}
+                  <br />
+                  <span style={{ fontSize: '0.6875rem', opacity: 0.7 }}>点击上方「+」添加账号</span>
+                </p>
+              </div>
+            ) : filteredAccounts.length === 0 ? (
+              <div className="master-empty-state">
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', padding: '16px 8px' }}>
+                  未匹配到账号
+                </p>
+                <button
+                  type="button"
+                  className="btn btn--capsule btn--secondary btn--sm"
+                  style={{ marginTop: '8px' }}
+                  onClick={() => setAccountQuery('')}
+                >
+                  清空搜索
+                </button>
+              </div>
+            ) : (
+              filteredAccounts.map((account) => {
+                const isSelected = targetAccount?.id === account.id
+                const isActive = account.id === activeAccountId
+                return (
+                  <button
+                    key={account.id}
+                    ref={isSelected ? selectedItemRef : undefined}
+                    type="button"
+                    className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
+                    onClick={() => setSelectedAccountId(account.id)}
+                  >
+                    <div className="master-item-logo">
+                      <AIToolLogo toolId={account.tool} size={14} color />
+                    </div>
+                    <div className="master-item-content">
+                      <div className="master-item-title-row">
+                        <span className="master-item-title">{account.name}</span>
+                        {isActive && (
+                          <span className="badge badge--success" style={{ fontSize: '0.625rem', padding: '1px 5px' }}>
+                            当前
+                          </span>
+                        )}
+                      </div>
+                      <span className="master-item-sub font-mono">
+                        {account.email || account.accountId || account.id.slice(0, 8)}
+                      </span>
+                    </div>
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </aside>
+
+        {/* Column 3: Detail Stage (Width: minmax(0, 1fr)) */}
+        <main className="app-col-detail view-enter" style={{ overflowY: 'auto' }}>
+          <div className="detail-stage-wrap">
+            {capabilityStripNode}
+            {contextualNoticeNode}
+            {nativeAccessButton}
+
+            {errorMessage && errorMessage !== currentToolState?.error && (
+              <div className="account-error-callout" role="alert" style={{ marginBottom: '12px' }}>
                 <span>{errorMessage}</span>
                 <button
                   type="button"
@@ -2108,9 +2244,28 @@ export function AccountSettings({
               </div>
             )}
 
-            {/* Recovery Banner */}
+            {overview?.legacyProfilesPresent && (
+              <div className="account-legacy-notice" role="status" style={{ marginBottom: '12px' }}>
+                <Info size={14} className="account-legacy-icon" />
+                <div>
+                  <strong>{loc.legacyNoticeTitle}：</strong>
+                  <span>{loc.legacyNoticeDesc}</span>
+                </div>
+              </div>
+            )}
+
+            {currentToolState?.error && (
+              <div className="account-tool-error-callout" role="alert" style={{ marginBottom: '12px' }}>
+                <AlertTriangle size={14} className="account-tool-error-icon" />
+                <div className="account-tool-error-body">
+                  <strong>{loc.toolErrorTitle}</strong>
+                  <span>{currentToolState.error}</span>
+                </div>
+              </div>
+            )}
+
             {isRecoveryNeeded && (
-              <div className="account-recovery-banner" role="status">
+              <div className="account-recovery-banner" role="status" style={{ marginBottom: '16px' }}>
                 <div className="account-recovery-info">
                   <AlertTriangle size={18} className="account-recovery-icon" />
                   <div className="account-recovery-text">
@@ -2130,25 +2285,185 @@ export function AccountSettings({
               </div>
             )}
 
-            {/* Tool State Error Callout */}
-            {currentToolState?.error && (
-              <div className="account-tool-error-callout" role="alert">
-                <AlertTriangle size={14} className="account-tool-error-icon" />
-                <div className="account-tool-error-body">
-                  <strong>{loc.toolErrorTitle}</strong>
-                  <span>{currentToolState.error}</span>
+            {(activeIdentity || activeAccount) && (
+              <div className="account-active-identity-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 12px', borderRadius: 'var(--radius-md, 8px)', background: 'var(--control-bg, rgba(255,255,255,0.04))', border: '1px solid var(--control-border, rgba(255,255,255,0.08))', marginBottom: '12px', fontSize: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                  <span style={{ color: 'var(--color-muted, rgba(255,255,255,0.6))', fontSize: '0.6875rem' }}>{loc.activeIdentityLabel}</span>
+                  <span className="account-tool-identity-chip" style={{ fontSize: '0.6875rem', padding: '1px 6px' }}>
+                    <User size={11} />
+                    <span>
+                      {activeAccount?.name || activeIdentity}
+                      {activeAccount?.email && activeAccount.name !== activeAccount.email ? ` (${activeAccount.email})` : ''}
+                    </span>
+                  </span>
                 </div>
+                {canRollback && !targetAccount && (
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary btn--sm"
+                    onClick={handleRollback}
+                    disabled={isBusy || isOAuthPending}
+                    title={loc.rollbackBtn}
+                  >
+                    <RotateCcw size={11} />
+                    <span>{isBusy ? loc.rollingBackBtn : loc.rollbackBtn}</span>
+                  </button>
+                )}
               </div>
             )}
 
-            {/* Contextual Discovery Notice */}
-            {contextualNoticeNode}
-            {nativeAccessButton}
+            {targetAccount ? (
+              <>
+                {/* Detail Hero Header */}
+                <header className="detail-hero-header" style={{ marginBottom: '16px' }}>
+                  <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                      <AIToolLogo toolId={targetAccount.tool} size={20} color />
+                      <h1 className="detail-hero-name" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>
+                        {targetAccount.name}
+                      </h1>
+                      {targetAccount.id === activeAccountId ? (
+                        <span className="badge badge--success" style={{ fontSize: '0.6875rem' }}>
+                          <Check size={11} style={{ marginRight: '3px' }} />
+                          当前使用中
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn--capsule btn--primary btn--sm"
+                          onClick={() => handleDirectSwitch(targetAccount)}
+                          disabled={isBusy || isOAuthPending || !isAvailable || isRecoveryNeeded}
+                        >
+                          <ArrowRightLeft size={11} />
+                          <span>切换为此账号</span>
+                        </button>
+                      )}
+                    </div>
 
-            {/* Account Cards Grid */}
-            {gridContentNode}
+                    <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      {canRollback && (
+                        <button
+                          type="button"
+                          className="btn btn--capsule btn--secondary btn--sm"
+                          onClick={handleRollback}
+                          disabled={isBusy || isOAuthPending}
+                          title={loc.rollbackBtn}
+                        >
+                          <RotateCcw size={12} />
+                          <span>{isBusy ? loc.rollingBackBtn : loc.rollbackBtn}</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        className="btn btn--capsule btn--secondary btn--sm"
+                        onClick={() => handleRefreshAccountQuota(targetAccount.id)}
+                        disabled={inFlightQuotas.has(targetAccount.id) || isBusy}
+                        title="刷新额度"
+                      >
+                        <RefreshCw size={12} className={inFlightQuotas.has(targetAccount.id) ? 'spin' : ''} />
+                        <span>刷新额度</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn--capsule btn--secondary btn--sm"
+                        onClick={() => {
+                          setRenameName(targetAccount.name)
+                          setPendingRenameAccount(targetAccount)
+                        }}
+                        disabled={isBusy}
+                        title="重命名"
+                      >
+                        <Pencil size={12} />
+                        <span>重命名</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn--capsule btn--danger btn--sm"
+                        onClick={() => setPendingDeleteAccount(targetAccount)}
+                        disabled={isBusy}
+                        title="删除账号"
+                      >
+                        <Trash2 size={12} />
+                        <span>删除</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="detail-hero-header__row2" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <span className="font-mono">{targetAccount.email || targetAccount.accountId || targetAccount.id}</span>
+                    <span style={{ opacity: 0.4 }}>•</span>
+                    <span>更新时间: {formatDate(targetAccount.updatedAt)}</span>
+                    {targetAccount.createdAt && (
+                      <>
+                        <span style={{ opacity: 0.4 }}>•</span>
+                        <span>{loc.createdDatePrefix} {formatDate(targetAccount.createdAt)}</span>
+                      </>
+                    )}
+                    {targetAccount.expiresAt && (
+                      <>
+                        <span style={{ opacity: 0.4 }}>•</span>
+                        <span>{loc.expiresDatePrefix}: {formatDate(targetAccount.expiresAt)}</span>
+                      </>
+                    )}
+                  </div>
+                </header>
+
+                {/* Quota Details Card */}
+                <div style={{ marginTop: '8px' }}>
+                  <AccountQuotaCard
+                    presentation="detail"
+                    account={targetAccount}
+                    isActive={targetAccount.id === activeAccountId}
+                    isAvailable={isAvailable}
+                    isBusy={isBusy || isOAuthPending}
+                    isSwitching={switchingAccountId === targetAccount.id}
+                    isRecoveryNeeded={isRecoveryNeeded}
+                    unsupportedReason={currentCapability?.reason}
+                    snapshot={quotas[targetAccount.id]}
+                    renewal={overview?.refreshes?.find(state => state.accountId === targetAccount.id)}
+                    onReauthenticate={() => openAddAccount('oauth')}
+                    isQuotaLoading={inFlightQuotas.has(targetAccount.id)}
+                    onSwitch={handleDirectSwitch}
+                    onRename={(acc) => {
+                      setRenameName(acc.name)
+                      setPendingRenameAccount(acc)
+                    }}
+                    onDelete={(acc) => setPendingDeleteAccount(acc)}
+                    onRefreshQuota={handleRefreshAccountQuota}
+                    formatDate={formatDate}
+                    loc={loc}
+                    locale={resolvedLocale}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="account-empty-state" style={{ padding: '60px 0' }}>
+                <span className="account-empty-title">{loc.emptyAccountsTitle}</span>
+                <span className="account-empty-desc">{loc.emptyAccountsDesc}</span>
+                {canRollback && (
+                  <div style={{ marginTop: '16px' }}>
+                    <button
+                      type="button"
+                      className="btn btn--capsule btn--secondary btn--sm"
+                      onClick={handleRollback}
+                      disabled={isBusy || isOAuthPending}
+                      title={loc.rollbackBtn}
+                    >
+                      <RotateCcw size={12} />
+                      <span>{isBusy ? loc.rollingBackBtn : loc.rollbackBtn}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="account-security-notice" style={{ marginTop: '16px' }}>{loc.securityNotice}</p>
+            <p className="account-security-notice" style={{ marginTop: '4px' }}>{loc.sessionsNotice}</p>
           </div>
-        </section>
+        </main>
         {modalsNode}
       </>
     )

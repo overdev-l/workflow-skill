@@ -392,7 +392,7 @@ export function SkillLinkManagerWindow() {
       </div>
 
       {/* Main Content Area */}
-      <div className="env-tree-body" style={{ flex: 1, maxHeight: 'none', padding: '10px 14px' }}>
+      <div className="env-tree-body" style={{ flex: 1, minHeight: 0, overflowY: 'auto', maxHeight: 'none', padding: '10px 14px' }}>
         {activeTab === 'global' ? (
           /* List 1: Installed AI Global Environments */
           <div className="env-clean-list">

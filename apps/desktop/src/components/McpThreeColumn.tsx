@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   Check,
+  ChevronDown,
+  ChevronUp,
   Folder,
   FolderPlus,
   Layers,
@@ -143,6 +145,7 @@ export function McpThreeColumn({
   // Delete Confirm State
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [distExpanded, setDistExpanded] = useState(false)
 
   const isBusy = formSaving || toggling || deleting || loading || createSaving
 
@@ -870,7 +873,7 @@ export function McpThreeColumn({
             <div className="mcp-hero-header">
               <div className="mcp-hero-left">
                 <div className="mcp-hero-logo-box">
-                  <Layers size={24} style={{ color: 'var(--color-accent)' }} />
+                  <Layers size={20} style={{ color: 'var(--color-accent)' }} />
                 </div>
                 <div className="mcp-hero-titles">
                   <div className="mcp-hero-title-row">
@@ -936,249 +939,7 @@ export function McpThreeColumn({
               <span>{t.mcp.restartNotice}</span>
             </div>
 
-            {/* 1. Target Injection Matrix Card (OPC-56 Core) */}
-            <div className="mcp-card">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div>
-                  <h3 className="mcp-card-title" style={{ margin: 0 }}>目标环境注入矩阵 (Target Injection Matrix)</h3>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '2px 0 0' }}>
-                    集中分发并注入到全局 AI 宿主或特定工程项目中，修改中央定义会自动同步到所有已注入目标。
-                  </p>
-                </div>
-              </div>
-
-              {/* Sub-section: Global Tools */}
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-ink)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>全局 AI 宿主环境</span>
-                  <span className="branch-badge font-mono">
-                    {(selectedServer.targetAssociations || []).filter((a) => a.scope === 'global').length}/{MCP_SOURCE_TOOLS.length}
-                  </span>
-                </div>
-
-                <div className="mcp-dist-matrix">
-                  {MCP_SOURCE_TOOLS.map((tool) => {
-                    const assoc = getTargetAssociation(tool.id, 'global')
-                    const isAssociated = Boolean(assoc)
-                    const isSynced = assoc?.lastSyncStatus === 'synced'
-                    const isFailed = assoc?.lastSyncStatus === 'failed'
-                    const supportedTransports = TOOL_TRANSPORT_SUPPORT[tool.id] || []
-                    const isCompatible = supportedTransports.includes(selectedServer.transport)
-                    const opKey = `${tool.id}:global:`
-                    const isOperating = Boolean(targetOperating[opKey])
-
-                    let statusBadge = <span className="mcp-dist-status-badge is-none">未注入</span>
-                    if (isFailed) {
-                      statusBadge = (
-                        <span
-                          className="mcp-dist-status-badge is-diff"
-                          style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-ink)', borderColor: 'color-mix(in oklch, var(--color-danger) 30%, transparent)' }}
-                          title={assoc?.lastError || '同步写入目标失败'}
-                        >
-                          同步失败
-                        </span>
-                      )
-                    } else if (isSynced) {
-                      statusBadge = <span className="mcp-dist-status-badge is-synced">已注入</span>
-                    }
-
-                    return (
-                      <div key={tool.id} className={`mcp-dist-card ${isAssociated ? 'is-current' : ''}`}>
-                        <div className="mcp-dist-card__top">
-                          <div className="mcp-dist-card__tool">
-                            <AIToolLogo toolId={tool.id} size={18} color />
-                            <span className="mcp-dist-card__name">{tool.name}</span>
-                          </div>
-                          {statusBadge}
-                        </div>
-
-                        <div className="mcp-dist-card__path">
-                          {tool.globalConfigFileName}
-                        </div>
-
-                        {!isCompatible ? (
-                          <div style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', fontStyle: 'italic', marginTop: 4 }}>
-                            此宿主不支持 {selectedServer.transport} 传输
-                          </div>
-                        ) : isFailed && assoc?.lastError ? (
-                          <div style={{ fontSize: '0.6875rem', color: 'var(--color-danger-ink)', marginTop: 4, wordBreak: 'break-all' }}>
-                            {assoc.lastError}
-                          </div>
-                        ) : null}
-
-                        <div className="mcp-dist-card__footer">
-                          {isAssociated ? (
-                            <button
-                              type="button"
-                              className="btn btn--capsule-ghost btn--sm"
-                              style={{ height: '22px', fontSize: '0.6875rem', color: 'var(--color-danger-ink)' }}
-                              disabled={isOperating || isBusy}
-                              onClick={() => void handleUninject({ tool: tool.id, scope: 'global' })}
-                            >
-                              {isOperating ? <RefreshCw size={10} className="spin" /> : <X size={10} />}
-                              <span>取消注入</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn btn--capsule btn--sm"
-                              style={{ height: '22px', fontSize: '0.6875rem' }}
-                              disabled={!isCompatible || isOperating || isBusy}
-                              onClick={() => void handleInject({ tool: tool.id, scope: 'global' })}
-                            >
-                              {isOperating ? <RefreshCw size={10} className="spin" /> : <Plus size={10} />}
-                              <span>注入</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Sub-section: Project Environments */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>工程项目环境</span>
-                  </div>
-
-                  {projects.length > 0 ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Folder size={12} style={{ color: 'var(--color-accent)' }} />
-                      <select
-                        value={selectedProjectPath}
-                        onChange={(e) => setSelectedProjectPath(e.target.value)}
-                      >
-                        {projects.map((p) => (
-                          <option key={p.id} value={p.path}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className="btn btn--capsule-ghost btn--sm"
-                        title="添加项目文件夹"
-                        onClick={handleAddProject}
-                      >
-                        <FolderPlus size={11} />
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-
-                {projects.length === 0 ? (
-                  <div
-                    style={{
-                      padding: '12px',
-                      background: 'var(--color-surface)',
-                      border: '1px dashed var(--color-border)',
-                      borderRadius: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                      尚未登记工程项目。添加项目后即可将 MCP 服务注入到项目专有的 .mcp.json 等配置中。
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn--capsule btn--sm"
-                      onClick={handleAddProject}
-                    >
-                      <FolderPlus size={12} />
-                      <span>添加项目</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="mcp-dist-matrix">
-                    {PROJECT_SUPPORTED_TOOLS.map((toolId) => {
-                      const tool = MCP_SOURCE_TOOLS.find((t) => t.id === toolId)!
-                      const assoc = getTargetAssociation(toolId, 'project', selectedProjectPath)
-                      const isAssociated = Boolean(assoc)
-                      const isSynced = assoc?.lastSyncStatus === 'synced'
-                      const isFailed = assoc?.lastSyncStatus === 'failed'
-                      const supportedTransports = TOOL_TRANSPORT_SUPPORT[toolId] || []
-                      const isCompatible = supportedTransports.includes(selectedServer.transport)
-                      const opKey = `${toolId}:project:${selectedProjectPath}`
-                      const isOperating = Boolean(targetOperating[opKey])
-
-                      let statusBadge = <span className="mcp-dist-status-badge is-none">未注入</span>
-                      if (isFailed) {
-                        statusBadge = (
-                          <span
-                            className="mcp-dist-status-badge is-diff"
-                            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-ink)', borderColor: 'color-mix(in oklch, var(--color-danger) 30%, transparent)' }}
-                            title={assoc?.lastError || '同步写入项目配置失败'}
-                          >
-                            同步失败
-                          </span>
-                        )
-                      } else if (isSynced) {
-                        statusBadge = <span className="mcp-dist-status-badge is-synced">已注入</span>
-                      }
-
-                      return (
-                        <div key={toolId} className={`mcp-dist-card ${isAssociated ? 'is-current' : ''}`}>
-                          <div className="mcp-dist-card__top">
-                            <div className="mcp-dist-card__tool">
-                              <AIToolLogo toolId={toolId} size={18} color />
-                              <span className="mcp-dist-card__name">{tool.name}</span>
-                            </div>
-                            {statusBadge}
-                          </div>
-
-                          <div className="mcp-dist-card__path font-mono">
-                            {tool.projectConfigFileName}
-                          </div>
-
-                          {!isCompatible ? (
-                            <div style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', fontStyle: 'italic', marginTop: 4 }}>
-                              此工具项目配置不支持 {selectedServer.transport}
-                            </div>
-                          ) : isFailed && assoc?.lastError ? (
-                            <div style={{ fontSize: '0.6875rem', color: 'var(--color-danger-ink)', marginTop: 4, wordBreak: 'break-all' }}>
-                              {assoc.lastError}
-                            </div>
-                          ) : null}
-
-                          <div className="mcp-dist-card__footer">
-                            {isAssociated ? (
-                              <button
-                                type="button"
-                                className="btn btn--capsule-ghost btn--sm"
-                                style={{ height: '22px', fontSize: '0.6875rem', color: 'var(--color-danger-ink)' }}
-                                disabled={isOperating || isBusy}
-                                onClick={() => void handleUninject({ tool: toolId, scope: 'project', projectPath: selectedProjectPath })}
-                              >
-                                {isOperating ? <RefreshCw size={10} className="spin" /> : <X size={10} />}
-                                <span>取消注入</span>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="btn btn--capsule btn--sm"
-                                style={{ height: '22px', fontSize: '0.6875rem' }}
-                                disabled={!isCompatible || isOperating || isBusy}
-                                onClick={() => void handleInject({ tool: toolId, scope: 'project', projectPath: selectedProjectPath })}
-                              >
-                                {isOperating ? <RefreshCw size={10} className="spin" /> : <Plus size={10} />}
-                                <span>注入项目</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 2. Main Configuration Card */}
+            {/* 1. Main Configuration Card (Preceding Injection per DESIGN.md §8.7) */}
             <div className="mcp-card">
               <h3 className="mcp-card-title">
                 <span>{t.mcp.configCardTitle}</span>
@@ -1256,9 +1017,10 @@ export function McpThreeColumn({
                       />
                     </div>
 
+                    {/* Lossless Args List */}
                     <div className="mcp-form-field">
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <label className="mcp-field-label" style={{ margin: 0 }}>{t.mcp.argsLabel}</label>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <label className="mcp-field-label">{t.mcp.argsLabel}</label>
                         <button
                           type="button"
                           className="btn btn--capsule-ghost btn--sm"
@@ -1269,41 +1031,34 @@ export function McpThreeColumn({
                           <span>{t.mcp.addArgBtn}</span>
                         </button>
                       </div>
+
                       <div className="mcp-args-list">
-                        {formArgs.length === 0 ? (
-                          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', fontStyle: 'italic', padding: '4px 0' }}>
-                            {t.mcp.argsPlaceholder}
+                        {formArgs.map((arg, idx) => (
+                          <div key={idx} className="mcp-arg-row">
+                            <input
+                              className="mcp-arg-input font-mono"
+                              placeholder={t.mcp.argPlaceholder}
+                              value={arg}
+                              onChange={(e) => {
+                                const next = [...formArgs]
+                                next[idx] = e.target.value
+                                setFormArgs(next)
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="mcp-arg-delete-btn"
+                              onClick={() => setFormArgs(formArgs.filter((_, i) => i !== idx))}
+                              title="Delete"
+                            >
+                              <X size={12} />
+                            </button>
                           </div>
-                        ) : (
-                          formArgs.map((arg, idx) => (
-                            <div key={idx} className="mcp-arg-row">
-                              <textarea
-                                rows={1}
-                                aria-label={`${t.mcp.argsLabel} ${idx + 1}`}
-                                className="mcp-arg-input"
-                                placeholder={t.mcp.argPlaceholder}
-                                value={arg}
-                                onChange={(e) => {
-                                  const next = [...formArgs]
-                                  next[idx] = e.target.value
-                                  setFormArgs(next)
-                                }}
-                              />
-                              <button
-                                type="button"
-                                className="btn btn--capsule-ghost btn--sm"
-                                style={{ width: '22px', height: '22px', padding: 0 }}
-                                onClick={() => setFormArgs(formArgs.filter((_, i) => i !== idx))}
-                                title="Delete"
-                              >
-                                <X size={11} />
-                              </button>
-                            </div>
-                          ))
-                        )}
+                        ))}
                       </div>
                     </div>
 
+                    {/* CWD */}
                     <div className="mcp-form-field">
                       <label className="mcp-field-label">{t.mcp.cwdLabel}</label>
                       <input
@@ -1314,7 +1069,7 @@ export function McpThreeColumn({
                       />
                     </div>
 
-                    {/* Environment Variables Key-Value List */}
+                    {/* Env Variables Key-Value List */}
                     <div className="mcp-form-field">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <label className="mcp-field-label">{t.mcp.envLabel}</label>
@@ -1333,7 +1088,7 @@ export function McpThreeColumn({
                         {formEnvPairs.map((pair, idx) => (
                           <div key={idx} className="mcp-kv-row">
                             <input
-                              className="mcp-kv-input"
+                              className="mcp-kv-input font-mono"
                               placeholder={t.mcp.keyPlaceholder}
                               value={pair.key}
                               onChange={(e) => {
@@ -1482,6 +1237,234 @@ export function McpThreeColumn({
                   </>
                 )}
               </div>
+            </div>
+
+            {/* 2. Target Injection Section (Collapsible & Flat Rows per DESIGN.md §8.7) */}
+            <div className="mcp-card">
+              <div
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: distExpanded ? 12 : 0, cursor: 'pointer', userSelect: 'none' }}
+                onClick={() => setDistExpanded(!distExpanded)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <h3 className="mcp-card-title" style={{ margin: 0 }}>目标环境注入</h3>
+                  <span className="pinned-ver-pill font-mono">
+                    已注入 {(selectedServer.targetAssociations || []).length} 个目标
+                  </span>
+                </div>
+                <button type="button" className="btn btn--capsule-ghost btn--sm icon-only" aria-label={distExpanded ? '折叠' : '展开'}>
+                  {distExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                </button>
+              </div>
+
+              {distExpanded && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {/* Global Tools */}
+                  <div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-ink)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>全局 AI 宿主环境</span>
+                      <span className="branch-badge font-mono">
+                        {(selectedServer.targetAssociations || []).filter((a) => a.scope === 'global').length}/{MCP_SOURCE_TOOLS.length}
+                      </span>
+                    </div>
+
+                    <div className="mcp-dist-flat-list">
+                      {MCP_SOURCE_TOOLS.map((tool) => {
+                        const assoc = getTargetAssociation(tool.id, 'global')
+                        const isAssociated = Boolean(assoc)
+                        const isSynced = assoc?.lastSyncStatus === 'synced'
+                        const isFailed = assoc?.lastSyncStatus === 'failed'
+                        const supportedTransports = TOOL_TRANSPORT_SUPPORT[tool.id] || []
+                        const isCompatible = supportedTransports.includes(selectedServer.transport)
+                        const opKey = `${tool.id}:global:`
+                        const isOperating = Boolean(targetOperating[opKey])
+
+                        let statusText = '未注入'
+                        let statusClass = 'is-none'
+                        if (isFailed) {
+                          statusText = '同步失败'
+                          statusClass = 'is-diff'
+                        } else if (isSynced) {
+                          statusText = '已注入'
+                          statusClass = 'is-synced'
+                        }
+
+                        return (
+                          <div key={tool.id} className="mcp-dist-flat-row">
+                            <div className="mcp-dist-flat-left">
+                              <AIToolLogo toolId={tool.id} size={18} color />
+                              <span className="mcp-dist-flat-name">{tool.name}</span>
+                              <span className="mcp-dist-flat-path font-mono">{tool.globalConfigFileName}</span>
+                              {!isCompatible ? (
+                                <span style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>
+                                  不支持 {selectedServer.transport}
+                                </span>
+                              ) : isFailed && assoc?.lastError ? (
+                                <span style={{ fontSize: '0.6875rem', color: 'var(--color-danger-ink)' }}>
+                                  {assoc.lastError}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <div className="mcp-dist-flat-right">
+                              <span className={`mcp-dist-status-badge ${statusClass}`}>{statusText}</span>
+                              {isAssociated ? (
+                                <button
+                                  type="button"
+                                  className="btn btn--capsule-ghost btn--sm"
+                                  style={{ color: 'var(--color-danger-ink)' }}
+                                  disabled={isOperating || isBusy}
+                                  onClick={() => void handleUninject({ tool: tool.id, scope: 'global' })}
+                                >
+                                  {isOperating ? <RefreshCw size={10} className="spin" /> : <X size={10} />}
+                                  <span>取消注入</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="btn btn--capsule btn--sm"
+                                  disabled={!isCompatible || isOperating || isBusy}
+                                  onClick={() => void handleInject({ tool: tool.id, scope: 'global' })}
+                                >
+                                  {isOperating ? <RefreshCw size={10} className="spin" /> : <Plus size={10} />}
+                                  <span>注入</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Project Environments */}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>工程项目环境</span>
+                      </div>
+
+                      {projects.length > 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Folder size={12} style={{ color: 'var(--color-accent)' }} />
+                          <select
+                            value={selectedProjectPath}
+                            onChange={(e) => setSelectedProjectPath(e.target.value)}
+                          >
+                            {projects.map((p) => (
+                              <option key={p.id} value={p.path}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className="btn btn--capsule-ghost btn--sm"
+                            title="添加项目文件夹"
+                            onClick={handleAddProject}
+                          >
+                            <FolderPlus size={11} />
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {projects.length === 0 ? (
+                      <div
+                        style={{
+                          padding: '8px 12px',
+                          background: 'var(--color-surface)',
+                          border: '1px dashed var(--color-border)',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                          尚未登记工程项目。添加项目后即可将 MCP 服务注入到项目配置中。
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn--capsule btn--sm"
+                          onClick={handleAddProject}
+                        >
+                          <FolderPlus size={12} />
+                          <span>添加项目</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mcp-dist-flat-list">
+                        {PROJECT_SUPPORTED_TOOLS.map((toolId) => {
+                          const tool = MCP_SOURCE_TOOLS.find((t) => t.id === toolId)!
+                          const assoc = getTargetAssociation(toolId, 'project', selectedProjectPath)
+                          const isAssociated = Boolean(assoc)
+                          const isSynced = assoc?.lastSyncStatus === 'synced'
+                          const isFailed = assoc?.lastSyncStatus === 'failed'
+                          const supportedTransports = TOOL_TRANSPORT_SUPPORT[toolId] || []
+                          const isCompatible = supportedTransports.includes(selectedServer.transport)
+                          const opKey = `${toolId}:project:${selectedProjectPath}`
+                          const isOperating = Boolean(targetOperating[opKey])
+
+                          let statusText = '未注入'
+                          let statusClass = 'is-none'
+                          if (isFailed) {
+                            statusText = '同步失败'
+                            statusClass = 'is-diff'
+                          } else if (isSynced) {
+                            statusText = '已注入'
+                            statusClass = 'is-synced'
+                          }
+
+                          return (
+                            <div key={toolId} className="mcp-dist-flat-row">
+                              <div className="mcp-dist-flat-left">
+                                <AIToolLogo toolId={toolId} size={18} color />
+                                <span className="mcp-dist-flat-name">{tool.name}</span>
+                                <span className="mcp-dist-flat-path font-mono">{tool.projectConfigFileName}</span>
+                                {!isCompatible ? (
+                                  <span style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>
+                                    不支持 {selectedServer.transport}
+                                  </span>
+                                ) : isFailed && assoc?.lastError ? (
+                                  <span style={{ fontSize: '0.6875rem', color: 'var(--color-danger-ink)' }}>
+                                    {assoc.lastError}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <div className="mcp-dist-flat-right">
+                                <span className={`mcp-dist-status-badge ${statusClass}`}>{statusText}</span>
+                                {isAssociated ? (
+                                  <button
+                                    type="button"
+                                    className="btn btn--capsule-ghost btn--sm"
+                                    style={{ color: 'var(--color-danger-ink)' }}
+                                    disabled={isOperating || isBusy}
+                                    onClick={() => void handleUninject({ tool: toolId, scope: 'project', projectPath: selectedProjectPath })}
+                                  >
+                                    {isOperating ? <RefreshCw size={10} className="spin" /> : <X size={10} />}
+                                    <span>取消注入</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="btn btn--capsule btn--sm"
+                                    disabled={!isCompatible || isOperating || isBusy}
+                                    onClick={() => void handleInject({ tool: toolId, scope: 'project', projectPath: selectedProjectPath })}
+                                  >
+                                    {isOperating ? <RefreshCw size={10} className="spin" /> : <Plus size={10} />}
+                                    <span>注入项目</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
