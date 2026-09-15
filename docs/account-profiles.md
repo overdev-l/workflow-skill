@@ -91,7 +91,7 @@ pnpm build
 
 2026-09-15 额度展示修复：Antigravity 每个可识别模型分别显示 5 小时与周额度；周额度来自 `retrieveUserQuotaSummary` 的 Gemini／Claude-GPT 模型组，查询失败只将周额度标为未知，不影响有效的 5 小时额度。Codex 与 Claude Code 的既有周期展示保持不变。
 
-2026-09-16 Antigravity UI 展示修复：账号管理按当前模型选择器的 7 个可见模型收敛展示——Gemini 3.8/3.7/3.6 Flash、Gemini 3.1 Pro Low、Claude Sonnet/Opus Thinking、GPT-OSS 120B；兼容接口返回的 3.8/3.7 tiered key，每个模型作为一个紧凑分组，组内显示周额度与 5 小时额度，不再平铺内部模型变体或重复模型名称。
+2026-09-16 Antigravity UI 展示修复：账号管理按当前模型选择器的 7 个可见模型收敛展示——Gemini 3.8/3.7/3.6 Flash、Gemini 3.1 Pro Low、Claude Sonnet/Opus Thinking、GPT-OSS 120B；兼容接口返回的 3.8/3.7 tiered key，每个模型作为一个紧凑分组，组内用并排圆环显示周额度与 5 小时额度，百分比置于圆环中心、重置时间保留在右侧，不再平铺内部模型变体或重复模型名称。
 
 ### OPC-54 主动切换与进程生命周期
 

@@ -1085,39 +1085,99 @@
 }
 
 .account-quota-windows--antigravity .account-quota-model-windows {
-  gap: 3px;
-}
-
-.account-quota-windows--antigravity .account-quota-window-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "header header"
-    "bar reset";
-  align-items: center;
-  column-gap: 6px;
-  row-gap: 2px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
 }
 
-.account-quota-windows--antigravity .account-quota-window-header {
-  grid-area: header;
+.account-quota-windows--antigravity .account-quota-window-item--ring {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-direction: row;
+  gap: 5px;
+}
+
+.account-quota-window-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.account-quota-window-item--ring .account-quota-window-header {
+  display: block;
   line-height: 1.15;
 }
 
-.account-quota-windows--antigravity .account-quota-bar-track {
-  grid-area: bar;
-  height: 3px;
+.account-quota-window-item--ring .account-quota-window-label {
+  display: block;
+  line-height: 1.15;
 }
 
-.account-quota-windows--antigravity .account-quota-window-reset {
-  grid-area: reset;
+.account-quota-window-item--ring .account-quota-window-reset {
+  max-width: 100%;
   min-width: 0;
-  max-width: 48%;
+  margin-top: 2px;
   overflow: hidden;
   font-size: 0.625rem;
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.account-quota-ring {
+  position: relative;
+  display: grid;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: var(--color-ink, #ffffff);
+}
+
+.account-quota-ring svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.account-quota-ring-track,
+.account-quota-ring-fill {
+  fill: none;
+  stroke-width: 3.25;
+}
+
+.account-quota-ring-track {
+  stroke: color-mix(in oklch, var(--color-border-subtle) 78%, transparent);
+}
+
+.account-quota-ring-fill {
+  stroke: var(--color-success);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.3s ease;
+}
+
+.account-quota-ring--mid .account-quota-ring-fill {
+  stroke: var(--color-waiting);
+}
+
+.account-quota-ring--low .account-quota-ring-fill {
+  stroke: var(--color-danger);
+}
+
+.account-quota-ring--unknown .account-quota-ring-track {
+  stroke: var(--color-muted);
+  stroke-dasharray: 2 4;
+}
+
+.account-quota-ring > span {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 650;
+  line-height: 1;
 }
 
 .account-plan-notice {

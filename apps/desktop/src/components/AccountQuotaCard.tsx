@@ -143,6 +143,71 @@ function formatResetTime(resetsAt?: number, locale: string = 'zh-CN'): string | 
   }
 }
 
+const QUOTA_RING_RADIUS = 14
+const QUOTA_RING_CIRCUMFERENCE = 2 * Math.PI * QUOTA_RING_RADIUS
+
+function QuotaProgressRing({
+  percent,
+  displayValue,
+  valueLabel,
+  label,
+}: {
+  percent: number | null
+  displayValue: string
+  valueLabel: string
+  label: string
+}) {
+  const clampedPercent = percent === null
+    ? null
+    : Math.max(0, Math.min(100, percent))
+  const dashOffset = clampedPercent === null
+    ? QUOTA_RING_CIRCUMFERENCE
+    : QUOTA_RING_CIRCUMFERENCE * (1 - clampedPercent / 100)
+
+  let modifier = 'account-quota-ring--high'
+  if (clampedPercent === null) {
+    modifier = 'account-quota-ring--unknown'
+  } else if (clampedPercent < 20) {
+    modifier = 'account-quota-ring--low'
+  } else if (clampedPercent <= 50) {
+    modifier = 'account-quota-ring--mid'
+  }
+
+  return (
+    <div
+      className={`account-quota-ring ${modifier}`}
+      role="progressbar"
+      aria-label={`${label} · ${valueLabel}`}
+      aria-valuenow={clampedPercent ?? undefined}
+      aria-valuemin={clampedPercent !== null ? 0 : undefined}
+      aria-valuemax={clampedPercent !== null ? 100 : undefined}
+      aria-valuetext={valueLabel}
+      title={`${label} · ${valueLabel}`}
+    >
+      <svg viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+        <circle
+          className="account-quota-ring-track"
+          cx="18"
+          cy="18"
+          r={QUOTA_RING_RADIUS}
+        />
+        {clampedPercent !== null && (
+          <circle
+            className="account-quota-ring-fill"
+            cx="18"
+            cy="18"
+            r={QUOTA_RING_RADIUS}
+            strokeDasharray={QUOTA_RING_CIRCUMFERENCE}
+            strokeDashoffset={dashOffset}
+            transform="rotate(-90 18 18)"
+          />
+        )}
+      </svg>
+      <span>{displayValue}</span>
+    </div>
+  )
+}
+
 export function AccountQuotaCard({
   account,
   isActive,
@@ -268,6 +333,8 @@ export function AccountQuotaCard({
     const percentLabel = percent !== null && percent > 0 && percent < 1
       ? '<1'
       : percent?.toLocaleString(locale, { maximumFractionDigits: 1 })
+    const percentText = percent !== null ? `${percentLabel ?? '0'}%` : '—'
+    const valueLabel = hasPercent ? `${loc.quotaRemaining} ${percentText}` : loc.quotaUnknown
     const resetTime = formatResetTime(win.resetsAt, locale)
 
     // Determine fill bar color based on percentage
@@ -280,6 +347,32 @@ export function AccountQuotaCard({
       }
     }
 
+    if (isGroupedModelWindow) {
+      return (
+        <div key={win.id} className="account-quota-window-item account-quota-window-item--ring">
+          <QuotaProgressRing
+            percent={percent}
+            displayValue={percentText}
+            valueLabel={valueLabel}
+            label={accessibleLabel}
+          />
+          <div className="account-quota-window-copy">
+            <div className="account-quota-window-header">
+              <span className="account-quota-window-label" title={accessibleLabel}>
+                {label}
+              </span>
+            </div>
+            {resetTime && (
+              <div className="account-quota-window-reset" title={loc.quotaResetsAt(resetTime)}>
+                <Clock size={9} />
+                <span>{loc.quotaResetsAt(resetTime)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div key={win.id} className="account-quota-window-item">
         <div className="account-quota-window-header">
@@ -287,7 +380,7 @@ export function AccountQuotaCard({
             {label}
           </span>
           <span className="account-quota-window-value">
-            {hasPercent ? `${loc.quotaRemaining} ${percentLabel}%` : loc.quotaUnknown}
+            {valueLabel}
           </span>
         </div>
 
