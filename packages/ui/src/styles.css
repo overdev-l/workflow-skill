@@ -42,11 +42,11 @@
   --control-bg-disabled: oklch(0.130 0.004 250 / 0.5);
   --control-border: oklch(0.260 0.007 250);
   --control-border-hover: oklch(0.340 0.008 250);
-  --control-border-focus: oklch(0.580 0.200 250);
+  --control-border-focus: var(--control-border);
   --control-border-error: oklch(0.650 0.220 25);
   --control-placeholder: oklch(0.580 0.010 250);
   --control-ink: oklch(0.960 0.003 250);
-  --control-focus-ring: inset 0 0 0 1px var(--control-border-focus);
+  --control-focus-ring: none;
 
   /* Button Tokens */
   --btn-primary-bg: oklch(0.580 0.200 250);
@@ -144,11 +144,11 @@
   --control-bg-disabled: oklch(0.940 0.005 250 / 0.6);
   --control-border: oklch(0.830 0.010 250);
   --control-border-hover: oklch(0.740 0.015 250);
-  --control-border-focus: oklch(0.520 0.210 250);
+  --control-border-focus: var(--control-border);
   --control-border-error: oklch(0.550 0.200 25);
   --control-placeholder: oklch(0.460 0.015 250);
   --control-ink: oklch(0.160 0.010 250);
-  --control-focus-ring: inset 0 0 0 1px var(--control-border-focus);
+  --control-focus-ring: none;
 
   /* Button Tokens */
   --btn-primary-bg: oklch(0.520 0.210 250);

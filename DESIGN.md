@@ -78,13 +78,13 @@
 
 ## 6. 输入与键盘焦点（强制）
 
-**所有可输入区域不要 outline，也不要用外扩 box-shadow 模拟 outline。**
+**所有可输入区域不要 outline，也不要用内侧或外扩 box-shadow、聚焦高亮边框模拟 outline。**
 
 覆盖 input（含 number/url/tel 等类型）、textarea、select、可编辑 contenteditable、role=textbox 的实际输入节点，以及其 focus、focus-visible、focus-within 状态。
 
 - 默认和聚焦均 `outline: none`。输入底色使用 `--control-bg`，比所在表面更深。
 - Hover 使用 `--control-bg-hover` 和 `--control-border-hover`。
-- Focus 使用 `--control-bg-focus` 与 `--control-border-focus`；需要增强键盘识别时最多增加 1px **内侧**实线阴影，禁止外扩环和光晕。不得引发布局位移。
+- Focus 通过 `--control-bg-focus` 底色与输入光标反馈；`--control-border-focus` 与默认 `--control-border` 相同，`--control-focus-ring: none`。禁止蓝色或其他高亮焦点描边、内侧阴影、外扩环和光晕。不得引发布局位移。
 - 带搜索图标的复合输入，由外壳统一呈现底色、边界和 focus-within；内部 input 背景透明、无独立边界或阴影，避免双层输入框。
 - 错误态保留危险边框和文本说明，焦点不能覆盖错误含义。禁用态不能响应 hover/focus 装饰。
 - 这条规则不删除按钮、链接、Tab、拖拽分隔条的键盘焦点。非输入控件保留清晰的 focus-visible 指示。禁止全局 `* { outline: none }`。
@@ -100,6 +100,6 @@
 1. 优先修正共享 token 和原始组件规则，禁止在文件末尾不断追加高优先级补丁；模块只保留布局与必要场景差异。
 2. 核对 Skill、工作流、AI 环境、MCP、账号、设置/更新、搜索与编辑弹窗。不得借样式修复修改 IPC、账号逻辑、协议或发布行为。
 3. 浅色/深色各核对常规窗口与窄窗口；检查 26/24/22/28px 控件、Tab 不溢出、长文本及滚动。横向与纵向滚动条在默认、悬停、聚焦、滚动中均不可见；覆盖系统“始终显示滚动条”的设置，检查无空槽、无内容裁切，并验证滚轮、触控板、键盘及编辑光标滚入视口正常。
-4. 鼠标与 Tab 聚焦输入均无 outline/外扩环，焦点仍通过内侧边界可见；复合搜索只有一层背景/焦点；非输入控件键盘导航可见。
+4. 鼠标与 Tab 聚焦输入均无 outline/外扩环，不出现内侧阴影或高亮边框，焦点通过底色和光标反馈；复合搜索只有一层背景/焦点；非输入控件键盘导航可见。
 5. 运行 pnpm typecheck 与 pnpm build，审查 diff。视觉检查与未覆盖项必须如实记录，不以构建成功代替视觉验收。
 6. Antigravity 提供核对和修复结果，由主 Agent 审阅、验证、在 main 提交，并更新 OPC-60。
