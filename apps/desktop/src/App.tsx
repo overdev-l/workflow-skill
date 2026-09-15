@@ -1329,12 +1329,15 @@ function SkillsThreeColumn({
               disabled={!target} onClick={() => { setAddTarget(target); setAddOpen(true) }}><Plus size={13} /></button>
           </div>
           {skillTab === 'project' && <>
-            <select className="dialog-capsule-input" aria-label="目标项目" value={projectId}
-              onChange={event => setProjectId(event.target.value)}>
-              <option value="" disabled>选择项目</option>
-              {projectId && !selectedProject && <option value={projectId}>项目已移除</option>}
-              {projects.map(project => <option key={project.id} value={project.id}>{project.name}{project.status === 'missing' ? '（目录不可用）' : ''}</option>)}
-            </select>
+            <div className="skill-project-select">
+              <select className="dialog-capsule-input" aria-label="目标项目" value={projectId}
+                onChange={event => setProjectId(event.target.value)}>
+                <option value="" disabled>选择项目</option>
+                {projectId && !selectedProject && <option value={projectId}>项目已移除</option>}
+                {projects.map(project => <option key={project.id} value={project.id}>{project.name}{project.status === 'missing' ? '（目录不可用）' : ''}</option>)}
+              </select>
+              <ChevronDown size={12} aria-hidden="true" />
+            </div>
             {(projectError || selectedProject?.status === 'missing') && <p role="alert" className="master-list-status">{projectError || '项目目录不可用，请在项目管理中修复。'}</p>}
           </>}
           <label className="master-search-input">

@@ -558,6 +558,7 @@ body.is-resizing-master-column * {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  white-space: nowrap;
   padding: 0 10px;
   height: 24px;
   border-radius: var(--radius-pill);
@@ -570,6 +571,14 @@ body.is-resizing-master-column * {
   transition: background-color var(--motion-fast) var(--motion-smooth), color var(--motion-fast) var(--motion-smooth);
   user-select: none;
   box-sizing: border-box;
+}
+
+.btn > svg,
+.master-tab-btn > svg,
+.master-search-input > svg,
+.nav-pill-btn > svg {
+  display: block;
+  flex-shrink: 0;
 }
 
 .master-tab-btn:hover {
@@ -7003,9 +7012,13 @@ body.is-resizing-master-column * {
 .skill-scope-master .master-header { gap: 8px; }
 .skill-scope-master .master-header-top { gap: 8px; }
 .skill-scope-master .master-tab-segmented { flex: 1; min-width: 0; }
+.skill-scope-master .master-tab-btn { flex: 1 1 0; min-width: 0; padding-inline: 0; }
+.skill-scope-master .master-header-top > .btn { flex: 0 0 24px; width: 24px; min-width: 24px; height: 24px; padding: 0; }
 .skill-scope-master .master-list-scroll > .master-item-row { width: 100%; min-height: 36px; color: var(--color-ink); }
 .skill-scope-master .master-item-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.skill-scope-master select { width: 100%; min-width: 0; }
+.skill-project-select { position: relative; min-width: 0; }
+.skill-project-select select { width: 100%; min-width: 0; appearance: none; -webkit-appearance: none; padding: 0 32px 0 12px; text-overflow: ellipsis; }
+.skill-project-select > svg { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--control-ink); pointer-events: none; }
 
 .skill-create-dialog { padding: 0; border: 0; background: transparent; color: var(--color-ink); max-width: calc(100vw - 48px); max-height: calc(100dvh - 48px); }
 .skill-create-dialog::backdrop { background: rgba(0,0,0,.35); backdrop-filter: blur(8px); }
