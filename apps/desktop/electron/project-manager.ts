@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import type { ProjectRecord, ProjectSkillPathStatus } from '@workflow-skill/workflow-model'
+import type { ManagedProjectRecord, ProjectRecord, ProjectSkillPathStatus } from '@workflow-skill/workflow-model'
 
 export const SUPPORTED_PROJECT_SKILL_PATHS: Array<{ id: string; name: string; relPath: string }> = [
   { id: 'agents', name: '.agents 通用规范', relPath: path.join('.agents', 'skills') },
@@ -79,6 +79,44 @@ export function listProjects(customTraceHome?: string): ProjectRecord[] {
       return Boolean(p.path && existsSync(p.path) && statSync(p.path).isDirectory())
     } catch {
       return false
+    }
+  })
+}
+
+export function listManagedProjects(customTraceHome?: string): ManagedProjectRecord[] {
+  const traceHome = getEffectiveTraceHome(customTraceHome)
+  const config = readConfig(traceHome)
+  const list = config.projects || []
+
+  return list.map((p) => {
+    let exists = false
+    let isDir = false
+    try {
+      exists = existsSync(p.path)
+      if (exists) {
+        isDir = statSync(p.path).isDirectory()
+      }
+    } catch {
+      exists = false
+      isDir = false
+    }
+
+    const valid = exists && isDir
+    let error: string | undefined
+    if (!exists) {
+      error = '目录不存在'
+    } else if (!isDir) {
+      error = '路径不是文件夹'
+    }
+
+    return {
+      id: p.id,
+      name: p.name,
+      path: p.path,
+      addedAt: p.addedAt,
+      status: valid ? 'valid' : 'missing',
+      exists: valid,
+      error,
     }
   })
 }
@@ -201,6 +239,9 @@ export function removeProject(
   const config = readConfig(traceHome)
   const resolved = path.resolve(projectIdOrPath)
 
+  const removed = (config.projects || []).find(
+    (p) => p.id === projectIdOrPath || path.resolve(p.path) === resolved
+  )
   const initialCount = (config.projects || []).length
   config.projects = (config.projects || []).filter(
     (p) => p.id !== projectIdOrPath && path.resolve(p.path) !== resolved
@@ -210,9 +251,16 @@ export function removeProject(
     return { success: false, error: '未在项目列表中找到该项目' }
   }
 
-  if (config.activeProjectId === projectIdOrPath || config.activeProjectId === resolved) {
-    config.activeProjectId = config.projects[0]?.id || null
-    config.projectWorkspace = config.projects[0]?.path || null
+  if (removed && (config.activeProjectId === removed.id || config.activeProjectId === removed.path || config.projectWorkspace === removed.path)) {
+    const nextValid = (config.projects || []).find((p) => {
+      try {
+        return Boolean(p.path && existsSync(p.path) && statSync(p.path).isDirectory())
+      } catch {
+        return false
+      }
+    })
+    config.activeProjectId = nextValid?.id || null
+    config.projectWorkspace = nextValid?.path || null
   }
 
   writeConfig(traceHome, config)

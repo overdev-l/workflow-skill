@@ -864,6 +864,14 @@ export interface ProjectRecord {
   addedAt: number
 }
 
+export type ProjectDirectoryStatus = 'valid' | 'missing'
+
+export interface ManagedProjectRecord extends ProjectRecord {
+  status: ProjectDirectoryStatus
+  exists: boolean
+  error?: string
+}
+
 export interface ProjectSkillPathStatus {
   id: string
   name: string

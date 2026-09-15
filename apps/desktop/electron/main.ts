@@ -35,6 +35,7 @@ import {
 } from './mcp-manager'
 import {
   listProjects,
+  listManagedProjects,
   getActiveProject,
   setActiveProject,
   addProject,
@@ -1761,8 +1762,9 @@ ${skill.description || ''}
     }
   }
 
-  // --- Projects IPC (OPC-56) ---
+  // --- Projects IPC (OPC-56, OPC-64) ---
   ipcMain.handle('projects:list', () => listProjects(getStoredTraceHome()))
+  ipcMain.handle('projects:list-managed', () => listManagedProjects(getStoredTraceHome()))
   ipcMain.handle('projects:get-active', () => getActiveProject(getStoredTraceHome()))
   ipcMain.handle('projects:set-active', (_event, idOrPath: string) => {
     const res = setActiveProject(idOrPath, getStoredTraceHome())

@@ -23,6 +23,7 @@ import type {
   MCPServerDefinition,
   MCPServerInput,
   MCPSourceTool,
+  ManagedProjectRecord,
   ProjectRecord,
   ProjectRuleAssociation,
   ProjectSkillPathStatus,
@@ -103,8 +104,9 @@ declare global {
       distributeMCPServer?: (server: MCPServerDefinition | MCPServerInput, targets: MCPDistributionTarget[]) => Promise<MCPDistributionReport>
       onMCPChanged?: (listener: () => void) => () => void
 
-      // --- Projects (OPC-56) ---
+      // --- Projects (OPC-56, OPC-64) ---
       listProjects?: () => Promise<ProjectRecord[]>
+      listManagedProjects?: () => Promise<ManagedProjectRecord[]>
       getActiveProject?: () => Promise<ProjectRecord | null>
       setActiveProject?: (idOrPath: string) => Promise<{ success: boolean; project?: ProjectRecord; error?: string }>
       addProject?: (folderPath?: string) => Promise<{ success: boolean; project?: ProjectRecord; error?: string }>

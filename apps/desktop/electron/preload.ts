@@ -22,6 +22,7 @@ import type {
   MCPServerDefinition,
   MCPServerInput,
   MCPSourceTool,
+  ManagedProjectRecord,
   ProjectRecord,
   ProjectRuleAssociation,
   ProjectSkillPathStatus,
@@ -181,8 +182,9 @@ contextBridge.exposeInMainWorld('workflowSkill', {
     return () => ipcRenderer.removeListener('mcp:changed', handler)
   },
 
-  // --- Projects (OPC-56) ---
+  // --- Projects (OPC-56, OPC-64) ---
   listProjects: () => ipcRenderer.invoke('projects:list') as Promise<ProjectRecord[]>,
+  listManagedProjects: () => ipcRenderer.invoke('projects:list-managed') as Promise<ManagedProjectRecord[]>,
   getActiveProject: () => ipcRenderer.invoke('projects:get-active') as Promise<ProjectRecord | null>,
   setActiveProject: (idOrPath: string) =>
     ipcRenderer.invoke('projects:set-active', idOrPath) as Promise<{ success: boolean; project?: ProjectRecord; error?: string }>,

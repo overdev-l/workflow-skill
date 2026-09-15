@@ -1,3 +1,4 @@
+import { ProjectsThreeColumn } from './components/ProjectsThreeColumn'
 import { AppUpdate, useUpdateBlocker } from './components/AppUpdate'
 import {
   useEffect,
@@ -108,7 +109,7 @@ import { AccountSettings } from './components/AccountSettings'
 import { AIToolLogo } from './AIToolLogo'
 import { useI18n, type Locale, type TranslationKeys } from './i18n'
 
-export type View = 'skills' | 'workflows' | 'environments' | 'mcp' | 'rules' | 'accounts'
+export type View = 'skills' | 'workflows' | 'environments' | 'mcp' | 'rules' | 'projects' | 'accounts'
 type SettingsTab = 'general' | 'shortcuts' | 'permissions' | 'about'
 export type ThemeMode = 'dark' | 'light' | 'system'
 
@@ -213,6 +214,9 @@ function AppSidebar({
         <div className="app-sidebar-mode view-enter">
           {/* Main Navigation Capsule Views: Skill, Workflow, AI Environments */}
           <nav className="sidebar-nav-list">
+            <button type="button" className={`nav-pill-btn ${view === 'projects' ? 'is-active' : ''}`} onClick={() => { setView('projects'); onBackToOverview() }}>
+              <div className="nav-pill-btn__left"><FolderTree size={15} className="nav-icon" /><span>{t.nav.projects}</span></div>
+            </button>
             <button
               type="button"
               className={`nav-pill-btn ${view === 'skills' ? 'is-active' : ''}`}
@@ -5575,6 +5579,8 @@ export function App() {
             }}
           />
         </main>
+      ) : view === 'projects' ? (
+        <ProjectsThreeColumn notify={setToast} />
       ) : view === 'mcp' ? (
         <McpThreeColumn notify={setToast} />
       ) : view === 'rules' ? (
