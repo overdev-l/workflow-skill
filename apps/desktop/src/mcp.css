@@ -315,6 +315,332 @@
   justify-content: space-between;
 }
 
+/* --- Compact two-step target injection flow --- */
+.mcp-injection-card {
+  gap: 12px;
+}
+
+.mcp-injection-heading,
+.mcp-injection-summary,
+.mcp-injection-tools-heading,
+.mcp-injection-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mcp-injection-description {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
+.mcp-injection-summary {
+  min-height: 32px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-float);
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+
+.mcp-injection-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.mcp-injection-steps {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.mcp-injection-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 550;
+}
+
+.mcp-injection-step.is-active {
+  color: var(--color-accent);
+}
+
+.mcp-injection-step.is-complete {
+  color: var(--color-success-ink);
+}
+
+.mcp-injection-step__number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface-input);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+}
+
+.mcp-injection-step.is-active .mcp-injection-step__number {
+  background: var(--color-accent-bg);
+  border-color: color-mix(in oklch, var(--color-accent) 40%, transparent);
+  color: var(--color-accent);
+}
+
+.mcp-injection-step.is-complete .mcp-injection-step__number {
+  background: var(--color-success-bg);
+  border-color: color-mix(in oklch, var(--color-success) 35%, transparent);
+  color: var(--color-success-ink);
+}
+
+.mcp-injection-step-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mcp-injection-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mcp-injection-fieldset legend {
+  margin-bottom: 8px;
+  color: var(--color-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.mcp-injection-scope-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mcp-injection-scope-option {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-float);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease, background var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+
+.mcp-injection-scope-option:hover {
+  border-color: var(--control-border-hover);
+  background: var(--glass-surface-hover);
+}
+
+.mcp-injection-scope-option.is-selected {
+  border-color: color-mix(in oklch, var(--color-accent) 45%, transparent);
+  background: var(--color-accent-bg);
+  color: var(--color-ink);
+}
+
+.mcp-injection-scope-option:focus-within,
+.mcp-injection-tool-option:focus-within {
+  border-color: var(--control-border-focus);
+  box-shadow: var(--control-focus-ring);
+}
+
+.mcp-injection-scope-option input,
+.mcp-injection-tool-option input {
+  accent-color: var(--color-accent);
+}
+
+.mcp-injection-scope-option svg {
+  color: var(--color-accent);
+}
+
+.mcp-injection-scope-option span,
+.mcp-injection-tool-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mcp-injection-scope-option strong,
+.mcp-injection-tool-copy strong {
+  color: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.mcp-injection-scope-option small,
+.mcp-injection-tool-copy small {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-injection-project-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcp-injection-project-picker > label {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 550;
+}
+
+.mcp-injection-project-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mcp-injection-project-controls > svg {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.mcp-injection-project-controls .mcp-select {
+  min-width: 0;
+  flex: 1;
+}
+
+.mcp-injection-no-project {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 8px;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+
+.mcp-injection-tools-heading {
+  align-items: flex-start;
+}
+
+.mcp-injection-tools-heading > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mcp-injection-tools-heading strong {
+  color: var(--color-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.mcp-injection-tools-heading span {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-injection-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mcp-injection-tool-option {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-float);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease, background var(--motion-fast) ease, opacity var(--motion-fast) ease;
+}
+
+.mcp-injection-tool-option:hover:not(.is-disabled) {
+  border-color: var(--control-border-hover);
+  background: var(--glass-surface-hover);
+}
+
+.mcp-injection-tool-option.is-selected {
+  border-color: color-mix(in oklch, var(--color-accent) 40%, transparent);
+  background: var(--color-accent-bg);
+}
+
+.mcp-injection-tool-option.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.mcp-injection-tool-status {
+  flex-shrink: 0;
+  color: var(--color-muted);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.mcp-injection-tool-option.is-selected .mcp-injection-tool-status {
+  color: var(--color-success-ink);
+}
+
+.mcp-injection-hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.mcp-injection-actions {
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+@media (max-width: 640px) {
+  .mcp-injection-heading,
+  .mcp-injection-summary,
+  .mcp-injection-tools-heading,
+  .mcp-injection-no-project {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mcp-injection-scope-options,
+  .mcp-injection-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .mcp-injection-summary .btn,
+  .mcp-injection-no-project .btn {
+    align-self: flex-end;
+  }
+}
+
 .mcp-form-grid {
   display: grid;
   grid-template-columns: 1fr;

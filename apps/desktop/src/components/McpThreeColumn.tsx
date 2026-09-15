@@ -3,24 +3,20 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   Check,
-  ChevronDown,
-  ChevronUp,
   Folder,
   FolderPlus,
+  Globe,
   Layers,
   Plus,
   Power,
   RefreshCw,
-  Search,
   Server,
   Trash2,
   X,
 } from 'lucide-react'
 import type {
-  BatchItemResult,
   CentralMCPServer,
   MCPScope,
-  MCPServerInput,
   MCPSourceTool,
   MCPTargetAssociation,
   MCPTransportType,
@@ -43,14 +39,6 @@ const TOOL_NAMES: Record<MCPSourceTool, string> = {
   codex: 'Codex',
 }
 
-// Tool protocol compatibility
-const TOOL_TRANSPORT_SUPPORT: Record<MCPSourceTool, MCPTransportType[]> = {
-  'claude-code': ['stdio', 'sse', 'http'],
-  cursor: ['stdio', 'sse'],
-  gemini: ['stdio', 'sse'],
-  codex: ['stdio', 'sse', 'http'],
-}
-
 // Tools supporting project-scope configs
 const PROJECT_SUPPORTED_TOOLS: MCPSourceTool[] = ['claude-code', 'cursor', 'codex']
 
@@ -67,9 +55,8 @@ interface FormBaseline {
 }
 
 type PendingNavigationAction =
-  | { type: 'switch_scope'; scope: 'all' | 'global' | 'project' }
+  | { type: 'switch_scope'; scope: 'global' | 'project' }
   | { type: 'switch_row'; serverId: string }
-  | { type: 'change_query'; query: string }
   | { type: 'open_create' }
 
 function areStringArraysEqual(a: string[], b: string[]): boolean {
@@ -100,8 +87,7 @@ export function McpThreeColumn({
 }) {
   const { t } = useI18n()
 
-  const [activeScopeTab, setActiveScopeTab] = useState<'all' | 'global' | 'project'>('all')
-  const [query, setQuery] = useState('')
+  const [activeScopeTab, setActiveScopeTab] = useState<'global' | 'project'>('global')
   const [centralServers, setCentralServers] = useState<CentralMCPServer[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null)
@@ -145,9 +131,14 @@ export function McpThreeColumn({
   // Delete Confirm State
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [distExpanded, setDistExpanded] = useState(false)
+  const [injectionOpen, setInjectionOpen] = useState(false)
+  const [injectionStep, setInjectionStep] = useState<'scope' | 'tools'>('scope')
+  const [injectionScope, setInjectionScope] = useState<MCPScope>('global')
+  const [injectionProjectPath, setInjectionProjectPath] = useState('')
+  const [selectedInjectionTools, setSelectedInjectionTools] = useState<MCPSourceTool[]>([])
+  const [injectionSaving, setInjectionSaving] = useState(false)
 
-  const isBusy = formSaving || toggling || deleting || loading || createSaving
+  const isBusy = formSaving || toggling || deleting || loading || createSaving || injectionSaving
 
   // 1. Load Central Servers & Projects
   const loadCentralServers = async () => {
@@ -190,7 +181,10 @@ export function McpThreeColumn({
       if (res.success && res.project) {
         await loadProjects()
         setSelectedProjectPath(res.project.path)
+        if (injectionOpen && injectionScope === 'project') setInjectionProjectPath(res.project.path)
         notify?.(`已添加项目: ${res.project.name}`)
+      } else if (res.error) {
+        notify?.(`添加项目失败: ${res.error}`)
       }
     } catch (err: any) {
       notify?.(`添加项目失败: ${err.message}`)
@@ -217,7 +211,7 @@ export function McpThreeColumn({
     }
   }, [])
 
-  useUpdateBlocker('mcp-actions', createModalOpen || createSaving || formSaving || toggling || deleting)
+  useUpdateBlocker('mcp-actions', createModalOpen || createSaving || formSaving || toggling || deleting || injectionOpen || injectionSaving)
 
   // Dirty detection for editable fields
   const isDirty = useMemo(() => {
@@ -251,34 +245,17 @@ export function McpThreeColumn({
   ])
   useUpdateBlocker('mcp-editor', isDirty)
 
-  // Filtered servers by scope tab and search query
+  const closeInjectionFlow = () => {
+    setInjectionOpen(false)
+    setInjectionStep('scope')
+    setSelectedInjectionTools([])
+  }
+
+  // Scope tabs describe the next injection target. Central MCP assets stay
+  // visible in both tabs, including assets that have not been injected yet.
   const filteredServers = useMemo(() => {
-    let list = centralServers
-
-    if (activeScopeTab === 'global') {
-      list = list.filter((s) => (s.targetAssociations || []).some((a) => a.scope === 'global'))
-    } else if (activeScopeTab === 'project') {
-      list = list.filter((s) => (s.targetAssociations || []).some((a) => a.scope === 'project'))
-    }
-
-    const q = query.trim().toLowerCase()
-    if (!q) return list
-
-    return list.filter((s) => {
-      const name = (s.name || '').toLowerCase()
-      const desc = (s.description || '').toLowerCase()
-      const transport = (s.transport || '').toLowerCase()
-      const cmd = (s.command || '').toLowerCase()
-      const url = (s.url || '').toLowerCase()
-      return (
-        name.includes(q) ||
-        desc.includes(q) ||
-        transport.includes(q) ||
-        cmd.includes(q) ||
-        url.includes(q)
-      )
-    })
-  }, [centralServers, activeScopeTab, query])
+    return centralServers
+  }, [centralServers])
 
   // Active Selected Server
   const selectedServer = useMemo(() => {
@@ -367,13 +344,14 @@ export function McpThreeColumn({
   }
 
   // Navigation handlers with unsaved guard
-  const handleSwitchScope = (newScope: 'all' | 'global' | 'project') => {
+  const handleSwitchScope = (newScope: 'global' | 'project') => {
     if (isBusy || newScope === activeScopeTab) return
     if (isDirty) {
       setPendingAction({ type: 'switch_scope', scope: newScope })
       setUnsavedModalOpen(true)
       return
     }
+    closeInjectionFlow()
     setActiveScopeTab(newScope)
     lastLoadedIdRef.current = null
   }
@@ -385,22 +363,9 @@ export function McpThreeColumn({
       setUnsavedModalOpen(true)
       return
     }
+    closeInjectionFlow()
     setSelectedServerId(serverId)
     lastLoadedIdRef.current = null
-  }
-
-  const handleQueryChange = (newQuery: string) => {
-    if (isBusy) return
-    if (isDirty && selectedServer) {
-      const q = newQuery.trim().toLowerCase()
-      const matches = !q || (selectedServer.name && selectedServer.name.toLowerCase().includes(q))
-      if (!matches) {
-        setPendingAction({ type: 'change_query', query: newQuery })
-        setUnsavedModalOpen(true)
-        return
-      }
-    }
-    setQuery(newQuery)
   }
 
   const handleOpenCreate = () => {
@@ -426,13 +391,13 @@ export function McpThreeColumn({
     if (!action) return
 
     if (action.type === 'switch_scope') {
+      closeInjectionFlow()
       setActiveScopeTab(action.scope)
       lastLoadedIdRef.current = null
     } else if (action.type === 'switch_row') {
+      closeInjectionFlow()
       setSelectedServerId(action.serverId)
       lastLoadedIdRef.current = null
-    } else if (action.type === 'change_query') {
-      setQuery(action.query)
     } else if (action.type === 'open_create') {
       setNewName('')
       setNewDescription('')
@@ -532,6 +497,7 @@ export function McpThreeColumn({
       if (res.success) {
         notify?.(t.mcp.deletedToast(selectedServer.name))
         setDeleteConfirmOpen(false)
+        closeInjectionFlow()
         setSelectedServerId(null)
         setFormBaseline(null)
         lastLoadedIdRef.current = null
@@ -587,51 +553,6 @@ export function McpThreeColumn({
     }
   }
 
-  // 6. Inject / Uninject to Target with Authoritative Feedback
-  const handleInject = async (target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => {
-    if (!selectedServer || !window.workflowSkill?.injectMCPServer) return
-    const opKey = `${target.tool}:${target.scope}:${target.projectPath || ''}`
-    setTargetOperating((prev) => ({ ...prev, [opKey]: true }))
-
-    try {
-      const res = await window.workflowSkill.injectMCPServer(selectedServer.id, target)
-      if (res.success) {
-        const targetLabel = target.scope === 'global' ? TOOL_NAMES[target.tool] : `${TOOL_NAMES[target.tool]} (项目)`
-        notify?.(`已成功注入到 ${targetLabel}`)
-        await loadCentralServers()
-      } else {
-        notify?.(res.error || `注入到 ${TOOL_NAMES[target.tool]} 失败`)
-        await loadCentralServers()
-      }
-    } catch (err: any) {
-      notify?.(`注入异常: ${err?.message || String(err)}`)
-    } finally {
-      setTargetOperating((prev) => ({ ...prev, [opKey]: false }))
-    }
-  }
-
-  const handleUninject = async (target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => {
-    if (!selectedServer || !window.workflowSkill?.uninjectMCPServer) return
-    const opKey = `${target.tool}:${target.scope}:${target.projectPath || ''}`
-    setTargetOperating((prev) => ({ ...prev, [opKey]: true }))
-
-    try {
-      const res = await window.workflowSkill.uninjectMCPServer(selectedServer.id, target)
-      if (res.success) {
-        const targetLabel = target.scope === 'global' ? TOOL_NAMES[target.tool] : `${TOOL_NAMES[target.tool]} (项目)`
-        notify?.(`已从 ${targetLabel} 取消注入`)
-        await loadCentralServers()
-      } else {
-        notify?.(res.error || `从 ${TOOL_NAMES[target.tool]} 取消注入失败`)
-        await loadCentralServers()
-      }
-    } catch (err: any) {
-      notify?.(`取消注入异常: ${err?.message || String(err)}`)
-    } finally {
-      setTargetOperating((prev) => ({ ...prev, [opKey]: false }))
-    }
-  }
-
   // Check target association state
   const getTargetAssociation = (tool: MCPSourceTool, scope: MCPScope, projectPath?: string): MCPTargetAssociation | undefined => {
     if (!selectedServer?.targetAssociations) return undefined
@@ -645,6 +566,126 @@ export function McpThreeColumn({
     })
   }
 
+  const injectionToolOptions = useMemo(() => {
+    if (!selectedServer) return []
+    if (injectionScope === 'global') return MCP_SOURCE_TOOLS
+    return MCP_SOURCE_TOOLS.filter((tool) => PROJECT_SUPPORTED_TOOLS.includes(tool.id))
+  }, [injectionScope, selectedServer])
+
+  const isInjectionToolCompatible = (tool: typeof MCP_SOURCE_TOOLS[number]) => {
+    return Boolean(selectedServer && tool.supportedTransports.includes(selectedServer.transport))
+  }
+
+  const runTargetOperation = async (
+    target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string },
+    operation: 'inject' | 'uninject',
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!selectedServer) return { success: false, error: '未选择 MCP 资产' }
+    const api = window.workflowSkill
+    const fn = operation === 'inject' ? api?.injectMCPServer : api?.uninjectMCPServer
+    if (!fn) return { success: false, error: '当前运行环境不支持 MCP 注入操作' }
+
+    const opKey = `${target.tool}:${target.scope}:${target.projectPath || ''}`
+    setTargetOperating((prev) => ({ ...prev, [opKey]: true }))
+    try {
+      return await fn(selectedServer.id, target)
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    } finally {
+      setTargetOperating((prev) => ({ ...prev, [opKey]: false }))
+    }
+  }
+
+  const handleOpenInjection = () => {
+    if (isBusy || !selectedServer) return
+    const nextScope = activeScopeTab
+    setInjectionScope(nextScope)
+    setInjectionProjectPath(selectedProjectPath || projects[0]?.path || '')
+    setSelectedInjectionTools([])
+    setInjectionStep('scope')
+    setInjectionOpen(true)
+  }
+
+  const handleConfirmInjectionScope = () => {
+    if (!selectedServer) return
+    if (injectionScope === 'project' && !injectionProjectPath) {
+      notify?.('请先选择或添加一个项目')
+      return
+    }
+
+    if (injectionScope === 'project') setSelectedProjectPath(injectionProjectPath)
+    const projectPath = injectionScope === 'project' ? injectionProjectPath : undefined
+    setSelectedInjectionTools(
+      injectionToolOptions
+        .filter((tool) => Boolean(getTargetAssociation(tool.id, injectionScope, projectPath)))
+        .map((tool) => tool.id),
+    )
+    setInjectionStep('tools')
+  }
+
+  const handleApplyInjection = async () => {
+    if (!selectedServer || injectionSaving) return
+    const projectPath = injectionScope === 'project' ? injectionProjectPath : undefined
+    const selectedTools = new Set(selectedInjectionTools)
+    const operations: Array<{
+      tool: MCPSourceTool
+      target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }
+      operation: 'inject' | 'uninject'
+    }> = []
+
+    for (const tool of injectionToolOptions) {
+      const association = getTargetAssociation(tool.id, injectionScope, projectPath)
+      const compatible = isInjectionToolCompatible(tool)
+      if (selectedTools.has(tool.id) && !association && compatible) {
+        operations.push({
+          tool: tool.id,
+          target: { tool: tool.id, scope: injectionScope, projectPath },
+          operation: 'inject',
+        })
+      } else if (!selectedTools.has(tool.id) && association) {
+        operations.push({
+          tool: tool.id,
+          target: { tool: tool.id, scope: injectionScope, projectPath },
+          operation: 'uninject',
+        })
+      }
+    }
+
+    if (operations.length === 0) {
+      notify?.('注入目标没有变化')
+      setInjectionOpen(false)
+      return
+    }
+
+    setInjectionSaving(true)
+    const failures: string[] = []
+    let completed = 0
+    try {
+      for (const item of operations) {
+        const result = await runTargetOperation(item.target, item.operation)
+        if (result.success) {
+          completed += 1
+        } else {
+          failures.push(`${TOOL_NAMES[item.tool]}：${result.error || '操作失败'}`)
+        }
+      }
+      await loadCentralServers()
+      setInjectionOpen(false)
+      setInjectionStep('scope')
+      setSelectedInjectionTools([])
+      if (failures.length > 0) {
+        notify?.(`已完成 ${completed}/${operations.length} 个目标，失败：${failures.join('；')}`)
+      } else {
+        notify?.(`已完成 ${completed} 个 MCP 注入目标`)
+      }
+    } finally {
+      setInjectionSaving(false)
+    }
+  }
+
   return (
     <>
       {/* =========================================================================
@@ -652,24 +693,13 @@ export function McpThreeColumn({
           ========================================================================= */}
       <aside className="app-col-master view-enter">
         <div className="master-header">
-          {/* Scope Segmented Tabs: [ 全部 | 全局 | 项目 ] - Height: 24px */}
+          {/* Scope Segmented Tabs: [ 全局 | 项目 ] - Height: 24px */}
           <div className="master-header-top">
             <div
               role="tablist"
-              aria-label="MCP 资产作用域"
+              aria-label="MCP 注入目标范围"
               className="master-tab-segmented mcp-scope-segmented"
             >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeScopeTab === 'all'}
-                tabIndex={activeScopeTab === 'all' ? 0 : -1}
-                className={`master-tab-btn ${activeScopeTab === 'all' ? 'is-active' : ''}`}
-                onClick={() => handleSwitchScope('all')}
-                disabled={isBusy}
-              >
-                <span>全部</span>
-              </button>
               <button
                 type="button"
                 role="tab"
@@ -693,30 +723,6 @@ export function McpThreeColumn({
                 <span>项目</span>
               </button>
             </div>
-          </div>
-
-          {/* Search Box - Height: 28px */}
-          <div className="master-search-row">
-            <label className="master-search-input">
-              <Search size={13} />
-              <input
-                value={query}
-                onChange={(e) => handleQueryChange(e.target.value)}
-                placeholder={t.mcp.searchPlaceholder}
-                disabled={isBusy}
-              />
-              {query ? (
-                <button
-                  type="button"
-                  className="clear-search-btn"
-                  onClick={() => handleQueryChange('')}
-                  title={t.mcp.clearSearchBtn}
-                  disabled={isBusy}
-                >
-                  <X size={12} />
-                </button>
-              ) : null}
-            </label>
           </div>
         </div>
 
@@ -756,35 +762,15 @@ export function McpThreeColumn({
             <div className="master-list-status">
               <Server size={18} style={{ opacity: 0.6 }} />
               <span>
-                {query
-                  ? t.mcp.emptySearch
-                  : activeScopeTab === 'global'
-                  ? '暂无全局已注入的 MCP 资产'
-                  : activeScopeTab === 'project'
-                  ? '暂无项目已注入的 MCP 资产'
-                  : '中央资产库暂无 MCP 服务'}
+                中央资产库暂无 MCP 服务
               </span>
-              {query ? (
-                <button
-                  type="button"
-                  className="btn btn--capsule-ghost btn--capsule btn--sm"
-                  onClick={() => handleQueryChange('')}
-                  disabled={isBusy}
-                >
-                  <span>{t.mcp.clearSearchBtn}</span>
-                </button>
-              ) : (
-                <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textAlign: 'center', margin: '4px 0 0' }}>
-                  点击下方「新建 MCP Server」添加中央资产，随时一键分发到各个 AI 工具。
-                </p>
-              )}
+              <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textAlign: 'center', margin: '4px 0 0' }}>
+                点击下方「新建 MCP Server」添加中央资产，随后可在右侧选择注入范围与 AI 工具。
+              </p>
             </div>
           ) : (
             filteredServers.map((server) => {
               const isSelected = selectedServer?.id === server.id
-              const assocs = server.targetAssociations || []
-              const hasError = assocs.some((a) => a.lastSyncStatus === 'failed')
-              const injectedCount = assocs.length
 
               return (
                 <button
@@ -800,23 +786,6 @@ export function McpThreeColumn({
                     </div>
                     <div className="mcp-master-row__info">
                       <span className="mcp-master-row__name">{server.name}</span>
-                      <div className="mcp-master-row__sub">
-                        <span className="mcp-badge mcp-badge--transport">{server.transport}</span>
-                        {hasError ? (
-                          <span className="mcp-badge" style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-ink)' }}>
-                            同步失败
-                          </span>
-                        ) : injectedCount > 0 ? (
-                          <span className="mcp-badge" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success-ink)' }}>
-                            {injectedCount} 注入
-                          </span>
-                        ) : (
-                          <span className="mcp-badge mcp-badge--disabled">未注入</span>
-                        )}
-                        {!server.enabled ? (
-                          <span className="mcp-badge mcp-badge--disabled">{t.mcp.statusDisabled}</span>
-                        ) : null}
-                      </div>
                     </div>
                   </div>
                 </button>
@@ -847,14 +816,12 @@ export function McpThreeColumn({
           <div className="detail-empty-wrap" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px' }}>
             <Server size={32} style={{ color: 'var(--color-muted)', opacity: 0.5 }} />
             <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-ink)', margin: 0 }}>
-              {query.trim()
-                ? t.mcp.emptySearch
-                : filteredServers.length === 0
+              {filteredServers.length === 0
                 ? '暂无 MCP 资产'
                 : t.mcp.emptyDetailTitle}
             </h2>
             <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', maxWidth: 360, textAlign: 'center', margin: 0 }}>
-              在左侧列表中选择一个 MCP 资产以编辑配置，或通过注入矩阵一键注入到全局 AI 宿主与工程项目。
+              在左侧列表中选择一个 MCP 资产以编辑配置，或在右侧按范围选择要注入的 AI 工具。
             </p>
             <button
               type="button"
@@ -1239,230 +1206,203 @@ export function McpThreeColumn({
               </div>
             </div>
 
-            {/* 2. Target Injection Section (Collapsible & Flat Rows per DESIGN.md §8.7) */}
-            <div className="mcp-card">
-              <div
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: distExpanded ? 12 : 0, cursor: 'pointer', userSelect: 'none' }}
-                onClick={() => setDistExpanded(!distExpanded)}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <h3 className="mcp-card-title" style={{ margin: 0 }}>目标环境注入</h3>
-                  <span className="pinned-ver-pill font-mono">
-                    已注入 {(selectedServer.targetAssociations || []).length} 个目标
-                  </span>
+            {/* 2. Two-step MCP injection flow */}
+            <div className="mcp-card mcp-injection-card">
+              <div className="mcp-injection-heading">
+                <div>
+                  <h3 className="mcp-card-title">注入到 AI 工具</h3>
+                  <p className="mcp-injection-description">先确定作用范围，再选择要写入的 AI 工具配置。</p>
                 </div>
-                <button type="button" className="btn btn--capsule-ghost btn--sm icon-only" aria-label={distExpanded ? '折叠' : '展开'}>
-                  {distExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                </button>
+                <span className="pinned-ver-pill font-mono">
+                  已注入 {(selectedServer.targetAssociations || []).length} 个目标
+                </span>
               </div>
 
-              {distExpanded && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {/* Global Tools */}
-                  <div>
-                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-ink)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span>全局 AI 宿主环境</span>
-                      <span className="branch-badge font-mono">
-                        {(selectedServer.targetAssociations || []).filter((a) => a.scope === 'global').length}/{MCP_SOURCE_TOOLS.length}
-                      </span>
-                    </div>
-
-                    <div className="mcp-dist-flat-list">
-                      {MCP_SOURCE_TOOLS.map((tool) => {
-                        const assoc = getTargetAssociation(tool.id, 'global')
-                        const isAssociated = Boolean(assoc)
-                        const isSynced = assoc?.lastSyncStatus === 'synced'
-                        const isFailed = assoc?.lastSyncStatus === 'failed'
-                        const supportedTransports = TOOL_TRANSPORT_SUPPORT[tool.id] || []
-                        const isCompatible = supportedTransports.includes(selectedServer.transport)
-                        const opKey = `${tool.id}:global:`
-                        const isOperating = Boolean(targetOperating[opKey])
-
-                        let statusText = '未注入'
-                        let statusClass = 'is-none'
-                        if (isFailed) {
-                          statusText = '同步失败'
-                          statusClass = 'is-diff'
-                        } else if (isSynced) {
-                          statusText = '已注入'
-                          statusClass = 'is-synced'
-                        }
-
-                        return (
-                          <div key={tool.id} className="mcp-dist-flat-row">
-                            <div className="mcp-dist-flat-left">
-                              <AIToolLogo toolId={tool.id} size={18} color />
-                              <span className="mcp-dist-flat-name">{tool.name}</span>
-                              <span className="mcp-dist-flat-path font-mono">{tool.globalConfigFileName}</span>
-                              {!isCompatible ? (
-                                <span style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>
-                                  不支持 {selectedServer.transport}
-                                </span>
-                              ) : isFailed && assoc?.lastError ? (
-                                <span style={{ fontSize: '0.6875rem', color: 'var(--color-danger-ink)' }}>
-                                  {assoc.lastError}
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <div className="mcp-dist-flat-right">
-                              <span className={`mcp-dist-status-badge ${statusClass}`}>{statusText}</span>
-                              {isAssociated ? (
-                                <button
-                                  type="button"
-                                  className="btn btn--capsule-ghost btn--sm"
-                                  style={{ color: 'var(--color-danger-ink)' }}
-                                  disabled={isOperating || isBusy}
-                                  onClick={() => void handleUninject({ tool: tool.id, scope: 'global' })}
-                                >
-                                  {isOperating ? <RefreshCw size={10} className="spin" /> : <X size={10} />}
-                                  <span>取消注入</span>
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="btn btn--capsule btn--sm"
-                                  disabled={!isCompatible || isOperating || isBusy}
-                                  onClick={() => void handleInject({ tool: tool.id, scope: 'global' })}
-                                >
-                                  {isOperating ? <RefreshCw size={10} className="spin" /> : <Plus size={10} />}
-                                  <span>注入</span>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
+              {!injectionOpen ? (
+                <div className="mcp-injection-summary">
+                  <span>中央资产由 Trace 统一保管，可按需注入到全局或项目范围。</span>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--capsule btn--sm"
+                    onClick={handleOpenInjection}
+                    disabled={isBusy}
+                  >
+                    <Plus size={12} />
+                    <span>开始注入</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="mcp-injection-flow">
+                  <div className="mcp-injection-steps" aria-label="注入步骤">
+                    <span className={`mcp-injection-step ${injectionStep === 'scope' ? 'is-active' : 'is-complete'}`}>
+                      <span className="mcp-injection-step__number">1</span>
+                      选择范围
+                    </span>
+                    <span className={`mcp-injection-step ${injectionStep === 'tools' ? 'is-active' : ''}`}>
+                      <span className="mcp-injection-step__number">2</span>
+                      勾选 AI 工具
+                    </span>
                   </div>
 
-                  {/* Project Environments */}
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>工程项目环境</span>
-                      </div>
-
-                      {projects.length > 0 ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Folder size={12} style={{ color: 'var(--color-accent)' }} />
-                          <select
-                            value={selectedProjectPath}
-                            onChange={(e) => setSelectedProjectPath(e.target.value)}
-                          >
-                            {projects.map((p) => (
-                              <option key={p.id} value={p.path}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            className="btn btn--capsule-ghost btn--sm"
-                            title="添加项目文件夹"
-                            onClick={handleAddProject}
-                          >
-                            <FolderPlus size={11} />
-                          </button>
+                  {injectionStep === 'scope' ? (
+                    <div className="mcp-injection-step-panel">
+                      <fieldset className="mcp-injection-fieldset">
+                        <legend>选择注入范围</legend>
+                        <div className="mcp-injection-scope-options">
+                          <label className={`mcp-injection-scope-option ${injectionScope === 'global' ? 'is-selected' : ''}`}>
+                            <input
+                              type="radio"
+                              name={`mcp-injection-scope-${selectedServer.id}`}
+                              value="global"
+                              checked={injectionScope === 'global'}
+                              onChange={() => setInjectionScope('global')}
+                            />
+                            <Globe size={16} aria-hidden="true" />
+                            <span>
+                              <strong>全局</strong>
+                              <small>写入用户级 AI 工具配置</small>
+                            </span>
+                          </label>
+                          <label className={`mcp-injection-scope-option ${injectionScope === 'project' ? 'is-selected' : ''}`}>
+                            <input
+                              type="radio"
+                              name={`mcp-injection-scope-${selectedServer.id}`}
+                              value="project"
+                              checked={injectionScope === 'project'}
+                              onChange={() => setInjectionScope('project')}
+                            />
+                            <Folder size={16} aria-hidden="true" />
+                            <span>
+                              <strong>项目</strong>
+                              <small>只写入选定项目的 AI 工具配置</small>
+                            </span>
+                          </label>
                         </div>
-                      ) : null}
-                    </div>
+                      </fieldset>
 
-                    {projects.length === 0 ? (
-                      <div
-                        style={{
-                          padding: '8px 12px',
-                          background: 'var(--color-surface)',
-                          border: '1px dashed var(--color-border)',
-                          borderRadius: '8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                          尚未登记工程项目。添加项目后即可将 MCP 服务注入到项目配置中。
-                        </span>
+                      {injectionScope === 'project' ? (
+                        projects.length > 0 ? (
+                          <div className="mcp-injection-project-picker">
+                            <label htmlFor="mcp-injection-project">目标项目</label>
+                            <div className="mcp-injection-project-controls">
+                              <Folder size={13} aria-hidden="true" />
+                              <select
+                                id="mcp-injection-project"
+                                className="mcp-select"
+                                value={injectionProjectPath}
+                                onChange={(e) => setInjectionProjectPath(e.target.value)}
+                              >
+                                {projects.map((project) => (
+                                  <option key={project.id} value={project.path}>{project.name}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="btn btn--capsule-ghost btn--sm icon-only"
+                                title="添加项目文件夹"
+                                aria-label="添加项目文件夹"
+                                onClick={handleAddProject}
+                                disabled={isBusy}
+                              >
+                                <FolderPlus size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mcp-injection-no-project">
+                            <span>尚未登记项目，添加后即可使用项目范围注入。</span>
+                            <button type="button" className="btn btn--capsule btn--sm" onClick={handleAddProject} disabled={isBusy}>
+                              <FolderPlus size={12} />
+                              <span>添加项目</span>
+                            </button>
+                          </div>
+                        )
+                      ) : null}
+
+                      <div className="mcp-injection-actions">
+                        <button type="button" className="btn btn--capsule-ghost btn--sm" onClick={() => setInjectionOpen(false)} disabled={isBusy}>
+                          取消
+                        </button>
                         <button
                           type="button"
-                          className="btn btn--capsule btn--sm"
-                          onClick={handleAddProject}
+                          className="btn btn--primary btn--capsule btn--sm"
+                          onClick={handleConfirmInjectionScope}
+                          disabled={injectionScope === 'project' && !injectionProjectPath}
                         >
-                          <FolderPlus size={12} />
-                          <span>添加项目</span>
+                          <span>确定范围，下一步</span>
+                          <span aria-hidden="true">→</span>
                         </button>
                       </div>
-                    ) : (
-                      <div className="mcp-dist-flat-list">
-                        {PROJECT_SUPPORTED_TOOLS.map((toolId) => {
-                          const tool = MCP_SOURCE_TOOLS.find((t) => t.id === toolId)!
-                          const assoc = getTargetAssociation(toolId, 'project', selectedProjectPath)
-                          const isAssociated = Boolean(assoc)
-                          const isSynced = assoc?.lastSyncStatus === 'synced'
-                          const isFailed = assoc?.lastSyncStatus === 'failed'
-                          const supportedTransports = TOOL_TRANSPORT_SUPPORT[toolId] || []
-                          const isCompatible = supportedTransports.includes(selectedServer.transport)
-                          const opKey = `${toolId}:project:${selectedProjectPath}`
+                    </div>
+                  ) : (
+                    <div className="mcp-injection-step-panel">
+                      <div className="mcp-injection-tools-heading">
+                        <div>
+                          <strong>{injectionScope === 'global' ? '全局 AI 工具' : '项目 AI 工具'}</strong>
+                          <span>
+                            {injectionScope === 'global'
+                              ? '选择要同步的用户级配置'
+                              : `项目：${projects.find((project) => project.path === injectionProjectPath)?.name || injectionProjectPath}`}
+                          </span>
+                        </div>
+                        <button type="button" className="btn btn--capsule-ghost btn--sm" onClick={() => setInjectionStep('scope')} disabled={isBusy}>
+                          返回修改范围
+                        </button>
+                      </div>
+
+                      <div className="mcp-injection-tools" role="group" aria-label="选择 AI 工具">
+                        {injectionToolOptions.map((tool) => {
+                          const association = getTargetAssociation(tool.id, injectionScope, injectionProjectPath)
+                          const isAssociated = Boolean(association)
+                          const isCompatible = isInjectionToolCompatible(tool)
+                          const isSelected = selectedInjectionTools.includes(tool.id)
+                          const opKey = `${tool.id}:${injectionScope}:${injectionProjectPath}`
                           const isOperating = Boolean(targetOperating[opKey])
 
-                          let statusText = '未注入'
-                          let statusClass = 'is-none'
-                          if (isFailed) {
-                            statusText = '同步失败'
-                            statusClass = 'is-diff'
-                          } else if (isSynced) {
-                            statusText = '已注入'
-                            statusClass = 'is-synced'
-                          }
-
                           return (
-                            <div key={toolId} className="mcp-dist-flat-row">
-                              <div className="mcp-dist-flat-left">
-                                <AIToolLogo toolId={toolId} size={18} color />
-                                <span className="mcp-dist-flat-name">{tool.name}</span>
-                                <span className="mcp-dist-flat-path font-mono">{tool.projectConfigFileName}</span>
-                                {!isCompatible ? (
-                                  <span style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>
-                                    不支持 {selectedServer.transport}
-                                  </span>
-                                ) : isFailed && assoc?.lastError ? (
-                                  <span style={{ fontSize: '0.6875rem', color: 'var(--color-danger-ink)' }}>
-                                    {assoc.lastError}
-                                  </span>
-                                ) : null}
-                              </div>
-
-                              <div className="mcp-dist-flat-right">
-                                <span className={`mcp-dist-status-badge ${statusClass}`}>{statusText}</span>
-                                {isAssociated ? (
-                                  <button
-                                    type="button"
-                                    className="btn btn--capsule-ghost btn--sm"
-                                    style={{ color: 'var(--color-danger-ink)' }}
-                                    disabled={isOperating || isBusy}
-                                    onClick={() => void handleUninject({ tool: toolId, scope: 'project', projectPath: selectedProjectPath })}
-                                  >
-                                    {isOperating ? <RefreshCw size={10} className="spin" /> : <X size={10} />}
-                                    <span>取消注入</span>
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="btn btn--capsule btn--sm"
-                                    disabled={!isCompatible || isOperating || isBusy}
-                                    onClick={() => void handleInject({ tool: toolId, scope: 'project', projectPath: selectedProjectPath })}
-                                  >
-                                    {isOperating ? <RefreshCw size={10} className="spin" /> : <Plus size={10} />}
-                                    <span>注入项目</span>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
+                            <label
+                              key={tool.id}
+                              className={`mcp-injection-tool-option ${isSelected ? 'is-selected' : ''} ${!isCompatible && !isAssociated ? 'is-disabled' : ''}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                disabled={(!isCompatible && !isAssociated) || isBusy}
+                                onChange={() => {
+                                  setSelectedInjectionTools((current) => current.includes(tool.id)
+                                    ? current.filter((id) => id !== tool.id)
+                                    : [...current, tool.id])
+                                }}
+                              />
+                              <AIToolLogo toolId={tool.id} size={18} color={isSelected} />
+                              <span className="mcp-injection-tool-copy">
+                                <strong>{tool.name}</strong>
+                                <small>
+                                  {!isCompatible
+                                    ? `不支持 ${selectedServer.transport}`
+                                    : association?.lastError || (isAssociated ? '已注入，取消勾选可移除' : '尚未注入')}
+                                </small>
+                              </span>
+                              <span className="mcp-injection-tool-status">
+                                {isOperating ? <RefreshCw size={12} className="spin" /> : association?.lastSyncStatus === 'failed' ? '失败' : isAssociated ? '已注入' : '待注入'}
+                              </span>
+                            </label>
                           )
                         })}
                       </div>
-                    )}
-                  </div>
+
+                      <p className="mcp-injection-hint">已注入的工具默认勾选；取消勾选并确认后会从该范围解除注入。</p>
+                      <div className="mcp-injection-actions">
+                        <button type="button" className="btn btn--capsule-ghost btn--sm" onClick={() => setInjectionOpen(false)} disabled={isBusy}>
+                          取消
+                        </button>
+                        <button type="button" className="btn btn--primary btn--capsule btn--sm" onClick={() => void handleApplyInjection()} disabled={isBusy}>
+                          {injectionSaving ? <RefreshCw size={12} className="spin" /> : <Check size={12} />}
+                          <span>{injectionSaving ? '正在同步…' : '确认注入'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
