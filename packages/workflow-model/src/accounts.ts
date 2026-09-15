@@ -60,11 +60,17 @@ export interface AccountMetadata {
 }
 
 /** Provider usage windows. An absent percentage is unknown, never zero. */
+export type AccountQuotaPeriod = 'weekly' | 'five-hour'
+
 export interface AccountQuotaWindow {
   id: string
   label: string
   /** Explicit provider window duration; absent means the period is unknown. */
   durationSeconds?: number
+  /** Optional semantic period used when a provider exposes multiple windows per model. */
+  period?: AccountQuotaPeriod
+  /** Original model name for a provider window whose label also includes the period. */
+  modelLabel?: string
   remainingPercent?: number
   resetsAt?: number
 }

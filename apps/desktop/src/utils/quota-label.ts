@@ -2,8 +2,14 @@ import type { AccountQuotaWindow, AccountTool } from '@workflow-skill/workflow-m
 
 /** Keep model quotas separate from subscription usage periods. */
 export function formatQuotaWindowLabel(window: AccountQuotaWindow, tool: AccountTool, locale: string): string {
-  if (tool === 'antigravity') return window.label
   const zh = locale.startsWith('zh')
+  if (tool === 'antigravity') {
+    if (!window.period) return window.label
+    const periodLabel = window.period === 'weekly'
+      ? (zh ? '周额度' : 'Weekly quota')
+      : (zh ? '5 小时额度' : '5-hour quota')
+    return `${window.modelLabel ?? window.label} · ${periodLabel}`
+  }
   const claudePeriods: Record<string, number> = {
     five_hour: 18000, seven_day: 604800, seven_day_opus: 604800, seven_day_sonnet: 604800,
   }

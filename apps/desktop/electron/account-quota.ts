@@ -4,7 +4,7 @@
  * Implements independent quota and rate-limit tracking for AI developer tools:
  * - OpenAI Codex (ChatGPT backend usage)
  * - Claude Code (Anthropic OAuth usage)
- * - Google Antigravity (Cloud Code CodeAssist & available models)
+ * - Google Antigravity (Cloud Code CodeAssist, available models & quota summary)
  *
  * Security & Reliability Invariants:
  * - All outbound HTTP requests strictly allowlisted official HTTPS endpoints
@@ -23,6 +23,7 @@
 import { createHash } from 'node:crypto'
 import {
   type AccountMetadata,
+  type AccountQuotaPeriod,
   type AccountQuotaSnapshot,
   type AccountQuotaStatus,
   type AccountQuotaWindow,
@@ -38,7 +39,8 @@ export const MAX_RESPONSE_BYTES = 1024 * 1024 // 1 MiB
 export const HTTP_TIMEOUT_MS = 10_000 // 10 seconds
 export const MAX_CONCURRENT_HTTP = 4
 const MAX_PENDING_REFRESHES = 64
-export const MAX_WINDOWS_PER_ACCOUNT = 20
+export const MAX_WINDOWS_PER_ACCOUNT = 40
+const MAX_MODELS_PER_ACCOUNT = 20
 export const MAX_LABEL_LENGTH = 100
 export const MAX_PLAN_LENGTH = 50
 
@@ -47,6 +49,7 @@ const ALLOWED_QUOTA_URLS = new Set([
   'https://api.anthropic.com/api/oauth/usage',
   'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist',
   'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
+  'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
 ])
 
 const RESERVED_PROPERTY_NAMES = new Set(['__proto__', 'constructor', 'prototype'])
@@ -97,12 +100,12 @@ function safeRemainingPercent(val: unknown, isUsedPercentage: boolean): number |
   if (isUsedPercentage) {
     if (val < 0 || val > 100) return undefined
     const remaining = 100 - val
-    return remaining
+    return Math.round(remaining * 1_000_000) / 1_000_000
   } else {
     // 0..1 fraction (e.g. Antigravity remainingFraction)
     if (val < 0 || val > 1) return undefined
     const percent = val * 100
-    return percent
+    return Math.round(percent * 1_000_000) / 1_000_000
   }
 }
 
@@ -122,6 +125,104 @@ function safeEpochMs(val: unknown, isUnixSeconds: boolean): number | undefined {
     return Math.floor(val)
   }
   return undefined
+}
+
+type AntigravityModelFamily = 'gemini' | 'claude-gpt'
+
+interface AntigravityQuotaBucket {
+  period: AccountQuotaPeriod
+  remainingPercent?: number
+  resetsAt?: number
+}
+
+type AntigravityQuotaSummary = Map<AntigravityModelFamily, Map<AccountQuotaPeriod, AntigravityQuotaBucket>>
+
+function normalizeQuotaText(values: unknown[]): string {
+  return values
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+}
+
+function classifyAntigravityModelFamily(...values: unknown[]): AntigravityModelFamily | undefined {
+  const text = normalizeQuotaText(values)
+  if (!text) return undefined
+
+  if (/(?:gemini|google\s+gemini)/.test(text)) return 'gemini'
+  if (/(?:claude|gpt|anthropic|openai|3p)/.test(text)) return 'claude-gpt'
+  return undefined
+}
+
+function classifyAntigravityQuotaPeriod(...values: unknown[]): AccountQuotaPeriod | undefined {
+  const text = normalizeQuotaText(values)
+  if (!text) return undefined
+
+  if (
+    /\b5\s*(?:h|hr|hrs|hour|hours)\b/.test(text) ||
+    /\bfive\s+hours?\b/.test(text) ||
+    text.includes('5h')
+  ) {
+    return 'five-hour'
+  }
+  if (
+    /\b(?:weekly|week|7\s*(?:d|day|days)|seven\s+(?:day|days))\b/.test(text) ||
+    text.includes('7d')
+  ) {
+    return 'weekly'
+  }
+  return undefined
+}
+
+function parseAntigravityQuotaBucket(rawBucket: unknown): AntigravityQuotaBucket | undefined {
+  if (!rawBucket || typeof rawBucket !== 'object' || Array.isArray(rawBucket)) return undefined
+  const bucket = rawBucket as Record<string, any>
+  const nestedRemaining = bucket.remaining && typeof bucket.remaining === 'object' && !Array.isArray(bucket.remaining)
+    ? bucket.remaining.remainingFraction
+    : undefined
+  const nestedResetTime = bucket.remaining && typeof bucket.remaining === 'object' && !Array.isArray(bucket.remaining)
+    ? bucket.remaining.resetTime
+    : undefined
+  const period = classifyAntigravityQuotaPeriod(bucket.bucketId, bucket.displayName, bucket.window, bucket.description)
+  if (!period) return undefined
+
+  const remainingPercent = safeRemainingPercent(bucket.remainingFraction ?? nestedRemaining, false)
+  const resetsAt = safeEpochMs(bucket.resetTime ?? bucket.reset_time ?? nestedResetTime, false)
+  return {
+    period,
+    ...(remainingPercent !== undefined ? { remainingPercent } : {}),
+    ...(resetsAt !== undefined ? { resetsAt } : {}),
+  }
+}
+
+function parseAntigravityQuotaSummary(body: unknown): AntigravityQuotaSummary {
+  const summary: AntigravityQuotaSummary = new Map()
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return summary
+
+  const groups = (body as Record<string, any>).groups
+  if (!Array.isArray(groups)) return summary
+
+  for (const rawGroup of groups.slice(0, MAX_MODELS_PER_ACCOUNT)) {
+    if (!rawGroup || typeof rawGroup !== 'object' || Array.isArray(rawGroup)) continue
+    const group = rawGroup as Record<string, any>
+    const family = classifyAntigravityModelFamily(group.displayName, group.description, group.groupId, group.id)
+    if (!family || !Array.isArray(group.buckets)) continue
+
+    for (const rawBucket of group.buckets.slice(0, 10)) {
+      const bucket = parseAntigravityQuotaBucket(rawBucket)
+      if (!bucket) continue
+      const familySummary = summary.get(family) ?? new Map<AccountQuotaPeriod, AntigravityQuotaBucket>()
+      const existing = familySummary.get(bucket.period)
+      // Prefer a bucket with an actual percentage when duplicate aliases are returned.
+      if (!existing || (existing.remainingPercent === undefined && bucket.remainingPercent !== undefined)) {
+        familySummary.set(bucket.period, bucket)
+      }
+      summary.set(family, familySummary)
+    }
+  }
+
+  return summary
 }
 
 async function executeBoundedFetch(
@@ -513,18 +614,44 @@ async function queryAntigravityQuota(
     return { status: 'unavailable', windows: [], ...(detectedPlan ? { plan: detectedPlan } : { planReason }) }
   }
 
+  // fetchAvailableModels carries the per-model (5-hour) window. The weekly
+  // window is account-family shared and comes from the quota summary endpoint.
+  // A summary failure is intentionally best-effort: it must not hide a valid
+  // per-model 5-hour result.
+  let quotaSummary: AntigravityQuotaSummary | undefined
+  try {
+    const summaryRes = await executeBoundedFetch(fetchFn, 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'antigravity-cli',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(project ? { project } : {}),
+    })
+    if (summaryRes.ok && summaryRes.json && typeof summaryRes.json === 'object') {
+      quotaSummary = parseAntigravityQuotaSummary(summaryRes.json)
+    }
+  } catch {
+    quotaSummary = undefined
+  }
+
   const windows: AccountQuotaWindow[] = []
   const modelKeys = Object.keys(rawModels)
+  let modelCount = 0
 
   for (const modelKey of modelKeys) {
-    if (windows.length >= MAX_WINDOWS_PER_ACCOUNT) break
+    if (modelCount >= MAX_MODELS_PER_ACCOUNT || windows.length >= MAX_WINDOWS_PER_ACCOUNT) break
     if (RESERVED_PROPERTY_NAMES.has(modelKey) || CONTROL_CHARS_REGEX.test(modelKey) || modelKey.length > 100) continue
 
     const m = rawModels[modelKey]
     if (!m || typeof m !== 'object' || Array.isArray(m) || !m.quotaInfo || typeof m.quotaInfo !== 'object' || Array.isArray(m.quotaInfo)) continue
+    modelCount++
 
     const safeDisplayName = sanitizeSafeString(m.displayName, MAX_LABEL_LENGTH)
     const label = safeDisplayName ?? modelKey
+    const family = classifyAntigravityModelFamily(modelKey, m.displayName, m.apiProvider)
 
     let remainingPercent: number | undefined
     let resetsAt: number | undefined
@@ -537,9 +664,25 @@ async function queryAntigravityQuota(
     windows.push({
       id: modelKey,
       label,
+      modelLabel: label,
+      period: 'five-hour',
+      durationSeconds: 18000,
       ...(remainingPercent !== undefined ? { remainingPercent } : {}),
       ...(resetsAt !== undefined ? { resetsAt } : {}),
     })
+
+    if (family) {
+      const weekly = quotaSummary?.get(family)?.get('weekly')
+      windows.push({
+        id: `${modelKey}:weekly`,
+        label,
+        modelLabel: label,
+        period: 'weekly',
+        durationSeconds: 604800,
+        ...(weekly?.remainingPercent !== undefined ? { remainingPercent: weekly.remainingPercent } : {}),
+        ...(weekly?.resetsAt !== undefined ? { resetsAt: weekly.resetsAt } : {}),
+      })
+    }
   }
 
   if (!windows.some(window => window.remainingPercent !== undefined)) {
@@ -701,7 +844,11 @@ export class AccountQuotaService {
       }
     } catch { /* Raw Claude token is already included. */ }
     const containsSecret = (value: string) => secrets.some(secret => value.includes(secret))
-    providerResult.windows = providerResult.windows.filter(window => !containsSecret(window.id) && !containsSecret(window.label))
+    providerResult.windows = providerResult.windows.filter(window =>
+      !containsSecret(window.id) &&
+      !containsSecret(window.label) &&
+      !(window.modelLabel && containsSecret(window.modelLabel))
+    )
     if (providerResult.plan && containsSecret(providerResult.plan)) delete providerResult.plan
     if (providerResult.status === 'ready' && !providerResult.windows.some(window => window.remainingPercent !== undefined)) {
       providerResult.status = 'unavailable'

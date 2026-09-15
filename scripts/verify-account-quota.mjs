@@ -341,6 +341,30 @@ await test('3. Antigravity positive query: loadCodeAssist, fetchAvailableModels,
         },
       })
     }
+    if (url.endsWith(':retrieveUserQuotaSummary')) {
+      return jsonResponse({
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [{
+              bucketId: 'gemini_weekly',
+              window: 'weekly',
+              remainingFraction: 0.82,
+              resetTime: '2030-01-02T00:00:00Z',
+            }],
+          },
+          {
+            displayName: 'Claude and GPT models',
+            buckets: [{
+              bucketId: 'claude_gpt_weekly',
+              window: 'weekly',
+              remainingFraction: 0.55,
+              resetTime: '2030-01-03T00:00:00Z',
+            }],
+          },
+        ],
+      })
+    }
     throw new Error('Unexpected URL')
   }
 
@@ -351,22 +375,40 @@ await test('3. Antigravity positive query: loadCodeAssist, fetchAvailableModels,
   assert.equal(snapshot.tool, 'antigravity')
   assert.equal(snapshot.status, 'ready')
   assert.equal(snapshot.plan, 'Gemini Advanced')
-  assert.equal(snapshot.windows.length, 2)
+  assert.equal(snapshot.windows.length, 4)
 
   const m1 = snapshot.windows.find((w) => w.id === 'gemini-pro')
   assert.ok(m1)
   assert.equal(m1.label, 'Gemini Pro')
+  assert.equal(m1.period, 'five-hour')
+  assert.equal(m1.durationSeconds, 18000)
   assert.equal(m1.remainingPercent, 70)
   assert.equal(m1.resetsAt, Date.parse('2030-01-01T00:00:00Z'))
+
+  const m1Weekly = snapshot.windows.find((w) => w.id === 'gemini-pro:weekly')
+  assert.ok(m1Weekly)
+  assert.equal(m1Weekly.label, 'Gemini Pro')
+  assert.equal(m1Weekly.period, 'weekly')
+  assert.equal(m1Weekly.durationSeconds, 604800)
+  assert.equal(m1Weekly.remainingPercent, 82)
+  assert.equal(m1Weekly.resetsAt, Date.parse('2030-01-02T00:00:00Z'))
 
   const m2 = snapshot.windows.find((w) => w.id === 'claude-sonnet')
   assert.ok(m2)
   assert.equal(m2.label, 'claude-sonnet') // Fallback to id
+  assert.equal(m2.period, 'five-hour')
   assert.equal(m2.remainingPercent, 0) // Genuine zero preserved
 
-  assert.equal(calls.length, 2)
+  const m2Weekly = snapshot.windows.find((w) => w.id === 'claude-sonnet:weekly')
+  assert.ok(m2Weekly)
+  assert.equal(m2Weekly.period, 'weekly')
+  assert.equal(m2Weekly.remainingPercent, 55)
+  assert.equal(m2Weekly.resetsAt, Date.parse('2030-01-03T00:00:00Z'))
+
+  assert.equal(calls.length, 3)
   assert.deepEqual(calls[0].body, { metadata: { ideType: 'ANTIGRAVITY' } })
   assert.deepEqual(calls[1].body, { project: 'test-project-123' })
+  assert.deepEqual(calls[2].body, { project: 'test-project-123' })
 })
 
 await test('4. Real zero remaining vs missing percentage: genuine 0 preserved, missing is undefined', async () => {
@@ -760,14 +802,17 @@ await test('15. Antigravity 403 project retry: retries fetchAvailableModels with
   const snapshot = await service.refreshAccount(acc.metadata.id)
 
   assert.equal(snapshot.status, 'ready')
-  assert.equal(snapshot.windows.length, 1)
+  assert.equal(snapshot.windows.length, 2)
   assert.equal(snapshot.windows[0].id, 'gemini-flash')
   assert.equal(snapshot.windows[0].remainingPercent, 80)
+  assert.equal(snapshot.windows[1].id, 'gemini-flash:weekly')
+  assert.equal(snapshot.windows[1].remainingPercent, undefined)
 
   // Verify that retry happened with empty body
-  assert.equal(requests.length, 3)
+  assert.equal(requests.length, 4)
   assert.deepEqual(requests[1].body, { project: 'forbidden-project' })
   assert.deepEqual(requests[2].body, {})
+  assert.deepEqual(requests[3].body, {})
 })
 
 await test('16. Concurrency bounds: simultaneous requests bounded by MAX_CONCURRENT_HTTP', async () => {
@@ -885,7 +930,7 @@ await test('20. Positive fractional quota is not rounded to zero; unknown window
   let remainingFraction = 0.0001
   const agyService = new AccountQuotaService({ store, fetch: async url => jsonResponse(url.endsWith(':loadCodeAssist') ? {} : { models: { 'gemini-pro': { quotaInfo: { remainingFraction } }, 'no-quota': { displayName: 'No quota' } } }) })
   const fractional = await agyService.refreshAccount(agy.metadata.id)
-  assert.equal(fractional.windows.length, 1)
+  assert.equal(fractional.windows.length, 2)
   assert.equal(fractional.windows[0].remainingPercent, 0.01)
   agyService.invalidate(agy.metadata.id)
   remainingFraction = undefined
@@ -1016,6 +1061,8 @@ await test('Localized labels preserve Claude model scope and Antigravity model n
     assert.equal(formatQuotaWindowLabel({id: 'primary_window', label: '5h', durationSeconds}, 'codex', 'zh-CN'), '额度（周期未知）')
   }
   assert.equal(formatQuotaWindowLabel({id: 'model', label: 'Claude Sonnet'}, 'antigravity', 'zh-CN'), 'Claude Sonnet')
+  assert.equal(formatQuotaWindowLabel({id: 'gemini-pro', label: 'Gemini Pro', modelLabel: 'Gemini Pro', period: 'five-hour', durationSeconds: 18000}, 'antigravity', 'zh-CN'), 'Gemini Pro · 5 小时额度')
+  assert.equal(formatQuotaWindowLabel({id: 'gemini-pro:weekly', label: 'Gemini Pro', modelLabel: 'Gemini Pro', period: 'weekly', durationSeconds: 604800}, 'antigravity', 'en-US'), 'Gemini Pro · Weekly quota')
 })
 
 console.log(`\n========================================`)
