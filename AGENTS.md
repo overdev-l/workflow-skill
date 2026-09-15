@@ -54,13 +54,15 @@
 ## 1. 界面布局与设计语言规范 (Design Language & Layout Standards)
 
 ### 1.1 页面栏目布局准则 (Layout Hierarchy)
-- **业务主工作台必须保持 macOS Pro 三栏架构 (3-Column Layout)**：
+- **业务主工作台必须保持 macOS Pro 三栏架构 (3-Column Layout)，账号管理按下述双栏例外执行**：
   - **Column 1 (Sidebar Rail)**: 宽度固定为 `160px`。承载品牌/返回按钮、一级模块导航（Skill 资产库、高频工作流、AI 环境目录）与左下角系统设置入口。
   - **Column 2 (Master List)**: 宽度固定为 `210px`。承载列表检索与一级分类/Tab 切换（如 `[ 本地 | 远程 ]`、`[ 全局 | 项目 ]`），禁止冗余的次级过滤条或多余统计角标。AI 环境列表项直接呈现 [官方矢量品牌 Logo + AI 纯净名称]，通用型环境统一展示为 `agents`，无多余圆点或角标。
   - **Column 3 (Detail Stage)**: 宽度自适应（`minmax(0, 1fr)`）。承载详情 Hero 头部、操作工具栏、物理环境分发矩阵、`SKILL.md` 编辑器与工作流执行图谱。
 - **设置页必须保持 macOS 原生双栏偏好设置架构 (2-Column Settings Layout)**：
   - 进入设置模式（`inSettings === true`）时，网格切换为 `grid-template-columns: 160px minmax(0, 1fr)`；
   - 彻底隐藏中间栏，左侧 Sidebar 切换为设置导航（`通用`、`快捷键`、`权限`、`关于`），右侧主舞台（`.app-main-stage`）以全宽舒适排版呈现配置卡片。
+
+- **账号管理是用户明确指定的双栏例外**：保留 `160px minmax(0, 1fr)` 的 Sidebar + 全宽账号工作台，顶部 AI 工具 Tab、下方账号卡片网格；不显示 Master 列和列宽拖拽，不改回三栏。切换工具自动刷新该工具的配额，保留去重、并发限制和失败冷却。
 
 ### 1.2 胶囊元素与紧凑视觉节奏 (Capsule Rhythm & Compression)
 - **严格遵循紧凑 macOS 视觉节奏，禁止过大的胶囊高度**：
