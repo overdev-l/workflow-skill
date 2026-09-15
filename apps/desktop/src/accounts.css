@@ -59,26 +59,26 @@
   gap: 8px;
   padding: 8px 12px;
   border-radius: var(--radius-md, 8px);
-  background: rgba(59, 130, 246, 0.08);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  background: color-mix(in oklch, var(--color-accent) 12%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-accent) 25%, transparent);
   font-size: 0.6875rem;
   line-height: 1.4;
-  color: #bfdbfe;
+  color: var(--color-accent);
 }
 
 .account-legacy-icon {
   flex-shrink: 0;
   margin-top: 1px;
-  color: #60a5fa;
+  color: var(--color-accent);
 }
 
 .account-error-callout {
   padding: 8px 12px;
-  border-radius: var(--radius-md, 6px);
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-danger-bg);
+  border: 1px solid color-mix(in oklch, var(--color-danger) 25%, transparent);
   font-size: 0.6875rem;
-  color: #fca5a5;
+  color: var(--color-danger-ink);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -99,9 +99,9 @@
   gap: 8px;
   padding: 8px 12px;
   border-radius: var(--radius-md, 8px);
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
+  background: var(--color-danger-bg);
+  border: 1px solid color-mix(in oklch, var(--color-danger) 30%, transparent);
+  color: var(--color-danger-ink);
   font-size: 0.6875rem;
   line-height: 1.4;
 }
@@ -109,7 +109,7 @@
 .account-tool-error-icon {
   flex-shrink: 0;
   margin-top: 1px;
-  color: #ef4444;
+  color: var(--color-danger);
 }
 
 .account-tool-error-body {
@@ -120,7 +120,7 @@
 
 .account-tool-error-body strong {
   font-weight: 650;
-  color: #fee2e2;
+  color: var(--color-danger-ink);
 }
 
 /* Recovery-Needed Banner */
@@ -131,8 +131,8 @@
   gap: 12px;
   padding: 10px 14px;
   border-radius: var(--radius-md, 8px);
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: var(--color-waiting-bg);
+  border: 1px solid color-mix(in oklch, var(--color-waiting) 30%, transparent);
 }
 
 .account-recovery-info {
@@ -142,7 +142,7 @@
 }
 
 .account-recovery-icon {
-  color: #fbbf24;
+  color: var(--color-waiting);
   flex-shrink: 0;
   margin-top: 1px;
 }
@@ -151,13 +151,13 @@
   display: block;
   font-size: 0.75rem;
   font-weight: 650;
-  color: #fef3c7;
+  color: var(--color-waiting-ink);
 }
 
 .account-recovery-text p {
   margin: 2px 0 0 0;
   font-size: 0.6875rem;
-  color: #fde68a;
+  color: var(--color-waiting-ink);
   line-height: 1.4;
 }
 
@@ -170,8 +170,8 @@
   flex-wrap: wrap;
   padding: 8px 12px;
   border-radius: var(--radius-md, 8px);
-  background: rgba(0, 0, 0, 0.16);
-  border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.06));
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
 }
 
 .account-tool-identity-group {
@@ -184,7 +184,7 @@
 .account-tool-identity-label {
   font-size: 0.6875rem;
   font-weight: 550;
-  color: var(--color-muted, rgba(255, 255, 255, 0.55));
+  color: var(--color-muted);
   white-space: nowrap;
 }
 
@@ -194,9 +194,9 @@
   gap: 5px;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border: 1px solid color-mix(in oklch, var(--color-accent) 25%, transparent);
   padding: 2px 8px;
   border-radius: var(--radius-pill, 9999px);
   max-width: 320px;
@@ -206,9 +206,9 @@
 }
 
 .account-tool-identity-chip--empty {
-  color: var(--color-muted, rgba(255, 255, 255, 0.5));
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--color-muted);
+  background: var(--glass-surface);
+  border-color: var(--color-border-subtle);
   font-weight: 500;
 }
 
@@ -222,7 +222,7 @@
 /* Informative Session Hint */
 .account-sessions-hint {
   font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.45));
+  color: var(--color-muted);
   margin: 0;
   line-height: 1.4;
 }
@@ -236,9 +236,9 @@
   font-weight: 600;
   padding: 1px 6px;
   border-radius: var(--radius-pill, 9999px);
-  background: rgba(34, 197, 94, 0.16);
-  border: 1px solid rgba(34, 197, 94, 0.35);
-  color: #86efac;
+  background: var(--color-success-bg);
+  border: 1px solid color-mix(in oklch, var(--color-success) 35%, transparent);
+  color: var(--color-success-ink);
 }
 
 /* Compact Buttons (AGENTS.md: 24px standard, 22px small) */
@@ -262,7 +262,6 @@
               color var(--motion-fast) var(--motion-smooth);
   user-select: none;
   white-space: nowrap;
-  outline: none;
   box-shadow: none;
 }
 
@@ -272,7 +271,8 @@
 }
 
 .account-btn:focus-visible {
-  box-shadow: var(--control-focus-ring);
+  outline: 1.5px solid var(--focus-ring);
+  outline-offset: 2px;
   border-color: var(--color-primary);
 }
 
@@ -315,7 +315,7 @@
 .account-input {
   height: 28px;
   padding: 0 10px;
-  border-radius: var(--radius-md, 6px);
+  border-radius: var(--radius-md, 8px);
   background: var(--control-bg);
   border: 1px solid var(--control-border);
   color: var(--control-ink);
@@ -694,15 +694,15 @@
 }
 
 .account-capability-label--ready {
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.28);
-  color: #86efac;
+  background: var(--color-success-bg);
+  border: 1px solid color-mix(in oklch, var(--color-success) 28%, transparent);
+  color: var(--color-success-ink);
 }
 
 .account-capability-label--limited {
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.28);
-  color: #fde68a;
+  background: var(--color-waiting-bg);
+  border: 1px solid color-mix(in oklch, var(--color-waiting) 28%, transparent);
+  color: var(--color-waiting-ink);
 }
 
 .account-capability-reason {
@@ -885,9 +885,9 @@
 }
 
 .account-icon-btn--danger:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.15);
-  color: #fca5a5;
-  border-color: rgba(239, 68, 68, 0.25);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-ink);
+  border-color: color-mix(in oklch, var(--color-danger) 25%, transparent);
 }
 
 /* Quota Section */
@@ -899,8 +899,8 @@
   gap: 8px;
   padding: 8px 10px;
   border-radius: var(--radius-md, 7px);
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.05));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 
 .account-quota-status-row {
@@ -930,45 +930,45 @@
 }
 
 .account-quota-status-badge--ready {
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.28);
-  color: #86efac;
+  background: var(--color-success-bg);
+  border: 1px solid color-mix(in oklch, var(--color-success) 28%, transparent);
+  color: var(--color-success-ink);
 }
 
 .account-quota-status-badge--expired {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.28);
-  color: #fca5a5;
+  background: var(--color-danger-bg);
+  border: 1px solid color-mix(in oklch, var(--color-danger) 28%, transparent);
+  color: var(--color-danger-ink);
 }
 
 .account-quota-status-badge--forbidden {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.28);
-  color: #fca5a5;
+  background: var(--color-danger-bg);
+  border: 1px solid color-mix(in oklch, var(--color-danger) 28%, transparent);
+  color: var(--color-danger-ink);
 }
 
 .account-quota-status-badge--limited {
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.28);
-  color: #fde68a;
+  background: var(--color-waiting-bg);
+  border: 1px solid color-mix(in oklch, var(--color-waiting) 28%, transparent);
+  color: var(--color-waiting-ink);
 }
 
 .account-quota-status-badge--unavailable {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--color-muted, rgba(255, 255, 255, 0.5));
+  background: var(--glass-surface-subtle);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-muted);
 }
 
 .account-quota-status-badge--error {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.28);
-  color: #fca5a5;
+  background: var(--color-danger-bg);
+  border: 1px solid color-mix(in oklch, var(--color-danger) 28%, transparent);
+  color: var(--color-danger-ink);
 }
 
 .account-quota-status-badge--stale {
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.28);
-  color: #fde68a;
+  background: var(--color-waiting-bg);
+  border: 1px solid color-mix(in oklch, var(--color-waiting) 28%, transparent);
+  color: var(--color-waiting-ink);
 }
 
 .account-quota-plan-badge {
@@ -979,9 +979,9 @@
   font-weight: 600;
   padding: 1px 5px;
   border-radius: var(--radius-pill, 9999px);
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.28);
-  color: #93c5fd;
+  background: var(--color-accent-subtle);
+  border: 1px solid color-mix(in oklch, var(--color-accent) 28%, transparent);
+  color: var(--color-accent);
 }
 
 .account-quota-updated-time {
@@ -1075,15 +1075,15 @@
 }
 
 .account-quota-fill--high {
-  background: linear-gradient(90deg, #10b981, #34d399);
+  background: var(--color-success);
 }
 
 .account-quota-fill--mid {
-  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  background: var(--color-waiting);
 }
 
 .account-quota-fill--low {
-  background: linear-gradient(90deg, #ef4444, #f87171);
+  background: var(--color-danger);
 }
 
 .account-quota-window-reset {
@@ -1131,9 +1131,9 @@
 }
 
 .account-card-switch-btn--active {
-  background: rgba(34, 197, 94, 0.12) !important;
-  border-color: rgba(34, 197, 94, 0.28) !important;
-  color: #86efac !important;
+  background: var(--color-success-bg) !important;
+  border-color: color-mix(in oklch, var(--color-success) 28%, transparent) !important;
+  color: var(--color-success-ink) !important;
   cursor: default;
 }
 
@@ -1158,32 +1158,6 @@
   background: var(--control-bg);
   border-color: var(--control-border);
   color: var(--control-ink);
-}
-
-[data-theme='light'] .account-active-badge,
-[data-theme='light'] .account-capability-label--ready,
-[data-theme='light'] .account-quota-status-badge--ready,
-[data-theme='light'] .account-card-switch-btn--active {
-  color: #166534 !important;
-}
-
-[data-theme='light'] .account-tool-identity-chip:not(.account-tool-identity-chip--empty),
-[data-theme='light'] .account-quota-plan-badge {
-  color: #1d4ed8;
-}
-
-[data-theme='light'] .account-capability-label--limited,
-[data-theme='light'] .account-quota-status-badge--limited,
-[data-theme='light'] .account-quota-status-badge--stale {
-  color: #92400e;
-}
-
-[data-theme='light'] .account-error-callout,
-[data-theme='light'] .account-btn--danger,
-[data-theme='light'] .account-quota-status-badge--expired,
-[data-theme='light'] .account-quota-status-badge--forbidden,
-[data-theme='light'] .account-quota-status-badge--error {
-  color: #b91c1c;
 }
 
 [data-theme='light'] .account-quota-bar-track {
@@ -1231,25 +1205,25 @@
   padding: 16px 12px;
   width: 100%;
   border-radius: var(--radius-md, 8px);
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.06));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   text-align: center;
 }
 
 .account-oauth-spinner {
-  color: #60a5fa;
+  color: var(--color-accent);
 }
 
 .account-oauth-status-title {
   font-size: 0.75rem;
   font-weight: 650;
-  color: var(--color-ink, #ffffff);
+  color: var(--color-ink);
 }
 
 .account-oauth-status-desc {
   margin: 0;
   font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.6));
+  color: var(--color-muted);
   line-height: 1.45;
   max-width: 320px;
 }
@@ -1264,10 +1238,10 @@
 .account-modal-error-callout {
   padding: 8px 12px;
   border-radius: var(--radius-md, 6px);
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: var(--color-danger-bg);
+  border: 1px solid color-mix(in oklch, var(--color-danger) 25%, transparent);
   font-size: 0.6875rem;
-  color: #fca5a5;
+  color: var(--color-danger-ink);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1289,21 +1263,21 @@
 }
 
 .account-contextual-callout--expired {
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  color: #fde68a;
+  background: var(--color-waiting-bg);
+  border: 1px solid color-mix(in oklch, var(--color-waiting) 25%, transparent);
+  color: var(--color-waiting-ink);
 }
 
 .account-contextual-callout--error {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  color: #fca5a5;
+  background: var(--color-danger-bg);
+  border: 1px solid color-mix(in oklch, var(--color-danger) 25%, transparent);
+  color: var(--color-danger-ink);
 }
 
 .account-contextual-callout--unavailable {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--color-muted, rgba(255, 255, 255, 0.65));
+  background: var(--glass-surface-subtle);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-muted);
 }
 
 .account-contextual-callout-body {
@@ -1340,38 +1314,20 @@
 
 /* Light theme overrides */
 [data-theme='light'] .account-oauth-status-box {
-  background: oklch(0.3 0.01 260 / 0.04);
-  border-color: oklch(0.3 0.01 260 / 0.08);
+  background: var(--color-surface);
+  border-color: var(--color-border);
 }
 
 [data-theme='light'] .account-btn--oauth-signin {
-  background: oklch(0.2 0.01 260 / 0.08);
-  border-color: oklch(0.2 0.01 260 / 0.15);
-  color: oklch(0.1 0.01 260);
+  background: var(--btn-secondary-bg);
+  border-color: var(--color-border);
+  color: var(--color-ink);
 }
 
 [data-theme='light'] .account-btn--oauth-signin:hover:not(:disabled) {
-  background: oklch(0.2 0.01 260 / 0.14);
+  background: var(--btn-secondary-hover);
 }
 
 [data-theme='light'] .account-oauth-status-title {
-  color: oklch(0.15 0.01 260);
-}
-
-[data-theme='light'] .account-contextual-callout--expired {
-  background: oklch(0.85 0.12 85 / 0.15);
-  border-color: oklch(0.7 0.15 85 / 0.3);
-  color: #78350f;
-}
-
-[data-theme='light'] .account-contextual-callout--error {
-  background: oklch(0.85 0.15 25 / 0.15);
-  border-color: oklch(0.7 0.2 25 / 0.3);
-  color: #991b1b;
-}
-
-[data-theme='light'] .account-contextual-callout--unavailable {
-  background: oklch(0.3 0.01 260 / 0.05);
-  border-color: oklch(0.3 0.01 260 / 0.12);
-  color: oklch(0.4 0.01 260);
+  color: var(--color-ink);
 }

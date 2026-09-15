@@ -1,57 +1,96 @@
-# Design System
+# Trace 设计规范
 
-## Direction
+本文件是桌面 UI 的验收基线。延续当前配色与紧凑 macOS Pro 方向，解决组件之间的样式漂移。对应需求 OPC-60。共享实现入口为 `packages/ui/src/styles.css`，桌面布局为 `apps/desktop/src/app.css`，模块样式为 `accounts.css`、`mcp.css`、`updates.css`。
 
-Arc-inspired spatial workspace with restrained color, progressive disclosure, and evidence-led trust. Discovery and workflow review share one surface. Skill management uses pinned items plus a quiet list with inline expansion.
+## 1. 设计方向与范围
 
-## Theme
+面向长期管理 Skill、工作流和 AI 环境的专业用户。界面安静、紧凑、可检查，突出当前工作内容。保留深浅双主题、原生字体、钴蓝主操作和天蓝辅助强调，不重做信息架构或业务流程。
 
-The primary presentation is dark, with a pure titanium obsidian near-black canvas and high-craft cobalt/azure surfaces. A full light theme mirrors the same hierarchy with studio warm white and slate.
+毛玻璃只用于窗口结构表面，采用 `blur(40px) saturate(180%)`；内容面板用明确明度层次和微弱 1px 边界。禁止装饰渐变、发光、厚阴影和重复嵌套卡片。品牌 Logo 保留官方颜色，不随语义 token 强制重染。
 
-## Color
+## 2. 主题与语义色
 
-All production tokens use OKLCH.
+以下 OKLCH 值来自当前共享主题，不使用不准确的十六进制近似。组件必须引用语义变量，禁止单独硬编码深色背景、白色文字或红黄绿状态色。
 
-### Dark (Titanium Obsidian & Electric Cobalt)
+| Token | 深色 | 浅色 |
+| --- | --- | --- |
+| `--color-bg` | `oklch(0.120 0.004 250)` | `oklch(0.985 0.002 250)` |
+| `--color-canvas` | `oklch(0.145 0.005 250)` | `oklch(1 0 0)` |
+| `--color-surface` | `oklch(0.175 0.006 250)` | `oklch(0.965 0.004 250)` |
+| `--color-surface-raised` | `oklch(0.215 0.008 250)` | `oklch(0.925 0.007 250)` |
+| `--color-rail` | `oklch(0.160 0.006 250)` | `oklch(0.940 0.005 250)` |
+| `--color-ink` | `oklch(0.960 0.003 250)` | `oklch(0.160 0.010 250)` |
+| `--color-muted` | `oklch(0.620 0.010 250)` | `oklch(0.480 0.015 250)` |
+| `--color-subtle` | `oklch(0.440 0.010 250)` | `oklch(0.640 0.010 250)` |
+| `--color-border` | `oklch(0.260 0.007 250)` | `oklch(0.890 0.006 250)` |
+| `--color-primary` | `oklch(0.580 0.200 250)` | `oklch(0.520 0.210 250)` |
+| `--color-accent` | `oklch(0.780 0.130 210)` | `oklch(0.580 0.160 215)` |
+| `--color-success` | `oklch(0.760 0.160 155)` | `oklch(0.420 0.140 155)` |
+| `--color-waiting` | `oklch(0.780 0.150 75)` | `oklch(0.460 0.140 75)` |
+| `--color-danger` | `oklch(0.650 0.220 25)` | `oklch(0.550 0.200 25)` |
+| `--control-bg` | `oklch(0.110 0.004 250)` | `oklch(0.910 0.008 250)` |
+| `--control-bg-hover` | `oklch(0.125 0.005 250)` | `oklch(0.890 0.010 250)` |
+| `--control-bg-focus` | `oklch(0.095 0.004 250)` | `oklch(0.925 0.007 250)` |
+| `--control-border` | `oklch(0.260 0.007 250)` | `oklch(0.830 0.010 250)` |
+| `--control-placeholder` | `oklch(0.580 0.010 250)` | `oklch(0.460 0.015 250)` |
 
-- Background: `oklch(0.120 0.004 250)` (#0d0e11)
-- Canvas: `oklch(0.145 0.005 250)` (#121418)
-- Surface: `oklch(0.175 0.006 250)` (#181a1f)
-- Raised surface: `oklch(0.215 0.008 250)` (#20232a)
-- Rail: `oklch(0.160 0.006 250)` (#15171b)
-- Ink: `oklch(0.960 0.003 250)` (#f2f4f8)
-- Muted: `oklch(0.620 0.010 250)` (#858b98)
-- Subtle: `oklch(0.440 0.010 250)` (#555a66)
-- Border: `oklch(0.260 0.007 250)` (#2a2e36)
-- Primary: `oklch(0.580 0.200 250)` (#2563eb - Electric Cobalt)
-- Accent: `oklch(0.780 0.130 210)` (#38bdf8 - Electric Azure)
-- Success: `oklch(0.760 0.160 155)` (#10b981 - Crisp Emerald)
-- Waiting: `oklch(0.780 0.150 75)` (#f59e0b - Warm Amber)
+- 主操作使用 `--btn-primary-*`；次操作使用 `--btn-secondary-*`。蓝色只用于操作、选择和焦点。
+- 成功/等待/危险提示成组使用 `--color-<state>-bg`、`--color-<state>-ink`；边界使用相应语义色的低透明度版本。
+- `--color-subtle` 只用于非必要装饰，不用于正文、表单标签或占位文字。正文和占位文字对比度目标 4.5:1；大字与必要非文字状态目标 3:1。表内既有值若不达标，只调整对应语义文字 token 的明度并同步此表，不更换色相方向。
+- 新的兼容别名必须指向已有语义 token，不建立第二套色板。官网继承共享主题，需检查兼容性，但不纳入本次页面重设计。
 
-### Light (Studio Warm White & Slate)
+## 3. 布局
 
-- Background: `oklch(0.985 0.002 250)` (#f8f9fa)
-- Canvas: `oklch(1 0 0)` (#ffffff)
-- Surface: `oklch(0.965 0.004 250)` (#f1f3f6)
-- Raised surface: `oklch(0.925 0.007 250)` (#e4e7ed)
-- Rail: `oklch(0.940 0.005 250)` (#edf0f4)
-- Ink: `oklch(0.160 0.010 250)` (#111317)
-- Muted: `oklch(0.480 0.015 250)` (#5f6472)
-- Subtle: `oklch(0.640 0.010 250)` (#8b91a0)
-- Border: `oklch(0.890 0.006 250)` (#d8dce4)
-- Primary: `oklch(0.520 0.210 250)` (#1d4ed8 - Bold Royal Cobalt)
-- Accent: `oklch(0.580 0.160 215)` (#0284c7 - Electric Azure)
-- Success: `oklch(0.420 0.140 155)` (#059669 - Deep Emerald)
-- Waiting: `oklch(0.460 0.140 75)` (#d97706 - Warm Amber)
+- 业务工作台基线为 `160px 210px minmax(0, 1fr)`。Sidebar 固定 160px，Master 默认 210px；保留当前已实现的用户拖拽列宽及持久化行为，不因视觉修复删除功能。
+- 设置模式为 `160px minmax(0, 1fr)`，隐藏 Master，主舞台全宽承载设置内容。保留已有设置导航项。
+- 主舞台常规水平内边距 16px，设置页面 28px；顶部保留当前 38px 窗口拖拽安全区，底部 24px，设置底部 40px。
+- 长内容在所属区域滚动；flex/grid 子项使用 `min-width: 0`，长路径省略或在详情换行。窄窗口允许内部表单改单列，不擅自隐藏业务栏或改变导航架构。
 
-## Typography
+## 4. 尺寸与间距
 
-Use one native product stack: `ui-sans-serif`, `-apple-system`, `BlinkMacSystemFont`, `Segoe UI`, `PingFang SC`, and `Microsoft YaHei`. Five fixed sizes cover caption, metadata, body, subheading, and page title. Use tabular numerals for confidence, time, and repetition counts.
+| 项目 | 标准 |
+| --- | --- |
+| 导航 `.nav-pill-btn` | 26px 高，水平 padding 8px |
+| 标准 `.btn` / `.btn--capsule` | 24px 高，水平 padding 10px |
+| 小号 `.btn--sm` | 22px 高，水平 padding 8px |
+| Master 分段 Tab 外框与按钮 | 均 24px 高；外框不得再叠加使子项溢出的垂直 padding/border |
+| 单行输入、搜索、下拉 | 28px 高，水平 padding 10px |
+| 命令搜索 | 28px 高，与其他搜索一致 |
+| 多行编辑 | 高度按内容场景，padding 12px 16px；不套用 28px 限高 |
+| 普通列表行 | 默认最小 48px；纯导航按 26px |
+| 图标 | 普通 14px，紧凑 12px，导航 16px；品牌标识按现有容器 |
+| 圆角 | 小 6px，控件 8px，卡片 10px，面板最大 12px，胶囊全圆 |
 
-## Components
+间距主刻度使用 `--space-1/2/3/4/6/8/12`，对应 4/8/12/16/24/32/48px。图标到文字和紧密工具组允许 6px，字段水平 padding 允许 10px。1/2px 仅用于描边或内部对齐。列表组间 8px，表单字段组间 12px，面板内容 16px，独立章节 24px。不把编辑器行高、图谱坐标、原生窗口安全区机械替换为间距刻度。
 
-- Maximum panel radius: 12px.
-- Primary buttons use solid electric cobalt with white text.
-- Workflow lines use electric azure / cobalt and never carry meaning without labels or icons.
-- Depth comes from explicit surface lightness and crisp 1px borders, zero box shadows.
-- Focus rings are always visible for keyboard navigation.
+## 5. 字体
+
+使用共享 `--font-sans` 原生系统栈；代码、路径内容、编辑器使用 `--font-mono`。固定字号：辅助 11px、控件/说明 12px、正文/列表标题 13px、分组标题 15px、详情标题 20px。正文 1.45–1.55 行高，代码编辑 1.65；控件垂直居中。常规字重 400、标签 500、标题 600；数字使用等宽数字。避免 9px 状态文字承担关键信息。
+
+## 6. 输入与键盘焦点（强制）
+
+**所有可输入区域不要 outline，也不要用外扩 box-shadow 模拟 outline。**
+
+覆盖 input（含 number/url/tel 等类型）、textarea、select、可编辑 contenteditable、role=textbox 的实际输入节点，以及其 focus、focus-visible、focus-within 状态。
+
+- 默认和聚焦均 `outline: none`。输入底色使用 `--control-bg`，比所在表面更深。
+- Hover 使用 `--control-bg-hover` 和 `--control-border-hover`。
+- Focus 使用 `--control-bg-focus` 与 `--control-border-focus`；需要增强键盘识别时最多增加 1px **内侧**实线阴影，禁止外扩环和光晕。不得引发布局位移。
+- 带搜索图标的复合输入，由外壳统一呈现底色、边界和 focus-within；内部 input 背景透明、无独立边界或阴影，避免双层输入框。
+- 错误态保留危险边框和文本说明，焦点不能覆盖错误含义。禁用态不能响应 hover/focus 装饰。
+- 这条规则不删除按钮、链接、Tab、拖拽分隔条的键盘焦点。非输入控件保留清晰的 focus-visible 指示。禁止全局 `* { outline: none }`。
+
+## 7. 组件状态与动效
+
+所有交互组件覆盖 default、hover、focus-visible、active/selected、disabled；异步操作延续现有 loading/error/success 反馈。选择态使用低饱和蓝色底与文字/图标，状态不能只依赖颜色。按钮不因 hover 缩放或弹跳。
+
+统一快速反馈 160ms、常规切换 220ms，使用已有缓出曲线。遵循 prefers-reduced-motion。错误提示、账户恢复、MCP 开关与更新状态在双主题下共用语义样式。
+
+## 8. 实施与验收
+
+1. 优先修正共享 token 和原始组件规则，禁止在文件末尾不断追加高优先级补丁；模块只保留布局与必要场景差异。
+2. 核对 Skill、工作流、AI 环境、MCP、账号、设置/更新、搜索与编辑弹窗。不得借样式修复修改 IPC、账号逻辑、协议或发布行为。
+3. 浅色/深色各核对常规窗口与窄窗口；检查 26/24/22/28px 控件、Tab 不溢出、长文本及滚动。
+4. 鼠标与 Tab 聚焦输入均无 outline/外扩环，焦点仍通过内侧边界可见；复合搜索只有一层背景/焦点；非输入控件键盘导航可见。
+5. 运行 pnpm typecheck 与 pnpm build，审查 diff。视觉检查与未覆盖项必须如实记录，不以构建成功代替视觉验收。
+6. Antigravity 提供核对和修复结果，由主 Agent 审阅、验证、在 main 提交，并更新 OPC-60。

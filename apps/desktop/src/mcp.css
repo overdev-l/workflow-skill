@@ -50,7 +50,7 @@
 }
 
 [data-theme='light'] .mcp-tool-tab-btn.is-active {
-  background: #ffffff;
+  background: var(--color-canvas);
   color: var(--color-ink);
   border: 1px solid var(--color-border);
   box-shadow: none;
@@ -82,7 +82,8 @@
 .mcp-scope-segmented {
   width: 100%;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
 }
 
 .mcp-scope-segmented .master-tab-btn {
@@ -148,6 +149,7 @@
 
 .mcp-master-row__sub {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   margin-top: 1px;
@@ -155,6 +157,7 @@
 
 .mcp-badge {
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   padding: 1px 5px;
   border-radius: 4px;
@@ -171,9 +174,9 @@
 }
 
 .mcp-badge--disabled {
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-ink);
+  border: 1px solid color-mix(in oklch, var(--color-danger) 25%, transparent);
 }
 
 .mcp-master-action-bar {
@@ -499,8 +502,8 @@
 }
 
 .mcp-kv-delete-btn:hover {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
+  color: var(--color-danger-ink);
+  background: var(--color-danger-bg);
 }
 
 /* --- Distribution Matrix --- */
@@ -547,6 +550,8 @@
 
 .mcp-dist-status-badge {
   display: inline-flex;
+  flex-shrink: 0;
+  white-space: nowrap;
   align-items: center;
   gap: 4px;
   font-size: 0.6875rem;
@@ -556,13 +561,13 @@
 }
 
 .mcp-dist-status-badge.is-synced {
-  color: #10b981;
-  background: rgba(16, 185, 129, 0.12);
+  color: var(--color-success-ink);
+  background: var(--color-success-bg);
 }
 
 .mcp-dist-status-badge.is-diff {
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.12);
+  color: var(--color-waiting-ink);
+  background: var(--color-waiting-bg);
 }
 
 .mcp-dist-status-badge.is-none {
