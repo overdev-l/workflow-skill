@@ -79,7 +79,6 @@ import {
   Zap,
 } from 'lucide-react'
 import {
-  communityRemoteSkills,
   DEFAULT_AI_TOOLS,
   demoSkills,
   SUPPORTED_PROJECT_SKILL_PATHS,
@@ -88,9 +87,8 @@ import {
   type AIToolTarget,
   type DeleteSkillMode,
   type ProjectRecord,
+  type ManagedProjectRecord,
   type RemoteSkill,
-  type RepositorySkillSearchResult,
-  type RepositorySkillSummary,
   type Skill,
   type Workflow,
   type WorkflowNode,
@@ -102,6 +100,8 @@ import type {
   RecorderEnvelope,
   RecorderStatus,
 } from '@workflow-skill/capture-protocol'
+import { AddSkillDialog } from './components/AddSkillDialog'
+import { addSkillToScope, skillsInScope, type SkillScopeTarget } from './skill-scope'
 import { WorkflowGraph } from './components/WorkflowGraph'
 import { McpThreeColumn } from './components/McpThreeColumn'
 import { RulesThreeColumn } from './components/RulesThreeColumn'
@@ -1222,10 +1222,9 @@ function SkillsThreeColumn({
   aiTools,
   selectedSkillId,
   onSelectSkillId,
-  onNewSkill,
   onToggleLinkTarget,
   onDeleteSkill,
-  onDetectTools,
+  onReloadSkills,
   onExportCode,
   notify,
 }: {
@@ -1233,336 +1232,126 @@ function SkillsThreeColumn({
   aiTools: AIToolTarget[]
   selectedSkillId: string
   onSelectSkillId: (id: string) => void
-  onNewSkill: () => void
   onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
   onDeleteSkill: (skill: Skill, mode: DeleteSkillMode) => Promise<void>
-  onDetectTools: () => void
+  onReloadSkills: () => Promise<void>
   onExportCode: (workflow: Workflow, name: string) => void
   notify?: (msg: string) => void
 }) {
-  const { t } = useI18n()
-  const [skillTab, setSkillTab] = useState<'local' | 'remote'>('local')
+  const [skillTab, setSkillTab] = useState<'global' | 'project'>('global')
   const [query, setQuery] = useState('')
+  const [projects, setProjects] = useState<ManagedProjectRecord[]>([])
+  const [projectId, setProjectId] = useState('')
+  const [projectError, setProjectError] = useState('')
   const [skillMdContent, setSkillMdContent] = useState('')
   const [deleteModalSkill, setDeleteModalSkill] = useState<Skill | null>(null)
   const [linkModalSkill, setLinkModalSkill] = useState<Skill | null>(null)
-  const [selectedRemoteSkillId, setSelectedRemoteSkillId] = useState<string>(communityRemoteSkills[0]?.id || '')
-  const [repositorySearchResult, setRepositorySearchResult] = useState<RepositorySkillSearchResult | null>(null)
-  const [selectedRepositorySkillName, setSelectedRepositorySkillName] = useState('')
-  const [repositorySearching, setRepositorySearching] = useState(false)
-  const [repositorySearchError, setRepositorySearchError] = useState('')
-
-  const installedTools = useMemo(() => aiTools.filter((t) => t.installed), [aiTools])
-
-  // Filter Local Skills
-  const filteredLocalSkills = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return skills
-    return skills.filter((sk) => {
-      const searchStr = `${sk.name} ${sk.description || ''} ${(sk.tags || []).join(' ')}`.toLowerCase()
-      return searchStr.includes(q)
-    })
-  }, [skills, query])
-
-  const activeLocalSkill = useMemo(() => {
-    return filteredLocalSkills.find((s) => s.id === selectedSkillId) || filteredLocalSkills[0] || null
-  }, [filteredLocalSkills, selectedSkillId])
-
-  const activeLinkedTools = useMemo(() => {
-    if (!activeLocalSkill) return []
-    return aiTools.filter((tool) => activeLocalSkill.targetTools?.includes(tool.id))
-  }, [aiTools, activeLocalSkill])
-
-  // Filter Remote Skills
-  const filteredRemoteSkills = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return communityRemoteSkills
-    return communityRemoteSkills.filter((r) => {
-      const searchStr = `${r.name} ${r.description} ${r.author} ${r.tags.join(' ')}`.toLowerCase()
-      return searchStr.includes(q)
-    })
-  }, [query])
-
-  const activeRemoteSkill = useMemo(() => {
-    return filteredRemoteSkills.find((r) => r.id === selectedRemoteSkillId) || filteredRemoteSkills[0] || null
-  }, [filteredRemoteSkills, selectedRemoteSkillId])
-
-  const repositoryQuery = query.trim()
-  const isRepositoryQuery = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,38}\/[a-zA-Z0-9_.-]{1,100}$/.test(repositoryQuery)
-  const repositoryResultIsCurrent = repositorySearchResult?.repository === repositoryQuery
-  const activeRepositorySkill = useMemo<RepositorySkillSummary | null>(() => {
-    if (!repositoryResultIsCurrent || !repositorySearchResult) return null
-    return repositorySearchResult.skills.find((skill) => skill.name === selectedRepositorySkillName)
-      || repositorySearchResult.skills[0]
-      || null
-  }, [repositoryResultIsCurrent, repositorySearchResult, selectedRepositorySkillName])
-
-  const handleRepositorySearch = async () => {
-    if (!isRepositoryQuery || !window.workflowSkill?.searchRepositorySkills) return
-    setRepositorySearching(true)
-    setRepositorySearchError('')
-    try {
-      const result = await window.workflowSkill.searchRepositorySkills(repositoryQuery)
-      setRepositorySearchResult(result)
-      setSelectedRepositorySkillName(result.skills[0]?.name || '')
-    } catch (error) {
-      setRepositorySearchResult(null)
-      setRepositorySearchError(error instanceof Error ? error.message : '仓库搜索失败，请稍后重试')
-    } finally {
-      setRepositorySearching(false)
-    }
-  }
-
+  const [addTarget, setAddTarget] = useState<SkillScopeTarget | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createBusy, setCreateBusy] = useState(false)
+  const [createError, setCreateError] = useState('')
+  useUpdateBlocker('skill-add', addOpen || createOpen)
   useEffect(() => {
-    if (activeLocalSkill && skillTab === 'local') {
-      setSkillMdContent(activeLocalSkill.skillMarkdown || '')
-      if (window.workflowSkill?.readSkillMarkdown) {
-        window.workflowSkill
-          .readSkillMarkdown(activeLocalSkill.id)
-          .then((content) => {
-            if (content) setSkillMdContent(content)
-          })
-          .catch(() => {})
+    let active = true
+    let generation = 0
+    const refresh = async () => {
+      const current = ++generation
+      try {
+        if (!window.workflowSkill?.listManagedProjects) throw new Error('项目管理暂不可用')
+        const [result, activeProject] = await Promise.all([window.workflowSkill.listManagedProjects(), window.workflowSkill.getActiveProject?.()])
+        if (!active || current !== generation) return
+        setProjects(result)
+        setProjectError('')
+        setProjectId(previous => previous || result.find(project => project.id === activeProject?.id && project.status === 'valid')?.id || result.find(project => project.status === 'valid')?.id || '')
+      } catch (error) {
+        if (active && current === generation) {
+          setProjects([])
+          setProjectError(error instanceof Error ? error.message : '读取项目失败')
+        }
       }
     }
-  }, [activeLocalSkill?.id, skillTab])
-
-  const handleInstallRemoteSkill = async (remote: RemoteSkill) => {
-    const newSkill: Skill = {
-      id: remote.id,
-      name: remote.name,
-      description: remote.description,
-      apps: ['AI Agent Runtime'],
-      updatedLabel: '刚刚安装',
-      pinned: false,
-      sourceRuns: 1,
-      versions: 1,
-      workflow: {
-        id: `wf-${remote.id}`,
-        name: remote.name,
-        summary: remote.description,
-        repeatCount: 1,
-        estimatedMinutes: 2,
-        confidence: 99,
-        nodes: [
-          {
-            id: 'step-1',
-            label: 'Load Remote Skill Protocol',
-            kind: 'action',
-            app: 'AI Agent Runtime',
-            confidence: 100,
-          },
-          {
-            id: 'step-2',
-            label: 'Execute Agent Guidelines',
-            kind: 'action',
-            confidence: 99,
-          },
-        ],
-        edges: [{ from: 'step-1', to: 'step-2' }],
-      },
-      targetTools: installedTools.map((t) => t.id),
-      tags: remote.tags,
-      skillMarkdown: remote.skillMarkdown,
+    void refresh()
+    const unsubscribe = window.workflowSkill?.onProjectsChanged?.(() => void refresh())
+    const onFocus = () => void refresh()
+    window.addEventListener('focus', onFocus)
+    return () => { active = false; unsubscribe?.(); window.removeEventListener('focus', onFocus) }
+  }, [])
+  const selectedProject = projects.find(project => project.id === projectId)
+  const target: SkillScopeTarget | null = skillTab === 'global' ? { scope: 'global' }
+    : selectedProject?.status === 'valid' ? { scope: 'project', id: selectedProject.id, name: selectedProject.name, path: selectedProject.path } : null
+  const installedTools = useMemo(() => aiTools.filter(tool => tool.installed), [aiTools])
+  const filteredLocalSkills = skillsInScope(skills, target).filter(skill =>
+    `${skill.name} ${skill.description} ${(skill.tags || []).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()))
+  const activeLocalSkill = filteredLocalSkills.find(skill => skill.id === selectedSkillId) || filteredLocalSkills[0] || null
+  const activeLinkedTools = aiTools.filter(tool => activeLocalSkill?.targetTools?.includes(tool.id))
+  useEffect(() => {
+    let active = true
+    setSkillMdContent(activeLocalSkill?.skillMarkdown || '')
+    if (activeLocalSkill && window.workflowSkill?.readSkillMarkdown) {
+      void window.workflowSkill.readSkillMarkdown(activeLocalSkill.id).then(content => {
+        if (active && content) setSkillMdContent(content)
+      }).catch(() => {})
     }
-
-    if (window.workflowSkill?.saveLocalSkill) {
-      await window.workflowSkill.saveLocalSkill(newSkill)
+    return () => { active = false }
+  }, [activeLocalSkill?.id, activeLocalSkill?.skillMarkdown, skillTab, projectId])
+  const add = async (skill: Skill) => {
+    const api = window.workflowSkill
+    if (!addTarget || !api?.listManagedProjects || !api.loadLocalSkills || !api.saveLocalSkill || !api.injectSkill) {
+      throw new Error('添加暂不可用，请重新打开应用。')
     }
-
-    for (const tool of installedTools) {
-      if (window.workflowSkill?.linkSkillTarget) {
-        await window.workflowSkill.linkSkillTarget(newSkill.id, tool.id)
-      }
-    }
-
-    notify?.(`已成功安装 ${remote.name} 并挂载到本地环境`)
-    onSelectSkillId(newSkill.id)
-    setSkillTab('local')
-    if (onDetectTools) onDetectTools()
+    try {
+      await addSkillToScope({ listManagedProjects: api.listManagedProjects, loadLocalSkills: api.loadLocalSkills,
+        saveLocalSkill: api.saveLocalSkill, injectSkill: api.injectSkill }, skill, addTarget)
+      onSelectSkillId(skill.id)
+      notify?.(addTarget.scope === 'global' ? '已添加到全局技能库' : `已添加到项目 ${addTarget.name}`)
+    } finally { await onReloadSkills().catch(() => notify?.('列表刷新失败，请重新打开 Skill 页面。')) }
   }
-
+  const fromRemote = (remote: Pick<RemoteSkill, 'id' | 'name' | 'description' | 'tags' | 'skillMarkdown'>): Skill => ({
+    id: remote.id, name: remote.name, description: remote.description, tags: remote.tags,
+    skillMarkdown: remote.skillMarkdown, apps: [], updatedLabel: '刚刚添加', pinned: false,
+    sourceRuns: 0, versions: 1,
+    workflow: { id: `wf-${remote.id}`, name: remote.name, summary: remote.description,
+      repeatCount: 0, estimatedMinutes: 0, confidence: 0, nodes: [], edges: [] },
+  })
+  const targetLabel = addTarget?.scope === 'project' ? `项目 · ${addTarget.name}` : '全局技能库'
   return (
     <>
-      {/* Column 2: Master List of Skills (Local or Remote) */}
-      <aside className="app-col-master view-enter">
+      <aside className="app-col-master view-enter skill-scope-master">
         <div className="master-header">
           <div className="master-header-top">
-            <div className="master-tab-segmented">
-              <button
-                type="button"
-                className={`master-tab-btn ${skillTab === 'local' ? 'is-active' : ''}`}
-                onClick={() => setSkillTab('local')}
-              >
-                <span>本地</span>
-              </button>
-              <button
-                type="button"
-                className={`master-tab-btn ${skillTab === 'remote' ? 'is-active' : ''}`}
-                onClick={() => setSkillTab('remote')}
-              >
-                <span>远程</span>
-              </button>
+            <div className="master-tab-segmented" aria-label="Skill 范围">
+              {(['global', 'project'] as const).map(scope => <button key={scope} type="button"
+                className={`master-tab-btn ${skillTab === scope ? 'is-active' : ''}`}
+                aria-pressed={skillTab === scope} onClick={() => setSkillTab(scope)}>{scope === 'global' ? '全局' : '项目'}</button>)}
             </div>
+            <button type="button" className="btn btn--capsule btn--secondary btn--sm" aria-label="添加 Skill"
+              disabled={!target} onClick={() => { setAddTarget(target); setAddOpen(true) }}><Plus size={13} /></button>
           </div>
-
-          <div className="master-search-row">
-            <label className="master-search-input">
-              <Search size={13} />
-              <input
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value)
-                  setRepositorySearchError('')
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && skillTab === 'remote' && isRepositoryQuery) {
-                    event.preventDefault()
-                    void handleRepositorySearch()
-                  }
-                }}
-                placeholder={skillTab === 'local' ? '搜索本地全局技能…' : '输入 owner/repo 或搜索社区 Skill…'}
-              />
-              {skillTab === 'remote' && isRepositoryQuery ? (
-                <button
-                  type="button"
-                  className="repo-search-submit"
-                  onClick={() => void handleRepositorySearch()}
-                  disabled={repositorySearching}
-                  aria-label={`搜索 GitHub 仓库 ${repositoryQuery}`}
-                  title="使用 skills CLI 搜索仓库"
-                >
-                  {repositorySearching ? <RefreshCw size={11} className="is-spinning" /> : <ArrowRight size={11} />}
-                </button>
-              ) : query ? (
-                <button type="button" className="clear-search-btn" onClick={() => setQuery('')}>
-                  <X size={12} />
-                </button>
-              ) : null}
-            </label>
-          </div>
+          {skillTab === 'project' && <>
+            <select className="dialog-capsule-input" aria-label="目标项目" value={projectId}
+              onChange={event => setProjectId(event.target.value)}>
+              <option value="" disabled>选择项目</option>
+              {projectId && !selectedProject && <option value={projectId}>项目已移除</option>}
+              {projects.map(project => <option key={project.id} value={project.id}>{project.name}{project.status === 'missing' ? '（目录不可用）' : ''}</option>)}
+            </select>
+            {(projectError || selectedProject?.status === 'missing') && <p role="alert" className="master-list-status">{projectError || '项目目录不可用，请在项目管理中修复。'}</p>}
+          </>}
+          <label className="master-search-input">
+            <Search size={13} /><input aria-label="筛选 Skill" value={query} onChange={event => setQuery(event.target.value)} placeholder="筛选 Skill…" />
+            {query && <button type="button" className="clear-search-btn" aria-label="清除筛选" onClick={() => setQuery('')}><X size={12} /></button>}
+          </label>
         </div>
-
         <div className="master-list-scroll">
-          {skillTab === 'local' ? (
-            filteredLocalSkills.map((sk) => {
-              const isSelected = activeLocalSkill?.id === sk.id
-              return (
-                <div
-                  key={sk.id}
-                  className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
-                  onClick={() => onSelectSkillId(sk.id)}
-                  style={{ padding: '6px 8px', gap: '8px' }}
-                >
-                  <div className="master-item-logo">
-                    <Folder size={15} style={{ color: 'var(--color-accent)' }} />
-                  </div>
-
-                  <span
-                    className="master-item-title"
-                    title={sk.name}
-                    style={{
-                      fontSize: '0.8125rem',
-                      fontWeight: isSelected ? 650 : 550,
-                      color: 'var(--color-ink)',
-                      flex: 1,
-                      minWidth: 0,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {sk.name}
-                  </span>
-                </div>
-              )
-            })
-          ) : (
-            isRepositoryQuery ? (
-              repositorySearching ? (
-                <div className="master-list-status" role="status">
-                  <RefreshCw size={15} className="master-list-status__spinner" />
-                  <span>正在读取 {repositoryQuery}…</span>
-                  <small>运行 npx skills add --list</small>
-                </div>
-              ) : repositorySearchError ? (
-                <div className="master-list-status is-error" role="alert">
-                  <AlertTriangle size={15} />
-                  <span>{repositorySearchError}</span>
-                  <button type="button" className="btn btn--secondary btn--capsule btn--sm" onClick={() => void handleRepositorySearch()}>
-                    重新搜索
-                  </button>
-                </div>
-              ) : repositoryResultIsCurrent && repositorySearchResult ? (
-                repositorySearchResult.skills.map((skill) => {
-                  const isSelected = activeRepositorySkill?.name === skill.name
-                  return (
-                    <button
-                      type="button"
-                      key={`${repositorySearchResult.repository}/${skill.name}`}
-                      className={`master-item-row repository-skill-row ${isSelected ? 'is-selected' : ''}`}
-                      onClick={() => setSelectedRepositorySkillName(skill.name)}
-                    >
-                      <div className="master-item-logo">
-                        <GitBranch size={14} style={{ color: 'var(--color-accent)' }} />
-                      </div>
-                      <div className="master-item-content">
-                        <span className="master-item-title">{skill.name}</span>
-                        <span className="master-item-sub">{skill.description || repositorySearchResult.repository}</span>
-                      </div>
-                    </button>
-                  )
-                })
-              ) : (
-                <button type="button" className="repository-search-prompt" onClick={() => void handleRepositorySearch()}>
-                  <GitBranch size={16} />
-                  <span>
-                    <strong>搜索 GitHub 仓库</strong>
-                    <small>{repositoryQuery}</small>
-                  </span>
-                  <ArrowRight size={13} />
-                </button>
-              )
-            ) : filteredRemoteSkills.map((r) => {
-              const isSelected = activeRemoteSkill?.id === r.id
-              return (
-                <div
-                  key={r.id}
-                  className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
-                  onClick={() => setSelectedRemoteSkillId(r.id)}
-                  style={{ padding: '6px 8px', gap: '8px' }}
-                >
-                  <div className="master-item-logo">
-                    <Globe size={15} style={{ color: '#38bdf8' }} />
-                  </div>
-
-                  <span
-                    className="master-item-title"
-                    title={r.name}
-                    style={{
-                      fontSize: '0.8125rem',
-                      fontWeight: isSelected ? 650 : 550,
-                      color: 'var(--color-ink)',
-                      flex: 1,
-                      minWidth: 0,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {r.name}
-                  </span>
-                </div>
-              )
-            })
-          )}
+          {filteredLocalSkills.map(skill => <button type="button" key={skill.id}
+            className={`master-item-row ${activeLocalSkill?.id === skill.id ? 'is-selected' : ''}`}
+            aria-pressed={activeLocalSkill?.id === skill.id} onClick={() => onSelectSkillId(skill.id)}>
+            <Folder size={15} /><span className="master-item-title">{skill.name}</span>
+          </button>)}
         </div>
       </aside>
-
-      {/* Column 3: Detail Canvas */}
       <section className="app-col-detail view-enter">
-        {skillTab === 'local' ? (
-          activeLocalSkill ? (
+        {activeLocalSkill ? (
             <div className="detail-stage-wrap">
               {/* Clean macOS Pro Document Header */}
               <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
@@ -1617,7 +1406,7 @@ function SkillsThreeColumn({
                     ) : null}
 
                     {/* Export Code if has workflow */}
-                    {activeLocalSkill.workflow ? (
+                    {activeLocalSkill.workflow?.nodes.length ? (
                       <button
                         type="button"
                         className="btn btn--capsule btn--secondary btn--sm"
@@ -1664,124 +1453,10 @@ function SkillsThreeColumn({
           ) : (
             <div className="clean-empty-state">
               <FolderTree size={30} className="empty-icon-glow" />
-              <h3 className="empty-title">请在左侧列表选择一个 Skill</h3>
+              <h3 className="empty-title">{query ? '没有匹配的 Skill' : skillTab === 'project' && !target ? '请在项目管理中添加或修复项目' : '当前范围暂无 Skill，点击 + 添加'}</h3>
             </div>
           )
-        ) : (
-          /* Remote Skill Detail View (No Card) */
-          activeRepositorySkill && repositoryResultIsCurrent && repositorySearchResult ? (
-            <div className="detail-stage-wrap repository-result-detail">
-              <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
-                <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                    <GitBranch size={20} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
-                    <h1 className="detail-hero-name" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>{activeRepositorySkill.name}</h1>
-                    <span className="master-item-mounted-chip font-mono">GitHub</span>
-                  </div>
-                  <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      className="btn btn--secondary btn--capsule btn--sm"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(
-                          `npx skills add ${repositorySearchResult.repository} --skill ${activeRepositorySkill.name}`,
-                        )
-                        notify?.('已复制安装命令')
-                      }}
-                    >
-                      <Copy size={12} />
-                      <span>复制安装命令</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="detail-hero-header__row2" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  <span className="font-mono">{repositorySearchResult.repository}</span>
-                </div>
-
-                <ExpandableSkillDesc text={activeRepositorySkill.description || '仓库未提供 Skill 描述。'} />
-              </header>
-
-              <div className="repository-source-summary">
-                <div className="repository-source-row">
-                  <span>来源仓库</span>
-                  <strong className="font-mono">{repositorySearchResult.repository}</strong>
-                </div>
-                <div className="repository-source-row">
-                  <span>发现方式</span>
-                  <strong className="font-mono">npx skills add --list</strong>
-                </div>
-                <div className="repository-command-preview font-mono">
-                  npx skills add {repositorySearchResult.repository} --skill {activeRepositorySkill.name}
-                </div>
-              </div>
-            </div>
-          ) : activeRemoteSkill ? (
-            <div className="detail-stage-wrap">
-              <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
-                <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                    <Globe size={20} style={{ color: '#38bdf8', flexShrink: 0 }} />
-                    <h1 className="detail-hero-name" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>{activeRemoteSkill.name}</h1>
-                    <span className="master-item-mounted-chip font-mono" style={{ marginLeft: '4px' }}>
-                      {activeRemoteSkill.verified ? '官方认证' : '社区开源'}
-                    </span>
-                  </div>
-
-                  <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    {skills.some((s) => s.id === activeRemoteSkill.id) ? (
-                      <button type="button" className="btn btn--saved btn--capsule btn--sm" disabled>
-                        <Check size={12} />
-                        <span>已安装到本地</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn btn--primary btn--capsule btn--sm"
-                        onClick={() => void handleInstallRemoteSkill(activeRemoteSkill)}
-                      >
-                        <Download size={12} />
-                        <span>一键安装并挂载</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="detail-hero-header__row2" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  <span>作者: <strong style={{ color: 'var(--color-ink)' }}>{activeRemoteSkill.author}</strong></span>
-                  <span style={{ opacity: 0.4 }}>•</span>
-                  <span style={{ color: '#f59e0b' }}>★ {activeRemoteSkill.stars}</span>
-                  <span style={{ opacity: 0.4 }}>•</span>
-                  <span>{activeRemoteSkill.downloads} 次安装</span>
-                </div>
-
-                {activeRemoteSkill.description ? (
-                  <ExpandableSkillDesc text={activeRemoteSkill.description} />
-                ) : null}
-              </header>
-
-              {/* Pure Document Preview (Read-Only) */}
-              <div className="skill-doc-wrap">
-                <div className="skill-doc-meta-bar font-mono">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <FileText size={12} style={{ color: '#38bdf8' }} />
-                    <span>SKILL.md 规则定义</span>
-                  </div>
-                </div>
-
-                <pre className="skill-doc-preview">
-                  {activeRemoteSkill.skillMarkdown}
-                </pre>
-              </div>
-            </div>
-          ) : (
-            <div className="clean-empty-state">
-              <Globe size={30} className="empty-icon-glow" />
-              <h3 className="empty-title">请在左侧列表选择一个远程 Skill</h3>
-            </div>
-          )
-        )}
-
+}
         <SafeDeleteSkillModal
           skill={deleteModalSkill}
           aiTools={installedTools}
@@ -1798,6 +1473,20 @@ function SkillsThreeColumn({
           onClose={() => setLinkModalSkill(null)}
           onToggleLinkTarget={onToggleLinkTarget}
         />
+        <AddSkillDialog open={addOpen} targetLabel={targetLabel}
+          disabledReason={addTarget?.scope === 'project' && !projects.some(project => project.id === addTarget.id && project.path === addTarget.path && project.status === 'valid') ? '目标项目已移除或目录不可用，请重新选择。' : undefined} onClose={() => setAddOpen(false)}
+          onAdd={remote => add(fromRemote(remote))} onCreate={() => { setAddOpen(false); setCreateError(''); setCreateOpen(true) }} />
+        <NewSkillDialog open={createOpen} busy={createBusy} error={createError} targetLabel={targetLabel}
+          onClose={() => { if (!createBusy) setCreateOpen(false) }} onCreate={async name => {
+            if (createBusy) return
+            setCreateBusy(true); setCreateError('')
+            try {
+              await add(fromRemote({ id: `skill-${crypto.randomUUID()}`, name, description: '', tags: [],
+                skillMarkdown: `# ${name}\n\n` }))
+              setCreateOpen(false)
+            } catch (error) { setCreateError(error instanceof Error ? error.message : '创建失败') }
+            finally { setCreateBusy(false) }
+          }} />
       </section>
     </>
   )
@@ -4654,41 +4343,53 @@ function NewSkillDialog({
   open,
   onClose,
   onCreate,
+  busy = false,
+  error = '',
+  targetLabel,
 }: {
   open: boolean
+  busy?: boolean
+  error?: string
+  targetLabel?: string
   onClose: () => void
   onCreate: (name: string) => void
 }) {
   const { t } = useI18n()
   const [name, setName] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
 
   useEffect(() => {
-    if (open) {
-      setName('')
-      window.setTimeout(() => inputRef.current?.focus(), 40)
-    }
+    if (!open) return
+    const previous = document.activeElement as HTMLElement | null
+    setName('')
+    dialogRef.current?.showModal()
+    inputRef.current?.focus()
+    return () => { dialogRef.current?.close(); previous?.focus() }
   }, [open])
 
   if (!open) return null
 
   return (
-    <div className="modal-glass-backdrop" onMouseDown={onClose}>
+    <dialog ref={dialogRef} className="skill-create-dialog" aria-label={t.skills.createDialogTitle}
+      onCancel={event => { event.preventDefault(); if (!busy) closeRef.current() }}>
       <form
         className="glass-dialog-box glass-dialog-box--small modal-pop"
         onSubmit={(e) => {
           e.preventDefault()
           const finalName = name.trim() || t.skills.newSkill
-          onCreate(finalName)
+          if (!busy) onCreate(finalName)
         }}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="dialog-header-row">
           <div>
             <h2>{t.skills.createDialogTitle}</h2>
-            <p>{t.skills.createDialogDesc}</p>
+            <p>{targetLabel || t.skills.createDialogDesc}</p>
           </div>
-          <button type="button" className="dialog-close-btn" onClick={onClose} aria-label={t.skills.cancelBtn}>
+          <button type="button" className="dialog-close-btn" onClick={onClose} disabled={busy} aria-label={t.skills.cancelBtn}>
             <X size={15} />
           </button>
         </div>
@@ -4697,6 +4398,7 @@ function NewSkillDialog({
           <label>
             <span>{t.skills.skillNameLabel}</span>
             <input
+              disabled={busy}
               ref={inputRef}
               className="dialog-capsule-input"
               value={name}
@@ -4706,16 +4408,17 @@ function NewSkillDialog({
           </label>
         </div>
 
+        {error && <p role="alert" className="dialog-body">{error}</p>}
         <div className="dialog-footer-row">
-          <button type="button" className="btn btn--capsule btn--secondary" onClick={onClose}>
+          <button type="button" className="btn btn--capsule btn--secondary" onClick={onClose} disabled={busy}>
             {t.skills.cancelBtn}
           </button>
-          <button type="submit" className="btn btn--capsule btn--primary">
+          <button disabled={busy} type="submit" className="btn btn--capsule btn--primary">
             {t.skills.confirmCreateBtn}
           </button>
         </div>
       </form>
-    </div>
+    </dialog>
   )
 }
 
@@ -5605,10 +5308,9 @@ export function App() {
           aiTools={aiTools}
           selectedSkillId={selectedSkillId}
           onSelectSkillId={setSelectedSkillId}
-          onNewSkill={() => setNewSkillOpen(true)}
           onToggleLinkTarget={handleToggleLinkTarget}
           onDeleteSkill={handleDeleteSkillCompletely}
-          onDetectTools={handleDetectTools}
+          onReloadSkills={async () => { if (window.workflowSkill?.loadLocalSkills) setSkills(await window.workflowSkill.loadLocalSkills()) }}
           onExportCode={(wf, name) => setExportState({ open: true, skillName: name, workflow: wf })}
           notify={setToast}
         />

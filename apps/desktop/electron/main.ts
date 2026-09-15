@@ -1521,6 +1521,7 @@ ${skill.description || ''}
         const mdPath = path.join(skillsDir, skill.id, 'SKILL.md')
         writeFileSync(mdPath, skill.skillMarkdown, 'utf8')
       }
+      notifySkillsChanged()
       return true
     } catch {
       return false

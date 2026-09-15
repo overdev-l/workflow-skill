@@ -6998,3 +6998,15 @@ body.is-resizing-master-column * {
     animation: none !important;
   }
 }
+
+/* Skill scope selector keeps the compact master rhythm. */
+.skill-scope-master .master-header { gap: 8px; }
+.skill-scope-master .master-header-top { gap: 8px; }
+.skill-scope-master .master-tab-segmented { flex: 1; min-width: 0; }
+.skill-scope-master .master-list-scroll > .master-item-row { width: 100%; min-height: 36px; color: var(--color-ink); }
+.skill-scope-master .master-item-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-scope-master select { width: 100%; min-width: 0; }
+
+.skill-create-dialog { padding: 0; border: 0; background: transparent; color: var(--color-ink); max-width: calc(100vw - 48px); max-height: calc(100dvh - 48px); }
+.skill-create-dialog::backdrop { background: rgba(0,0,0,.35); backdrop-filter: blur(8px); }
+.skill-create-dialog .glass-dialog-box { max-width: 100%; }
