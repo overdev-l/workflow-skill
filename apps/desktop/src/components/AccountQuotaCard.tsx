@@ -305,7 +305,7 @@ export function AccountQuotaCard({
 
         {/* Reset Time (omitted if not provided or invalid) */}
         {resetTime && (
-          <div className="account-quota-window-reset">
+          <div className="account-quota-window-reset" title={loc.quotaResetsAt(resetTime)}>
             <Clock size={9} />
             <span>{loc.quotaResetsAt(resetTime)}</span>
           </div>
@@ -446,7 +446,7 @@ export function AccountQuotaCard({
         {/* Quota Windows List */}
         {hasRenderableQuotaWindows ? (
           <div
-            className="account-quota-windows"
+            className={`account-quota-windows ${account.tool === 'antigravity' ? 'account-quota-windows--antigravity' : ''}`}
             tabIndex={0}
             role="region"
             aria-label={`${account.name} · ${locale.startsWith('zh') ? '模型配额' : 'Model quotas'}`}

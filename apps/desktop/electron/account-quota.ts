@@ -39,8 +39,8 @@ export const MAX_RESPONSE_BYTES = 1024 * 1024 // 1 MiB
 export const HTTP_TIMEOUT_MS = 10_000 // 10 seconds
 export const MAX_CONCURRENT_HTTP = 4
 const MAX_PENDING_REFRESHES = 64
-export const MAX_WINDOWS_PER_ACCOUNT = 40
-const MAX_MODELS_PER_ACCOUNT = 20
+export const MAX_WINDOWS_PER_ACCOUNT = 80
+const MAX_MODELS_PER_ACCOUNT = 40
 export const MAX_LABEL_LENGTH = 100
 export const MAX_PLAN_LENGTH = 50
 

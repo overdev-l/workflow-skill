@@ -10,15 +10,29 @@ const WEEKLY_WINDOW_SUFFIX = ':weekly'
 
 // The quota API also returns internal aliases and legacy variants. Keep the
 // account card aligned with the models users can actually select in Antigravity.
-const SUPPORTED_ANTIGRAVITY_MODELS = [
-  { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash High' },
-  { id: 'gemini-3.7-flash-medium', label: 'Gemini 3.7 Flash Medium' },
-  { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash Medium' },
-  { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro Low' },
-  { id: 'claude-sonnet-4.6-thinking', label: 'Claude Sonnet 4.6 (Thinking)' },
-  { id: 'claude-opus-4.6-thinking', label: 'Claude Opus 4.6 (Thinking)' },
-  { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)' },
-] as const
+type SupportedAntigravityModel = {
+  id: string
+  label: string
+  aliases: readonly string[]
+}
+
+const SUPPORTED_ANTIGRAVITY_MODELS: readonly SupportedAntigravityModel[] = [
+  {
+    id: 'gemini-3.8-flash-high',
+    label: 'Gemini 3.8 Flash High',
+    aliases: ['gemini-3.8-flash-tiered'],
+  },
+  {
+    id: 'gemini-3.7-flash-medium',
+    label: 'Gemini 3.7 Flash Medium',
+    aliases: ['gemini-3.7-flash-tiered'],
+  },
+  { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash Medium', aliases: [] },
+  { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro Low', aliases: [] },
+  { id: 'claude-sonnet-4.6-thinking', label: 'Claude Sonnet 4.6 (Thinking)', aliases: [] },
+  { id: 'claude-opus-4.6-thinking', label: 'Claude Opus 4.6 (Thinking)', aliases: [] },
+  { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', aliases: [] },
+]
 
 function normalizeModelName(value: string): string {
   return value
@@ -37,7 +51,12 @@ function visibleModelForWindow(window: AccountQuotaWindow): (typeof SUPPORTED_AN
   return SUPPORTED_ANTIGRAVITY_MODELS.find((model) => {
     const normalizedLabel = normalizeModelName(model.label)
     const normalizedId = normalizeModelName(model.id)
-    return candidates.some((candidate) => candidate === normalizedLabel || candidate === normalizedId)
+    const normalizedAliases = model.aliases.map(normalizeModelName)
+    return candidates.some((candidate) =>
+      candidate === normalizedLabel ||
+      candidate === normalizedId ||
+      normalizedAliases.includes(candidate)
+    )
   })
 }
 

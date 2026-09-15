@@ -412,6 +412,34 @@ await test('3. Antigravity positive query: loadCodeAssist, fetchAvailableModels,
   assert.deepEqual(calls[2].body, { project: 'test-project-123' })
 })
 
+await test('Antigravity keeps late tiered model aliases beyond the internal model cap', async () => {
+  const store = new MockStore()
+  const acc = makeAntigravityAccount()
+  store.set(acc.metadata.id, acc)
+
+  const rawModels = Object.fromEntries(
+    Array.from({ length: 20 }, (_, index) => [
+      `gemini-internal-${index}`,
+      { quotaInfo: { remainingFraction: 0.5 } },
+    ])
+  )
+  rawModels['gemini-3.7-flash-tiered'] = { quotaInfo: { remainingFraction: 0.7 } }
+  rawModels['gemini-3.8-flash-tiered'] = { quotaInfo: { remainingFraction: 0.8 } }
+
+  const service = new AccountQuotaService({
+    store,
+    fetch: async (url) => {
+      if (url.endsWith(':fetchAvailableModels')) return jsonResponse({ models: rawModels })
+      if (url.endsWith(':retrieveUserQuotaSummary')) return jsonResponse({ groups: [] })
+      return jsonResponse({})
+    },
+  })
+  const snapshot = await service.refreshAccount(acc.metadata.id)
+
+  assert.ok(snapshot.windows.some((window) => window.id === 'gemini-3.7-flash-tiered'))
+  assert.ok(snapshot.windows.some((window) => window.id === 'gemini-3.8-flash-tiered'))
+})
+
 await test('4. Real zero remaining vs missing percentage: genuine 0 preserved, missing is undefined', async () => {
   const store = new MockStore()
   const acc = makeCodexAccount()
@@ -1068,8 +1096,8 @@ await test('Localized labels preserve Claude model scope and Antigravity model n
 
 await test('Antigravity quota UI keeps the visible model set and groups two periods per model', async () => {
   const models = [
-    ['gemini-3.8-flash-high', 'Gemini 3.8 Flash High'],
-    ['gemini-3.7-flash-medium', 'Gemini 3.7 Flash Medium'],
+    ['gemini-3.8-flash-tiered', 'Gemini 3.8 Flash High'],
+    ['gemini-3.7-flash-tiered', 'Gemini 3.7 Flash Medium'],
     ['gemini-3.6-flash-medium', 'Gemini 3.6 Flash Medium'],
     ['gemini-3.1-pro-low', 'Gemini 3.1 Pro Low'],
     ['claude-sonnet-4.6-thinking', 'Claude Sonnet 4.6 (Thinking)'],
@@ -1077,8 +1105,8 @@ await test('Antigravity quota UI keeps the visible model set and groups two peri
     ['gpt-oss-120b-medium', 'GPT-OSS 120B (Medium)'],
   ]
   const windows = models.flatMap(([id, label], index) => [
-    { id, label, modelLabel: label, period: 'five-hour', remainingPercent: 90 - index },
-    { id: `${id}:weekly`, label, modelLabel: label, period: 'weekly', remainingPercent: 80 - index },
+    { id, label: id.endsWith('-tiered') ? id : label, modelLabel: id.endsWith('-tiered') ? id : label, period: 'five-hour', remainingPercent: 90 - index },
+    { id: `${id}:weekly`, label: id.endsWith('-tiered') ? id : label, modelLabel: id.endsWith('-tiered') ? id : label, period: 'weekly', remainingPercent: 80 - index },
   ])
   windows.push({ id: 'internal-model', label: 'Internal Model', period: 'five-hour', remainingPercent: 99 })
 

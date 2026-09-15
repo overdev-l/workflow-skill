@@ -1067,6 +1067,59 @@
   gap: 6px;
 }
 
+/* Antigravity has seven model groups; keep the two-period groups dense enough
+   to scan several models without sacrificing the reset-time context. */
+.account-quota-windows--antigravity {
+  gap: 4px;
+  margin-top: 0;
+}
+
+.account-quota-windows--antigravity .account-quota-model-group {
+  gap: 3px;
+  padding: 4px 6px 5px;
+  border-radius: 6px;
+}
+
+.account-quota-windows--antigravity .account-quota-model-group-title {
+  line-height: 1.15;
+}
+
+.account-quota-windows--antigravity .account-quota-model-windows {
+  gap: 3px;
+}
+
+.account-quota-windows--antigravity .account-quota-window-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "header header"
+    "bar reset";
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 2px;
+}
+
+.account-quota-windows--antigravity .account-quota-window-header {
+  grid-area: header;
+  line-height: 1.15;
+}
+
+.account-quota-windows--antigravity .account-quota-bar-track {
+  grid-area: bar;
+  height: 3px;
+}
+
+.account-quota-windows--antigravity .account-quota-window-reset {
+  grid-area: reset;
+  min-width: 0;
+  max-width: 48%;
+  overflow: hidden;
+  font-size: 0.625rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .account-plan-notice {
   flex-shrink: 0;
   margin: 0;
