@@ -290,12 +290,15 @@ async function queryCodexQuota(
     if (rateLimit.primary_window && typeof rateLimit.primary_window === 'object') {
       const pw = rateLimit.primary_window
       const remainingPercent = safeRemainingPercent(pw.used_percent, true)
-      const duration = typeof pw.limit_window_seconds === 'number' ? formatSecondsDuration(pw.limit_window_seconds) : ''
+      const durationSeconds = typeof pw.limit_window_seconds === 'number' && Number.isFinite(pw.limit_window_seconds) && pw.limit_window_seconds > 0
+        ? pw.limit_window_seconds : undefined
+      const duration = durationSeconds !== undefined ? formatSecondsDuration(durationSeconds) : ''
       const label = duration || 'Primary'
       const resetsAt = safeEpochMs(pw.reset_at, true)
       windows.push({
         id: 'primary_window',
         label,
+        ...(durationSeconds !== undefined ? { durationSeconds } : {}),
         ...(remainingPercent !== undefined ? { remainingPercent } : {}),
         ...(resetsAt !== undefined ? { resetsAt } : {}),
       })
@@ -304,12 +307,15 @@ async function queryCodexQuota(
     if (rateLimit.secondary_window && typeof rateLimit.secondary_window === 'object') {
       const sw = rateLimit.secondary_window
       const remainingPercent = safeRemainingPercent(sw.used_percent, true)
-      const duration = typeof sw.limit_window_seconds === 'number' ? formatSecondsDuration(sw.limit_window_seconds) : ''
+      const durationSeconds = typeof sw.limit_window_seconds === 'number' && Number.isFinite(sw.limit_window_seconds) && sw.limit_window_seconds > 0
+        ? sw.limit_window_seconds : undefined
+      const duration = durationSeconds !== undefined ? formatSecondsDuration(durationSeconds) : ''
       const label = duration || 'Secondary'
       const resetsAt = safeEpochMs(sw.reset_at, true)
       windows.push({
         id: 'secondary_window',
         label,
+        ...(durationSeconds !== undefined ? { durationSeconds } : {}),
         ...(remainingPercent !== undefined ? { remainingPercent } : {}),
         ...(resetsAt !== undefined ? { resetsAt } : {}),
       })
@@ -362,11 +368,11 @@ async function queryClaudeQuota(
 
   const body = res.json
   const windows: AccountQuotaWindow[] = []
-  const knownWindows: Array<{ id: string; label: string }> = [
-    { id: 'five_hour', label: '5h' },
-    { id: 'seven_day', label: '7d' },
-    { id: 'seven_day_opus', label: '7d Opus' },
-    { id: 'seven_day_sonnet', label: '7d Sonnet' },
+  const knownWindows: Array<{ id: string; label: string; durationSeconds: number }> = [
+    { id: 'five_hour', label: '5h', durationSeconds: 18000 },
+    { id: 'seven_day', label: '7d', durationSeconds: 604800 },
+    { id: 'seven_day_opus', label: '7d Opus', durationSeconds: 604800 },
+    { id: 'seven_day_sonnet', label: '7d Sonnet', durationSeconds: 604800 },
   ]
 
   for (const kw of knownWindows) {
@@ -377,6 +383,7 @@ async function queryClaudeQuota(
       windows.push({
         id: kw.id,
         label: kw.label,
+        durationSeconds: kw.durationSeconds,
         ...(remainingPercent !== undefined ? { remainingPercent } : {}),
         ...(resetsAt !== undefined ? { resetsAt } : {}),
       })

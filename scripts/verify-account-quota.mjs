@@ -27,6 +27,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { formatQuotaWindowLabel } from '../apps/desktop/src/utils/quota-label.ts'
 import { randomUUID } from 'node:crypto'
 import {
   AccountQuotaService,
@@ -971,6 +972,50 @@ await test('Antigravity distinguishes paid entitlement from allowed tiers and ag
   const unknown = await service.refreshAccount(acc.metadata.id)
   assert.equal(unknown.plan, undefined)
   assert.equal(unknown.planReason, 'unavailable')
+})
+
+await test('Quota periods follow provider duration, not primary/secondary position', async () => {
+  const store = new MockStore()
+  const acc = makeCodexAccount()
+  store.set(acc.metadata.id, acc)
+  for (const [primary, secondary] of [[604800, 18000], [18000, 604800], [undefined, -1], [0, '18000'], [3600, 86400]]) {
+    const service = new AccountQuotaService({store, fetch: async () => jsonResponse({rate_limit: {
+      primary_window: {used_percent: 25, limit_window_seconds: primary, reset_at: 1800000000},
+      secondary_window: {used_percent: 80, limit_window_seconds: secondary, reset_at: 1800086400},
+    }})})
+    const snapshot = await service.refreshAccount(acc.metadata.id)
+    assert.equal(snapshot.windows.length, 2)
+    for (const [index, duration] of [primary, secondary].entries()) {
+      const win = snapshot.windows[index]
+      assert.equal(win.durationSeconds, typeof duration === 'number' && duration > 0 ? duration : undefined)
+      assert.equal(win.remainingPercent, index === 0 ? 75 : 20)
+      assert.equal(win.resetsAt, (index === 0 ? 1800000000 : 1800086400) * 1000)
+      const expected = duration === 604800 ? '周额度' : duration === 18000 ? '5 小时额度'
+        : duration === 3600 ? '1 小时额度' : duration === 86400 ? '1 天额度' : '额度（周期未知）'
+      assert.equal(formatQuotaWindowLabel(win, 'codex', 'zh-CN'), expected)
+    }
+  }
+})
+
+await test('Localized labels preserve Claude model scope and Antigravity model names', async () => {
+  const store = new MockStore()
+  const acc = makeClaudeAccount()
+  store.set(acc.metadata.id, acc)
+  const ids = ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet']
+  const service = new AccountQuotaService({store, fetch: async () => jsonResponse(Object.fromEntries(
+    ids.map(id => [id, {utilization: 35, resets_at: '2027-01-01T00:00:00Z'}])
+  ))})
+  const snapshot = await service.refreshAccount(acc.metadata.id)
+  assert.deepEqual(snapshot.windows.map(w => w.durationSeconds), [18000, 604800, 604800, 604800])
+  assert.deepEqual(snapshot.windows.map(w => formatQuotaWindowLabel(w, 'claude-code', 'zh-CN')),
+    ['5 小时额度', '周额度', '周额度 · Opus', '周额度 · Sonnet'])
+  assert.deepEqual(snapshot.windows.map(w => formatQuotaWindowLabel(w, 'claude-code', 'en-US')),
+    ['5-hour quota', 'Weekly quota', 'Weekly quota · Opus', 'Weekly quota · Sonnet'])
+  assert.equal(formatQuotaWindowLabel({id: 'primary_window', label: 'Primary'}, 'codex', 'en-US'), 'Quota (period unknown)')
+  for (const durationSeconds of [NaN, Infinity, -1, 0]) {
+    assert.equal(formatQuotaWindowLabel({id: 'primary_window', label: '5h', durationSeconds}, 'codex', 'zh-CN'), '额度（周期未知）')
+  }
+  assert.equal(formatQuotaWindowLabel({id: 'model', label: 'Claude Sonnet'}, 'antigravity', 'zh-CN'), 'Claude Sonnet')
 })
 
 console.log(`\n========================================`)

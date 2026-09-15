@@ -14,6 +14,7 @@
  */
 
 import React from 'react'
+import { formatQuotaWindowLabel } from '../utils/quota-label.ts'
 import {
   AlertCircle,
   AlertTriangle,
@@ -383,6 +384,7 @@ export function AccountQuotaCard({
             aria-label={`${account.name} · ${locale.startsWith('zh') ? '模型配额' : 'Model quotas'}`}
           >
             {snapshot.windows.map((win: AccountQuotaWindow) => {
+              const label = formatQuotaWindowLabel(win, account.tool, locale)
               const hasPercent =
                 typeof win.remainingPercent === 'number' &&
                 Number.isFinite(win.remainingPercent) && win.remainingPercent >= 0 && win.remainingPercent <= 100
@@ -405,8 +407,8 @@ export function AccountQuotaCard({
               return (
                 <div key={win.id} className="account-quota-window-item">
                   <div className="account-quota-window-header">
-                    <span className="account-quota-window-label" title={win.label}>
-                      {win.label}
+                    <span className="account-quota-window-label" title={label}>
+                      {label}
                     </span>
                     <span className="account-quota-window-value">
                       {hasPercent ? `${loc.quotaRemaining} ${percentLabel}%` : loc.quotaUnknown}
@@ -415,7 +417,7 @@ export function AccountQuotaCard({
 
                   {/* Progress Bar (Only render when percent is explicitly known, never false 0%) */}
                   {hasPercent && (
-                    <div className="account-quota-bar-track" role="progressbar" aria-label={`${win.label} ${loc.quotaRemaining}`} aria-valuenow={percent!} aria-valuemin={0} aria-valuemax={100}>
+                    <div className="account-quota-bar-track" role="progressbar" aria-label={`${label} ${loc.quotaRemaining}`} aria-valuenow={percent!} aria-valuemin={0} aria-valuemax={100}>
                       <div
                         className={`account-quota-bar-fill ${fillModifier}`}
                         style={{

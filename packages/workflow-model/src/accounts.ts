@@ -63,6 +63,8 @@ export interface AccountMetadata {
 export interface AccountQuotaWindow {
   id: string
   label: string
+  /** Explicit provider window duration; absent means the period is unknown. */
+  durationSeconds?: number
   remainingPercent?: number
   resetsAt?: number
 }
