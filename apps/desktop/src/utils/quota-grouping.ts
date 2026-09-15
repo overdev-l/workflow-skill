@@ -11,8 +11,6 @@ const WEEKLY_WINDOW_SUFFIX = ':weekly'
 // The quota API also returns internal aliases and legacy variants. Keep the
 // account card aligned with the models users can actually select in Antigravity.
 const SUPPORTED_ANTIGRAVITY_MODELS = [
-  { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash High' },
-  { id: 'gemini-3.7-flash-medium', label: 'Gemini 3.7 Flash Medium' },
   { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash Medium' },
   { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro Low' },
   { id: 'claude-sonnet-4.6-thinking', label: 'Claude Sonnet 4.6 (Thinking)' },
