@@ -26,6 +26,7 @@ import type {
   ProjectRecord,
   ProjectRuleAssociation,
   ProjectSkillPathStatus,
+  ProjectSkillDiscoveryResult,
   PublicRule,
   RepositorySkillSearchResult,
   Workflow,
@@ -183,6 +184,7 @@ contextBridge.exposeInMainWorld('workflowSkill', {
   },
 
   // --- Projects (OPC-56, OPC-64) ---
+  discoverProjectSkills: (projectPath: string) => ipcRenderer.invoke('projects:discover-skills', projectPath) as Promise<ProjectSkillDiscoveryResult>,
   listProjects: () => ipcRenderer.invoke('projects:list') as Promise<ProjectRecord[]>,
   listManagedProjects: () => ipcRenderer.invoke('projects:list-managed') as Promise<ManagedProjectRecord[]>,
   getActiveProject: () => ipcRenderer.invoke('projects:get-active') as Promise<ProjectRecord | null>,

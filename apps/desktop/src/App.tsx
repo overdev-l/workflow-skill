@@ -101,6 +101,7 @@ import type {
   RecorderStatus,
 } from '@workflow-skill/capture-protocol'
 import { AddSkillDialog } from './components/AddSkillDialog'
+import { useProjectSkills } from './use-project-skills'
 import { addSkillToScope, skillsInScope, type SkillScopeTarget } from './skill-scope'
 import { WorkflowGraph } from './components/WorkflowGraph'
 import { McpThreeColumn } from './components/McpThreeColumn'
@@ -1281,14 +1282,16 @@ function SkillsThreeColumn({
   const target: SkillScopeTarget | null = skillTab === 'global' ? { scope: 'global' }
     : selectedProject?.status === 'valid' ? { scope: 'project', id: selectedProject.id, name: selectedProject.name, path: selectedProject.path } : null
   const installedTools = useMemo(() => aiTools.filter(tool => tool.installed), [aiTools])
-  const filteredLocalSkills = skillsInScope(skills, target).filter(skill =>
+  const projectDiscovery = useProjectSkills(target?.scope === 'project' ? target.path : null)
+  const visibleSkills = skillTab === 'project' ? projectDiscovery.skills : skillsInScope(skills, target)
+  const filteredLocalSkills = visibleSkills.filter(skill =>
     `${skill.name} ${skill.description} ${(skill.tags || []).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()))
   const activeLocalSkill = filteredLocalSkills.find(skill => skill.id === selectedSkillId) || filteredLocalSkills[0] || null
   const activeLinkedTools = aiTools.filter(tool => activeLocalSkill?.targetTools?.includes(tool.id))
   useEffect(() => {
     let active = true
     setSkillMdContent(activeLocalSkill?.skillMarkdown || '')
-    if (activeLocalSkill && window.workflowSkill?.readSkillMarkdown) {
+    if (activeLocalSkill && !activeLocalSkill.projectSource && window.workflowSkill?.readSkillMarkdown) {
       void window.workflowSkill.readSkillMarkdown(activeLocalSkill.id).then(content => {
         if (active && content) setSkillMdContent(content)
       }).catch(() => {})
@@ -1305,7 +1308,10 @@ function SkillsThreeColumn({
         saveLocalSkill: api.saveLocalSkill, injectSkill: api.injectSkill }, skill, addTarget)
       onSelectSkillId(skill.id)
       notify?.(addTarget.scope === 'global' ? '已添加到全局技能库' : `已添加到项目 ${addTarget.name}`)
-    } finally { await onReloadSkills().catch(() => notify?.('列表刷新失败，请重新打开 Skill 页面。')) }
+    } finally {
+      projectDiscovery.refresh()
+      await onReloadSkills().catch(() => notify?.('列表刷新失败，请重新打开 Skill 页面。'))
+    }
   }
   const fromRemote = (remote: Pick<RemoteSkill, 'id' | 'name' | 'description' | 'tags' | 'skillMarkdown'>): Skill => ({
     id: remote.id, name: remote.name, description: remote.description, tags: remote.tags,
@@ -1346,6 +1352,10 @@ function SkillsThreeColumn({
           </label>
         </div>
         <div className="master-list-scroll">
+          {skillTab === 'project' && projectDiscovery.errors.length > 0 && <div className="master-list-status" role="alert">
+            <span>{projectDiscovery.errors.join('；')}</span>
+            <button type="button" className="btn btn--capsule btn--secondary btn--sm" onClick={projectDiscovery.refresh}>重新扫描</button>
+          </div>}
           {filteredLocalSkills.map(skill => <button type="button" key={skill.id}
             className={`master-item-row ${activeLocalSkill?.id === skill.id ? 'is-selected' : ''}`}
             aria-pressed={activeLocalSkill?.id === skill.id} onClick={() => onSelectSkillId(skill.id)}>
@@ -1367,6 +1377,9 @@ function SkillsThreeColumn({
                   </div>
 
                   <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {activeLocalSkill.projectSource && !activeLocalSkill.projectSource.managedSkillId ? (
+                      <span className="skill-project-local-label">项目本地 Skill</span>
+                    ) : <>
                     {/* Explicit Distribution / Link Management Button as sole action */}
                     <button
                       type="button"
@@ -1430,6 +1443,7 @@ function SkillsThreeColumn({
                       <Trash2 size={12} />
                       <span>删除</span>
                     </button>
+                    </>}
                   </div>
                 </div>
 
@@ -1444,7 +1458,8 @@ function SkillsThreeColumn({
                 <div className="skill-doc-meta-bar font-mono">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <FileText size={12} style={{ color: 'var(--color-accent)' }} />
-                    <span>SKILL.md</span>
+                    <span title={activeLocalSkill.skillPath}>{activeLocalSkill.projectSource
+                      ? `${activeLocalSkill.projectSource.relativePaths.join(' · ')} / SKILL.md` : 'SKILL.md'}</span>
                   </div>
                 </div>
 
@@ -1456,7 +1471,7 @@ function SkillsThreeColumn({
           ) : (
             <div className="clean-empty-state">
               <FolderTree size={30} className="empty-icon-glow" />
-              <h3 className="empty-title">{query ? '没有匹配的 Skill' : skillTab === 'project' && !target ? '请在项目管理中添加或修复项目' : '当前范围暂无 Skill，点击 + 添加'}</h3>
+              <h3 className="empty-title">{skillTab === 'project' && projectDiscovery.loading ? '正在扫描项目 Skill…' : skillTab === 'project' && projectDiscovery.errors.length ? '项目 Skill 扫描未完成，请重试' : query ? '没有匹配的 Skill' : skillTab === 'project' && !target ? '请在项目管理中添加或修复项目' : '当前范围暂无 Skill，点击 + 添加'}</h3>
             </div>
           )
 }

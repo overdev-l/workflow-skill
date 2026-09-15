@@ -1,3 +1,4 @@
+import { discoverProjectSkills } from './project-skill-discovery'
 import { AppUpdateService } from './app-update-service'
 import { createElectronUpdateTransport, createDevelopmentUpdateTransport } from './app-update-transport'
 import { AppUpdateInstaller } from './app-update-install'
@@ -1765,6 +1766,13 @@ ${skill.description || ''}
 
   // --- Projects IPC (OPC-56, OPC-64) ---
   ipcMain.handle('projects:list', () => listProjects(getStoredTraceHome()))
+  ipcMain.handle('projects:discover-skills', (_event, projectPath: string) => {
+    if (typeof projectPath !== 'string' || !projectPath.trim()) throw new Error('请选择项目')
+    const traceHome = getStoredTraceHome()
+    const project = listManagedProjects(traceHome).find(item => path.resolve(item.path) === path.resolve(projectPath))
+    if (!project || project.status !== 'valid') throw new Error('项目已移除或目录不可用')
+    return discoverProjectSkills(project.path, traceHome)
+  })
   ipcMain.handle('projects:list-managed', () => listManagedProjects(getStoredTraceHome()))
   ipcMain.handle('projects:get-active', () => getActiveProject(getStoredTraceHome()))
   ipcMain.handle('projects:set-active', (_event, idOrPath: string) => {

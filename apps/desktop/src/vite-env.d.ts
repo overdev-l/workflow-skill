@@ -27,6 +27,7 @@ import type {
   ProjectRecord,
   ProjectRuleAssociation,
   ProjectSkillPathStatus,
+  ProjectSkillDiscoveryResult,
   PublicRule,
   RepositorySkillSearchResult,
   Workflow,
@@ -105,6 +106,7 @@ declare global {
       onMCPChanged?: (listener: () => void) => () => void
 
       // --- Projects (OPC-56, OPC-64) ---
+      discoverProjectSkills?: (projectPath: string) => Promise<ProjectSkillDiscoveryResult>
       listProjects?: () => Promise<ProjectRecord[]>
       listManagedProjects?: () => Promise<ManagedProjectRecord[]>
       getActiveProject?: () => Promise<ProjectRecord | null>

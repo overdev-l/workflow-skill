@@ -394,6 +394,17 @@ export interface Skill {
   triggers?: string[]
   skillMarkdown?: string
   skillPath?: string
+  /** Read-only physical source discovered in the selected project; never inferred by name. */
+  projectSource?: {
+    projectPath: string
+    relativePaths: string[]
+    managedSkillId?: string
+  }
+}
+
+export interface ProjectSkillDiscoveryResult {
+  skills: Skill[]
+  errors: string[]
 }
 
 export type DeleteSkillMode = 'trash' | 'permanent'
