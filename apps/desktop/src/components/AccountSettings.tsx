@@ -122,6 +122,8 @@ const DICTIONARY = {
     sessionsNotice:
       '提示：切换仅更新本机账号凭证文件，在新终端或工具会话中生效。已有运行中的会话不会自动变更；项目配置或环境变量若存在可能覆盖全局账号。',
     refreshBtn: '刷新',
+    refreshAllBtn: '刷新全部',
+    refreshingAllBtn: '刷新中…',
     rollbackBtn: '回滚上次切换',
     rollingBackBtn: '正在回滚…',
     captureBtn: '保存当前登录',
@@ -257,6 +259,8 @@ const DICTIONARY = {
     sessionsNotice:
       'Notice: Swapping only updates local credential files for new sessions. Existing sessions are not altered automatically. Project-level configs or environment variables take precedence if present.',
     refreshBtn: 'Refresh',
+    refreshAllBtn: 'Refresh all',
+    refreshingAllBtn: 'Refreshing…',
     rollbackBtn: 'Rollback Last Switch',
     rollingBackBtn: 'Rolling back…',
     captureBtn: 'Save Active Account',
@@ -1422,6 +1426,7 @@ export function AccountSettings({
   }
 
   // Refresh visible accounts and overview
+  const isRefreshingQuotas = toolSavedAccounts.some(account => inFlightQuotas.has(account.id))
   const handleRefreshAll = async () => {
     if (loading || isBusy || isOAuthPending) return
     setErrorMessage(null)
@@ -2081,6 +2086,17 @@ export function AccountSettings({
                     <span>{isBusy ? loc.rollingBackBtn : loc.rollbackBtn}</span>
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="account-btn account-btn--sm"
+                  onClick={handleRefreshAll}
+                  disabled={loading || isRefreshingQuotas || isBusy || isOAuthPending}
+                  title={loc.refreshAllBtn}
+                  aria-label={loc.refreshAllBtn}
+                >
+                  <RefreshCw size={12} className={loading || isRefreshingQuotas ? 'animate-spin' : ''} />
+                  <span>{loading || isRefreshingQuotas ? loc.refreshingAllBtn : loc.refreshAllBtn}</span>
+                </button>
                 <button
                   type="button"
                   className="account-btn account-btn--primary"
