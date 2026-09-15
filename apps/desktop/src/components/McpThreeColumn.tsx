@@ -800,11 +800,11 @@ export function McpThreeColumn({
                       <div className="mcp-master-row__sub">
                         <span className="mcp-badge mcp-badge--transport">{server.transport}</span>
                         {hasError ? (
-                          <span className="mcp-badge" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>
+                          <span className="mcp-badge" style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-ink)' }}>
                             同步失败
                           </span>
                         ) : injectedCount > 0 ? (
-                          <span className="mcp-badge" style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#10b981' }}>
+                          <span className="mcp-badge" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success-ink)' }}>
                             {injectedCount} 注入
                           </span>
                         ) : (
@@ -839,7 +839,7 @@ export function McpThreeColumn({
       {/* =========================================================================
           Column 3: Detail Stage (Width: minmax(0, 1fr)) - AGENTS.md §1.1
           ========================================================================= */}
-      <section className="app-col-detail view-enter" style={{ overflowY: 'auto' }}>
+      <section className="app-col-detail view-enter">
         {!selectedServer ? (
           <div className="detail-empty-wrap" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px' }}>
             <Server size={32} style={{ color: 'var(--color-muted)', opacity: 0.5 }} />
@@ -882,7 +882,7 @@ export function McpThreeColumn({
                     {!selectedServer.enabled ? (
                       <span className="mcp-badge mcp-badge--disabled">{t.mcp.statusDisabled}</span>
                     ) : (
-                      <span className="mcp-badge" style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                      <span className="mcp-badge" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success-ink)', border: '1px solid color-mix(in oklch, var(--color-success) 30%, transparent)' }}>
                         {t.mcp.statusActive}
                       </span>
                     )}
@@ -909,7 +909,7 @@ export function McpThreeColumn({
                 <button
                   type="button"
                   className="btn btn--capsule-ghost btn--capsule btn--sm"
-                  style={{ color: '#ef4444' }}
+                  style={{ color: 'var(--color-danger-ink)' }}
                   disabled={isBusy}
                   onClick={() => setDeleteConfirmOpen(true)}
                   title={t.mcp.deleteBtn}
@@ -972,7 +972,7 @@ export function McpThreeColumn({
                       statusBadge = (
                         <span
                           className="mcp-dist-status-badge is-diff"
-                          style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                          style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-ink)', borderColor: 'color-mix(in oklch, var(--color-danger) 30%, transparent)' }}
                           title={assoc?.lastError || '同步写入目标失败'}
                         >
                           同步失败
@@ -1001,7 +1001,7 @@ export function McpThreeColumn({
                             此宿主不支持 {selectedServer.transport} 传输
                           </div>
                         ) : isFailed && assoc?.lastError ? (
-                          <div style={{ fontSize: '0.6875rem', color: '#ef4444', marginTop: 4, wordBreak: 'break-all' }}>
+                          <div style={{ fontSize: '0.6875rem', color: 'var(--color-danger-ink)', marginTop: 4, wordBreak: 'break-all' }}>
                             {assoc.lastError}
                           </div>
                         ) : null}
@@ -1011,7 +1011,7 @@ export function McpThreeColumn({
                             <button
                               type="button"
                               className="btn btn--capsule-ghost btn--sm"
-                              style={{ height: '22px', fontSize: '0.6875rem', color: '#ef4444' }}
+                              style={{ height: '22px', fontSize: '0.6875rem', color: 'var(--color-danger-ink)' }}
                               disabled={isOperating || isBusy}
                               onClick={() => void handleUninject({ tool: tool.id, scope: 'global' })}
                             >
@@ -1050,15 +1050,6 @@ export function McpThreeColumn({
                       <select
                         value={selectedProjectPath}
                         onChange={(e) => setSelectedProjectPath(e.target.value)}
-                        style={{
-                          background: 'rgba(255, 255, 255, 0.06)',
-                          border: '1px solid var(--color-border)',
-                          borderRadius: '4px',
-                          color: 'var(--color-ink)',
-                          fontSize: '0.6875rem',
-                          padding: '2px 6px',
-                          outline: 'none',
-                        }}
                       >
                         {projects.map((p) => (
                           <option key={p.id} value={p.path}>
@@ -1069,7 +1060,6 @@ export function McpThreeColumn({
                       <button
                         type="button"
                         className="btn btn--capsule-ghost btn--sm"
-                        style={{ height: '20px', padding: '0 5px' }}
                         title="添加项目文件夹"
                         onClick={handleAddProject}
                       >
@@ -1083,9 +1073,9 @@ export function McpThreeColumn({
                   <div
                     style={{
                       padding: '12px',
-                      background: 'rgba(255, 255, 255, 0.02)',
+                      background: 'var(--color-surface)',
                       border: '1px dashed var(--color-border)',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -1121,7 +1111,7 @@ export function McpThreeColumn({
                         statusBadge = (
                           <span
                             className="mcp-dist-status-badge is-diff"
-                            style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-ink)', borderColor: 'color-mix(in oklch, var(--color-danger) 30%, transparent)' }}
                             title={assoc?.lastError || '同步写入项目配置失败'}
                           >
                             同步失败
@@ -1150,7 +1140,7 @@ export function McpThreeColumn({
                               此工具项目配置不支持 {selectedServer.transport}
                             </div>
                           ) : isFailed && assoc?.lastError ? (
-                            <div style={{ fontSize: '0.6875rem', color: '#ef4444', marginTop: 4, wordBreak: 'break-all' }}>
+                            <div style={{ fontSize: '0.6875rem', color: 'var(--color-danger-ink)', marginTop: 4, wordBreak: 'break-all' }}>
                               {assoc.lastError}
                             </div>
                           ) : null}
@@ -1160,7 +1150,7 @@ export function McpThreeColumn({
                               <button
                                 type="button"
                                 className="btn btn--capsule-ghost btn--sm"
-                                style={{ height: '22px', fontSize: '0.6875rem', color: '#ef4444' }}
+                                style={{ height: '22px', fontSize: '0.6875rem', color: 'var(--color-danger-ink)' }}
                                 disabled={isOperating || isBusy}
                                 onClick={() => void handleUninject({ tool: toolId, scope: 'project', projectPath: selectedProjectPath })}
                               >

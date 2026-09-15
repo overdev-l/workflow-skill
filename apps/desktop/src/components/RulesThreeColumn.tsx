@@ -493,14 +493,14 @@ export function RulesThreeColumn({
       <main className="app-col-detail view-enter">
         {activeTab === 'rules' ? (
           /* Rule Editor & Association Matrix */
-          <div className="detail-stage-wrap" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div className="detail-stage-wrap rules-stage">
             {/* Header & Actions */}
-            <div className="mcp-detail-header" style={{ marginBottom: '16px' }}>
-              <div style={{ flex: 1, marginRight: '16px' }}>
+            <div className="rules-detail-header">
+              <div className="rules-detail-header__fields">
                 <input
                   type="text"
                   className="dialog-capsule-input"
-                  style={{ fontSize: '1rem', fontWeight: 600, width: '100%', marginBottom: '8px' }}
+                  style={{ fontSize: '0.75rem', fontWeight: 600, width: '100%' }}
                   placeholder={t.rules.ruleNamePlaceholder}
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
@@ -508,14 +508,14 @@ export function RulesThreeColumn({
                 <input
                   type="text"
                   className="dialog-capsule-input"
-                  style={{ fontSize: '0.8125rem', width: '100%' }}
+                  style={{ fontSize: '0.75rem', width: '100%' }}
                   placeholder={t.rules.ruleDescPlaceholder}
                   value={formDesc}
                   onChange={(e) => setFormDesc(e.target.value)}
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div className="rules-detail-header__actions">
                 {selectedRuleId && (
                   <button
                     type="button"
@@ -538,20 +538,18 @@ export function RulesThreeColumn({
             </div>
 
             {/* Split Content: Markdown Editor on Left, Injected Projects Matrix on Right */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(280px, 0.9fr)', gap: '16px', flex: 1, minHeight: 0 }}>
+            <div className="rules-editor-layout">
               {/* Markdown Editor */}
-              <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                <label className="form-label" style={{ marginBottom: '6px' }}>
+              <div className="rules-editor-pane">
+                <label className="form-label rules-form-label" style={{ marginBottom: '6px' }}>
                   Markdown 规则定义
                 </label>
                 <textarea
                   className="mcp-textarea font-mono"
                   style={{
-                    flex: 1,
-                    resize: 'none',
                     lineHeight: '1.5',
                     fontSize: '0.8125rem',
-                    padding: '12px',
+                    padding: '12px 16px',
                     borderRadius: '8px',
                   }}
                   placeholder={t.rules.ruleContentPlaceholder}
@@ -561,9 +559,9 @@ export function RulesThreeColumn({
               </div>
 
               {/* Injected Projects Matrix */}
-              <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              <div className="rules-matrix-pane">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <label className="form-label">{t.rules.injectedProjectsTitle}</label>
+                  <label className="form-label rules-form-label">{t.rules.injectedProjectsTitle}</label>
                   <button
                     type="button"
                     className="btn btn--capsule btn--sm"
@@ -573,16 +571,7 @@ export function RulesThreeColumn({
                   </button>
                 </div>
 
-                <div
-                  style={{
-                    flex: 1,
-                    overflowY: 'auto',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: '8px',
-                    background: 'var(--bg-glass-subtle)',
-                    padding: '8px',
-                  }}
-                >
+                <div className="rules-matrix-card">
                   {projects.length === 0 ? (
                     <div style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
                       {t.rules.noProjects}
@@ -605,7 +594,7 @@ export function RulesThreeColumn({
           </div>
         ) : (
           /* Project Rules Configuration Mode */
-          <div className="detail-stage-wrap" style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+          <div className="detail-stage-wrap rules-stage" style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
             {/* Project Switcher Bar */}
             <div
               style={{
@@ -613,7 +602,7 @@ export function RulesThreeColumn({
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 paddingBottom: '12px',
-                borderBottom: '1px solid var(--border-subtle)',
+                borderBottom: '1px solid var(--color-border-subtle)',
                 marginBottom: '16px',
               }}
             >
@@ -653,8 +642,8 @@ export function RulesThreeColumn({
                   style={{
                     padding: '14px',
                     borderRadius: '8px',
-                    background: 'var(--bg-glass-subtle)',
-                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border-subtle)',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
@@ -678,11 +667,11 @@ export function RulesThreeColumn({
                           </span>
                         )}
                       </div>
-                      <p style={{ margin: '4px 0 0 0', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
                         {t.rules.claudeLinkDesc}
                       </p>
                       {claudeStatus?.reason && (
-                        <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: claudeStatus.conflict ? 'var(--danger)' : 'var(--text-muted)' }}>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: claudeStatus.conflict ? 'var(--color-danger-ink)' : 'var(--color-muted)' }}>
                           {claudeStatus.reason}
                         </p>
                       )}
@@ -704,8 +693,8 @@ export function RulesThreeColumn({
                   style={{
                     padding: '14px',
                     borderRadius: '8px',
-                    background: 'var(--bg-glass-subtle)',
-                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border-subtle)',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -767,8 +756,8 @@ export function RulesThreeColumn({
                               justifyContent: 'space-between',
                               padding: '8px 12px',
                               borderRadius: '6px',
-                              background: 'var(--bg-glass-active)',
-                              border: '1px solid var(--border-focus)',
+                              background: 'var(--color-surface-raised)',
+                              border: '1px solid var(--control-border-focus)',
                             }}
                           >
                             <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', flex: 1 }}>
@@ -821,8 +810,8 @@ export function RulesThreeColumn({
                               justifyContent: 'space-between',
                               padding: '8px 12px',
                               borderRadius: '6px',
-                              background: 'var(--bg-glass-subtle)',
-                              border: '1px solid var(--border-subtle)',
+                              background: 'var(--color-surface)',
+                              border: '1px solid var(--color-border-subtle)',
                               opacity: 0.8,
                             }}
                           >
@@ -845,11 +834,11 @@ export function RulesThreeColumn({
                   style={{
                     padding: '14px',
                     borderRadius: '8px',
-                    background: 'var(--bg-glass-subtle)',
-                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border-subtle)',
                   }}
                 >
-                  <label className="form-label" style={{ marginBottom: '8px', display: 'block' }}>
+                  <label className="form-label rules-form-label" style={{ marginBottom: '8px', display: 'block' }}>
                     {t.rules.previewTitle}
                   </label>
                   <textarea
@@ -861,9 +850,9 @@ export function RulesThreeColumn({
                       resize: 'none',
                       lineHeight: '1.5',
                       fontSize: '0.75rem',
-                      padding: '10px',
-                      borderRadius: '6px',
-                      background: 'var(--bg-canvas-subtle)',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      background: 'var(--control-bg)',
                     }}
                     value={previewContent}
                   />
@@ -927,7 +916,7 @@ function ProjectRuleMatrixRow({
         justifyContent: 'space-between',
         padding: '8px 10px',
         borderRadius: '6px',
-        borderBottom: '1px solid var(--border-subtle)',
+        borderBottom: '1px solid var(--color-border-subtle)',
       }}
     >
       <div style={{ overflow: 'hidden', marginRight: '8px' }}>

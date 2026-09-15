@@ -174,12 +174,12 @@ assert.notEqual(lightControlBg, 'oklch(1 0 0)', 'Light control background must N
 // Verify universal editable control binding in styles.css
 assert.match(
   stylesCss,
-  /input\[type="text"\],[\s\S]*?select\s*\{[\s\S]*?background:\s*var\(--control-bg\);/,
+  /input\[type="text"\],[^{]*\{[^}]*background:\s*var\(--control-bg\);/,
   'Universal input styles must bind background to var(--control-bg)'
 )
 assert.match(
   stylesCss,
-  /input\[type="text"\],[\s\S]*?select\s*\{[\s\S]*?border:\s*1px solid var\(--control-border\);/,
+  /input\[type="text"\],[^{]*\{[^}]*border:\s*1px solid var\(--control-border\);/,
   'Universal input styles must bind border to var(--control-border)'
 )
 
@@ -271,8 +271,8 @@ assert.match(
 )
 assert.match(
   mcpCss,
-  /\.mcp-arg-input\s*\{[^}]*height:\s*28px;/,
-  '.mcp-arg-input height must be exactly 28px'
+  /\.mcp-arg-input\s*\{[^}]*min-height:\s*28px;/,
+  '.mcp-arg-input must retain a 28px minimum while allowing multiline content'
 )
 assert.match(
   mcpCss,

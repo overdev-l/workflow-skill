@@ -48,7 +48,7 @@ export function AppUpdate({ compact = false }: { compact?: boolean }) {
   const Icon = busy ? LoaderCircle : status === 'downloaded' ? RefreshCw : Download
   return <div className={compact ? 'update-sidebar' : 'flat-settings-card app-update-card'}>
     {!compact && <div><strong>{zh ? '软件更新' : 'Software updates'}</strong><p>{zh ? '当前版本' : 'Current version'} {state?.currentVersion ?? '—'}{state?.availableVersion && ` → ${state.availableVersion}`}{state?.simulated && (zh ? ' · 模拟更新' : ' · Simulation')}</p></div>}
-    <button type="button" className={compact ? 'nav-pill-btn update-action' : 'btn btn--capsule update-action'} onClick={() => { void invoke() }} disabled={busy || status === 'disabled'} title={texts[status]}>
+    <button type="button" className={compact ? 'nav-pill-btn update-action' : `btn btn--capsule ${actionable ? 'btn--primary' : ''} update-action`} onClick={() => { void invoke() }} disabled={busy || status === 'disabled'} title={texts[status]}>
       {status === 'downloading' && <span className="update-fill" style={{ width: `${progress}%` }} />}
       <Icon size={14} className={busy ? 'update-spinner' : ''} /><span>{state?.simulated && compact ? (zh ? '模拟 · ' : 'Demo · ') : ''}{label}</span>
     </button>
