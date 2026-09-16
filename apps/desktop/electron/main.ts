@@ -610,6 +610,28 @@ app.whenReady().then(() => {
     return path.join(os.homedir(), tool.defaultDir)
   }
 
+  function countDirectChildSkillDirectories(dir: string): number {
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true })
+      let count = 0
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue
+        try {
+          const fullPath = path.join(dir, entry.name)
+          const stat = statSync(fullPath)
+          if (stat.isDirectory()) {
+            count++
+          }
+        } catch {
+          // Ignore broken symlinks, permission errors, or stat failures
+        }
+      }
+      return count
+    } catch {
+      return 0
+    }
+  }
+
   function detectInstalledAITools(): AIToolTarget[] {
     return DEFAULT_AI_TOOLS.map((tool) => {
       const dir = getAIToolDirectory(tool)
@@ -619,22 +641,27 @@ app.whenReady().then(() => {
           installed: false,
           detectedPath: '',
           itemCount: 0,
+          rootExists: false,
+          skillsDirExists: false,
+          pendingMount: false,
         }
       }
+
       const baseDir = path.dirname(dir)
-      const installed = existsSync(dir) || (tool.scope === 'global' && existsSync(baseDir))
-      let itemCount = 0
-      if (existsSync(dir)) {
-        try {
-          const files = readdirSync(dir)
-          itemCount = files.filter((f) => !f.startsWith('.')).length
-        } catch {}
-      }
+      const rootExists = existsSync(baseDir)
+      const skillsDirExists = existsSync(dir)
+      const installed = skillsDirExists
+      const pendingMount = tool.scope === 'project' ? !skillsDirExists : false
+      const itemCount = skillsDirExists ? countDirectChildSkillDirectories(dir) : 0
+
       return {
         ...tool,
         installed,
         detectedPath: dir,
         itemCount,
+        rootExists,
+        skillsDirExists,
+        pendingMount,
       }
     })
   }

@@ -86,6 +86,9 @@ export interface AIToolTarget {
   description?: string
   compatibleTools?: AssociatedAITool[]
   itemCount?: number
+  rootExists?: boolean
+  skillsDirExists?: boolean
+  pendingMount?: boolean
 }
 
 export interface AIProjectItem {
