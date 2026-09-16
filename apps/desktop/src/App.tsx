@@ -3326,6 +3326,7 @@ function SettingsMainPage({
       const selected = await window.workflowSkill.selectProjectWorkspace()
       if (selected) {
         setProjectWorkspace(selected)
+        window.dispatchEvent(new CustomEvent('workflow-skill:workspace-changed'))
         onShowToast?.(`已切换当前项目工作区为 ${selected}`)
       }
     }
@@ -4382,16 +4383,23 @@ export function App() {
 
   useEffect(() => {
     let active = true
-    if (window.workflowSkill?.getAITools) {
-      window.workflowSkill
-        .getAITools()
-        .then((detected) => {
-          if (active && Array.isArray(detected) && detected.length > 0) {
-            setAiTools(detected)
-          }
-        })
-        .catch(() => {})
+
+    const refreshAiTools = () => {
+      if (window.workflowSkill?.getAITools) {
+        window.workflowSkill
+          .getAITools()
+          .then((detected) => {
+            if (active && Array.isArray(detected) && detected.length > 0) {
+              setAiTools(detected)
+            }
+          })
+          .catch(() => {})
+      }
     }
+
+    refreshAiTools()
+    window.addEventListener('workflow-skill:workspace-changed', refreshAiTools)
+
     if (window.workflowSkill?.loadLocalSkills) {
       window.workflowSkill
         .loadLocalSkills()
@@ -4414,6 +4422,7 @@ export function App() {
     }
     return () => {
       active = false
+      window.removeEventListener('workflow-skill:workspace-changed', refreshAiTools)
     }
   }, [])
 
