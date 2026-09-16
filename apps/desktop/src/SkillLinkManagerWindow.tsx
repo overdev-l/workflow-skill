@@ -158,12 +158,23 @@ export function SkillLinkManagerWindow() {
       : 'unbound'
   }
 
+  const isToolReady = (tool: AIToolTarget): boolean => {
+    if (tool.pendingMount === true) return false
+    if (tool.skillsDirExists !== undefined) return tool.skillsDirExists
+    return tool.installed !== false
+  }
+
   // Filter global tools
-  const globalTools = aiTools.filter((t) => (t.scope === 'global' || !t.scope) && t.installed !== false)
+  const globalTools = aiTools.filter((t) => t.scope === 'global' || !t.scope)
 
   // Toggle Global AI Tool Target
   const handleToggleGlobalTarget = async (tool: AIToolTarget) => {
     if (!currentSkill || busy) return
+    const isReady = isToolReady(tool)
+    if (!isReady) {
+      setToast('环境待挂载/未就绪')
+      return
+    }
     const status = getGlobalTargetStatus(tool.id)
     const isCurrentlyLinked = status === 'linked'
     const displayName = getAIToolDisplayName(tool)
@@ -472,6 +483,7 @@ export function SkillLinkManagerWindow() {
           /* List 1: Installed AI Global Environments */
           <div className="env-clean-list">
             {globalTools.map((tool) => {
+              const isReady = isToolReady(tool)
               const status = getGlobalTargetStatus(tool.id)
               const isLinked = status === 'linked'
               const displayName = getAIToolDisplayName(tool)
@@ -479,8 +491,9 @@ export function SkillLinkManagerWindow() {
               return (
                 <div
                   key={tool.id}
-                  className={`env-clean-row ${isLinked ? 'is-linked' : ''} ${status === 'conflict' ? 'is-conflict' : ''}`}
-                  onClick={() => void handleToggleGlobalTarget(tool)}
+                  className={`env-clean-row ${isLinked ? 'is-linked' : ''} ${status === 'conflict' ? 'is-conflict' : ''} ${!isReady ? 'is-unready' : ''}`}
+                  onClick={isReady ? () => void handleToggleGlobalTarget(tool) : undefined}
+                  style={!isReady ? { opacity: 0.6, cursor: 'not-allowed' } : undefined}
                 >
                   <div className="env-row-left">
                     <div className="master-item-logo">
@@ -496,11 +509,19 @@ export function SkillLinkManagerWindow() {
 
                   <button
                     type="button"
-                    className={`btn btn--capsule btn--sm ${isLinked ? 'btn--secondary' : status === 'external' ? 'btn--secondary' : 'btn--primary'}`}
-                    style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
+                    disabled={!isReady}
+                    aria-disabled={!isReady}
+                    className={`btn btn--capsule btn--sm ${!isReady ? 'btn--secondary' : isLinked ? 'btn--secondary' : status === 'external' ? 'btn--secondary' : 'btn--primary'}`}
+                    style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0, opacity: !isReady ? 0.6 : undefined }}
                   >
-                    {isLinked ? <Unlink size={11} /> : status === 'external' ? <Download size={11} /> : <Link2 size={11} />}
-                    <span>{isLinked ? '断开' : status === 'external' ? '接管并连接' : status === 'conflict' ? '处理冲突' : status === 'broken' ? '修复链接' : '连接'}</span>
+                    {!isReady ? (
+                      <span>待挂载</span>
+                    ) : (
+                      <>
+                        {isLinked ? <Unlink size={11} /> : status === 'external' ? <Download size={11} /> : <Link2 size={11} />}
+                        <span>{isLinked ? '断开' : status === 'external' ? '接管并连接' : status === 'conflict' ? '处理冲突' : status === 'broken' ? '修复链接' : '连接'}</span>
+                      </>
+                    )}
                   </button>
                 </div>
               )
