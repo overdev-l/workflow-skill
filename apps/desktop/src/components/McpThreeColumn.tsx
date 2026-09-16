@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   Check,
+  Download,
   Folder,
   FolderPlus,
   Globe,
@@ -12,11 +13,13 @@ import {
   RefreshCw,
   Server,
   Trash2,
+  Unlink,
   X,
 } from 'lucide-react'
 import type {
   CentralMCPServer,
   MCPScope,
+  MCPScopeStatus,
   MCPSourceTool,
   MCPTargetAssociation,
   MCPTransportType,
@@ -26,6 +29,57 @@ import { MCP_SOURCE_TOOLS } from '@workflow-skill/workflow-model'
 import { AIToolLogo } from '../AIToolLogo'
 import { useI18n } from '../i18n'
 import '../mcp.css'
+
+function getMcpBadgeClass(status?: MCPScopeStatus | string): string {
+  switch (status) {
+    case '外部持有':
+      return 'mcp-badge--external'
+    case '全局已注入':
+    case '项目已注入':
+      return 'mcp-badge--injected'
+    case '冲突':
+      return 'mcp-badge--conflict'
+    case '未注入':
+      return 'mcp-badge--unbound'
+    case '应用管理':
+    default:
+      return 'mcp-badge--app'
+  }
+}
+
+function getMcpServerBadge(
+  server: CentralMCPServer,
+  activeScope?: 'global' | 'project',
+  projectPath?: string,
+): MCPScopeStatus {
+  if (server.ownership === 'external') {
+    return '外部持有'
+  }
+  const assocs = server.targetAssociations || []
+  if (activeScope) {
+    const scopeAssocs = assocs.filter((a) => {
+      if (a.scope !== activeScope) return false
+      if (activeScope === 'project' && projectPath) {
+        return normalizePath(a.projectPath) === normalizePath(projectPath)
+      }
+      return true
+    })
+    if (scopeAssocs.some((a) => a.lastSyncStatus === 'conflict')) {
+      return '冲突'
+    }
+    if (scopeAssocs.length > 0) {
+      return activeScope === 'project' ? '项目已注入' : '全局已注入'
+    }
+    if (assocs.some((a) => a.lastSyncStatus === 'conflict')) {
+      return '冲突'
+    }
+    return server.ownership === 'app' || assocs.length > 0 ? '应用管理' : '未注入'
+  }
+  if (assocs.some((a) => a.lastSyncStatus === 'conflict')) {
+    return '冲突'
+  }
+  return server.scopeStatus || (assocs.length > 0 ? '应用管理' : '未注入')
+}
 
 interface KeyValuePair {
   key: string
@@ -148,8 +202,10 @@ export function McpThreeColumn({
   const [injectionProjectPath, setInjectionProjectPath] = useState('')
   const [selectedInjectionTools, setSelectedInjectionTools] = useState<MCPSourceTool[]>([])
   const [injectionSaving, setInjectionSaving] = useState(false)
+  const [adopting, setAdopting] = useState(false)
+  const [disconnectingTarget, setDisconnectingTarget] = useState<string | null>(null)
 
-  const isBusy = formSaving || toggling || deleting || loading || createSaving || injectionSaving
+  const isBusy = formSaving || toggling || deleting || loading || createSaving || injectionSaving || adopting || Boolean(disconnectingTarget)
 
   // 1. Load Central Servers & Projects
   const loadCentralServers = async () => {
@@ -274,6 +330,7 @@ export function McpThreeColumn({
     if (!selectedServerId) return filteredServers[0]
     return filteredServers.find((s) => s.id === selectedServerId) || null
   }, [filteredServers, selectedServerId])
+  const selectedServerIsExternal = selectedServer?.ownership === 'external'
 
   // Synchronize selectedServerId
   useEffect(() => {
@@ -422,7 +479,7 @@ export function McpThreeColumn({
 
   // 2. Save Central Server
   const handleSave = async () => {
-    if (!selectedServer || !window.workflowSkill?.saveCentralMCPServer) return
+    if (!selectedServer || selectedServerIsExternal || !window.workflowSkill?.saveCentralMCPServer) return
     const envRes = pairsToRecord(formEnvPairs)
     const headerRes = pairsToRecord(formHeaderPairs)
     const envHeaderRes = pairsToRecord(formEnvHeaderPairs)
@@ -478,7 +535,7 @@ export function McpThreeColumn({
 
   // 3. Toggle Server Enabled State
   const handleToggleEnable = async () => {
-    if (!selectedServer || !window.workflowSkill?.saveCentralMCPServer) return
+    if (!selectedServer || selectedServerIsExternal || !window.workflowSkill?.saveCentralMCPServer) return
     const nextState = !selectedServer.enabled
     setToggling(true)
     try {
@@ -501,7 +558,7 @@ export function McpThreeColumn({
 
   // 4. Delete Central Server (Truthful failure inspection)
   const handleDelete = async () => {
-    if (!selectedServer || !window.workflowSkill?.deleteCentralMCPServer) return
+    if (!selectedServer || selectedServerIsExternal || !window.workflowSkill?.deleteCentralMCPServer) return
     setDeleting(true)
     try {
       const res = await window.workflowSkill.deleteCentralMCPServer(selectedServer.id)
@@ -524,6 +581,59 @@ export function McpThreeColumn({
       notify?.((err as Error).message)
     } finally {
       setDeleting(false)
+    }
+  }
+
+  // Adopt External MCP Server into App Management
+  const handleAdoptServer = async () => {
+    if (!selectedServer || !window.workflowSkill?.adoptMCPServer) return
+    setAdopting(true)
+    try {
+      const discoveredTarget = selectedServer.discoveredTarget
+      if (!discoveredTarget) {
+        notify?.('未找到可纳入的外部 MCP 目标')
+        return
+      }
+      const res = await window.workflowSkill.adoptMCPServer({
+        ...discoveredTarget,
+        name: selectedServer.name,
+      })
+      if (res.success && res.server) {
+        notify?.(`已成功纳入应用管理: ${res.server.name}`)
+        setSelectedServerId(res.server.id)
+        lastLoadedIdRef.current = null
+        await loadCentralServers()
+      } else {
+        notify?.(res.error || '纳入应用管理失败')
+      }
+    } catch (err: any) {
+      notify?.(err.message || '纳入应用管理失败')
+    } finally {
+      setAdopting(false)
+    }
+  }
+
+  // Disconnect target without deleting central asset
+  const handleDisconnectTarget = async (assoc: MCPTargetAssociation) => {
+    if (!selectedServer || !window.workflowSkill?.disconnectMCPServer) return
+    const key = `${assoc.tool}:${assoc.scope}:${assoc.projectPath || ''}`
+    setDisconnectingTarget(key)
+    try {
+      const res = await window.workflowSkill.disconnectMCPServer(selectedServer.id, {
+        tool: assoc.tool,
+        scope: assoc.scope,
+        projectPath: assoc.projectPath,
+      })
+      if (res.success) {
+        notify?.(`已断开 ${TOOL_NAMES[assoc.tool] || assoc.tool} 目标配置，中央资产已保留`)
+        await loadCentralServers()
+      } else {
+        notify?.(res.error || '断开失败')
+      }
+    } catch (err: any) {
+      notify?.(err.message || '断开失败')
+    } finally {
+      setDisconnectingTarget(null)
     }
   }
 
@@ -782,6 +892,8 @@ export function McpThreeColumn({
           ) : (
             filteredServers.map((server) => {
               const isSelected = selectedServer?.id === server.id
+              const badgeText = getMcpServerBadge(server, activeScopeTab, selectedProjectPath)
+              const badgeClass = getMcpBadgeClass(badgeText)
 
               return (
                 <button
@@ -799,6 +911,9 @@ export function McpThreeColumn({
                       <span className="mcp-master-row__name">{server.name}</span>
                     </div>
                   </div>
+                  <span className={`mcp-badge ${badgeClass}`} style={{ fontSize: '0.625rem', padding: '1px 5px', height: 'auto', flexShrink: 0, marginLeft: 'auto' }}>
+                    {badgeText}
+                  </span>
                 </button>
               )
             })
@@ -874,40 +989,47 @@ export function McpThreeColumn({
                 </div>
               </div>
 
-              {/* Action Buttons: Enable/Disable, Delete, Save (All 24px) */}
+              {/* Action Buttons: external assets must be adopted before editing */}
               <div className="mcp-hero-actions">
-                <button
-                  type="button"
-                  className={`btn btn--capsule btn--sm ${selectedServer.enabled ? 'btn--capsule-ghost' : ''}`}
-                  disabled={isBusy}
-                  onClick={() => void handleToggleEnable()}
-                  title={selectedServer.enabled ? t.mcp.disableBtn : t.mcp.enableBtn}
-                >
-                  {toggling ? <RefreshCw size={12} className="spin" /> : <Power size={12} />}
-                  <span>{selectedServer.enabled ? t.mcp.disableBtn : t.mcp.enableBtn}</span>
-                </button>
+                {selectedServerIsExternal ? (
+                  <button type="button" className="btn btn--primary btn--capsule btn--sm" disabled={isBusy} onClick={() => void handleAdoptServer()}>
+                    {adopting ? <RefreshCw size={12} className="spin" /> : <Download size={12} />}
+                    <span>{adopting ? '正在纳入…' : '纳入应用管理'}</span>
+                  </button>
+                ) : <>
+                  <button
+                    type="button"
+                    className={`btn btn--capsule btn--sm ${selectedServer.enabled ? 'btn--capsule-ghost' : ''}`}
+                    disabled={isBusy}
+                    onClick={() => void handleToggleEnable()}
+                    title={selectedServer.enabled ? t.mcp.disableBtn : t.mcp.enableBtn}
+                  >
+                    {toggling ? <RefreshCw size={12} className="spin" /> : <Power size={12} />}
+                    <span>{selectedServer.enabled ? t.mcp.disableBtn : t.mcp.enableBtn}</span>
+                  </button>
 
-                <button
-                  type="button"
-                  className="btn btn--capsule-ghost btn--capsule btn--sm"
-                  style={{ color: 'var(--color-danger-ink)' }}
-                  disabled={isBusy}
-                  onClick={() => setDeleteConfirmOpen(true)}
-                  title={t.mcp.deleteBtn}
-                >
-                  {deleting ? <RefreshCw size={12} className="spin" /> : <Trash2 size={12} />}
-                  <span>{t.mcp.deleteBtn}</span>
-                </button>
+                  <button
+                    type="button"
+                    className="btn btn--capsule-ghost btn--capsule btn--sm"
+                    style={{ color: 'var(--color-danger-ink)' }}
+                    disabled={isBusy}
+                    onClick={() => setDeleteConfirmOpen(true)}
+                    title={t.mcp.deleteBtn}
+                  >
+                    {deleting ? <RefreshCw size={12} className="spin" /> : <Trash2 size={12} />}
+                    <span>{t.mcp.deleteBtn}</span>
+                  </button>
 
-                <button
-                  type="button"
-                  className="btn btn--capsule btn--sm"
-                  disabled={isBusy}
-                  onClick={() => void handleSave()}
-                >
-                  {formSaving ? <RefreshCw size={12} className="spin" /> : <Check size={12} />}
-                  <span>{formSaving ? t.mcp.savingBtn : t.mcp.saveBtn}</span>
-                </button>
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--sm"
+                    disabled={isBusy}
+                    onClick={() => void handleSave()}
+                  >
+                    {formSaving ? <RefreshCw size={12} className="spin" /> : <Check size={12} />}
+                    <span>{formSaving ? t.mcp.savingBtn : t.mcp.saveBtn}</span>
+                  </button>
+                </>}
               </div>
             </div>
 
@@ -915,6 +1037,62 @@ export function McpThreeColumn({
             <div className="mcp-notice-banner">
               <AlertCircle size={14} />
               <span>{t.mcp.restartNotice}</span>
+            </div>
+
+            <div className="mcp-ownership-card">
+              <div className="mcp-ownership-card__header">
+                <div>
+                  <div className="mcp-ownership-label">资产持有</div>
+                  <div className="mcp-ownership-title-row">
+                    <span className={`mcp-badge ${getMcpBadgeClass(getMcpServerBadge(selectedServer))}`}>
+                      {getMcpServerBadge(selectedServer)}
+                    </span>
+                    <span className="mcp-ownership-hint">
+                      {selectedServerIsExternal ? '当前配置由 AI 应用自行维护' : '中央 MCP 资产由 Trace 维护，目标配置只保存注入结果'}
+                    </span>
+                  </div>
+                </div>
+                {selectedServerIsExternal ? (
+                  <button type="button" className="btn btn--primary btn--capsule btn--sm" disabled={isBusy} onClick={() => void handleAdoptServer()}>
+                    {adopting ? <RefreshCw size={11} className="spin" /> : <Download size={11} />}
+                    <span>转移到应用管理</span>
+                  </button>
+                ) : null}
+              </div>
+              <div className="mcp-ownership-item">
+                <span className="mcp-ownership-label">来源</span>
+                <span className="mcp-ownership-val font-mono" title={selectedServer.discoveredTarget?.configPath || selectedServer.id}>
+                  {selectedServer.discoveredTarget?.configPath || `Trace 中央库 · ${selectedServer.id}`}
+                </span>
+              </div>
+              {selectedServerIsExternal && selectedServer.discoveredTarget ? (
+                <div className="mcp-ownership-item">
+                  <span className="mcp-ownership-label">发现位置</span>
+                  <span className="mcp-ownership-val">{TOOL_NAMES[selectedServer.discoveredTarget.tool]} · {selectedServer.discoveredTarget.scope === 'global' ? '全局' : `项目 · ${selectedServer.discoveredTarget.projectPath || ''}`}</span>
+                </div>
+              ) : null}
+              {!selectedServerIsExternal && (selectedServer.targetAssociations || []).length > 0 ? (
+                <div className="mcp-ownership-targets">
+                  {(selectedServer.targetAssociations || []).map((association) => {
+                    const key = `${association.tool}:${association.scope}:${association.projectPath || ''}`
+                    const state = association.lastSyncStatus === 'conflict' ? '冲突' : association.scope === 'project' ? '项目已注入' : '全局已注入'
+                    return (
+                      <div className="mcp-ownership-target" key={key}>
+                        <div className="mcp-ownership-target__copy">
+                          <AIToolLogo toolId={association.tool} size={14} color />
+                          <span>{TOOL_NAMES[association.tool] || association.tool}</span>
+                          <span className={`mcp-badge ${getMcpBadgeClass(state)}`}>{state}</span>
+                          {association.scope === 'project' ? <span className="mcp-ownership-target__path font-mono">{association.projectPath}</span> : null}
+                        </div>
+                        <button type="button" className="btn btn--capsule-ghost btn--sm" disabled={isBusy} onClick={() => void handleDisconnectTarget(association)}>
+                          {disconnectingTarget === key ? <RefreshCw size={10} className="spin" /> : <Unlink size={10} />}
+                          <span>断开</span>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
             </div>
 
             {/* 1. Main Configuration Card (Preceding Injection per DESIGN.md §8.7) */}
@@ -926,6 +1104,7 @@ export function McpThreeColumn({
                 </span>
               </h3>
 
+              <fieldset disabled={selectedServerIsExternal} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
               <div className="mcp-form-grid">
                 {/* Name - Immutable primary key for existing server */}
                 <div className="mcp-form-field">
@@ -1215,6 +1394,7 @@ export function McpThreeColumn({
                   </>
                 )}
               </div>
+              </fieldset>
             </div>
 
             {/* 2. Two-step MCP injection flow */}
@@ -1230,6 +1410,15 @@ export function McpThreeColumn({
               </div>
 
               {!injectionOpen ? (
+                selectedServerIsExternal ? (
+                  <div className="mcp-injection-summary">
+                    <span>该 MCP 仍由目标应用持有。先纳入应用管理，Trace 才能安全地跨工具分发与断开。</span>
+                    <button type="button" className="btn btn--primary btn--capsule btn--sm" disabled={isBusy} onClick={() => void handleAdoptServer()}>
+                      {adopting ? <RefreshCw size={12} className="spin" /> : <Download size={12} />}
+                      <span>{adopting ? '正在纳入…' : '纳入后管理'}</span>
+                    </button>
+                  </div>
+                ) : (
                 <div className="mcp-injection-summary">
                   <span>中央资产由 Trace 统一保管，可按需注入到全局或项目范围。</span>
                   <button
@@ -1242,6 +1431,7 @@ export function McpThreeColumn({
                     <span>开始注入</span>
                   </button>
                 </div>
+                )
               ) : (
                 <div className="mcp-injection-flow">
                   <div className="mcp-injection-steps" aria-label="注入步骤">

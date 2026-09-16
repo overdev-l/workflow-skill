@@ -10,11 +10,15 @@ import type {
 } from '@workflow-skill/capture-protocol'
 import type {
   AIProjectItem,
+  AdoptMCPResult,
+  AdoptSkillResult,
   BatchItemResult,
   CentralMCPServer,
   ClaudeLinkResult,
   ClaudeLinkStatus,
   DeleteSkillMode,
+  DisconnectMCPResult,
+  DisconnectSkillResult,
   MCPDistributionPreflightResult,
   MCPDistributionReport,
   MCPDistributionTarget,
@@ -267,6 +271,11 @@ contextBridge.exposeInMainWorld('workflowSkill', {
   batchUninjectMCPServers: (serverIds: string[], target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) =>
     ipcRenderer.invoke('mcp:batch-uninject', serverIds, target) as Promise<{ results: BatchItemResult[] }>,
 
+  adoptMCPServer: (target: { tool: MCPSourceTool; scope: MCPScope; name: string; projectPath?: string }) =>
+    ipcRenderer.invoke('mcp:adopt', target) as Promise<AdoptMCPResult>,
+  disconnectMCPServer: (serverIdOrName: string, target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) =>
+    ipcRenderer.invoke('mcp:disconnect', serverIdOrName, target) as Promise<DisconnectMCPResult>,
+
   // --- Unified Skill Injection & Batching (OPC-56) ---
   injectSkill: (
     skillId: string,
@@ -278,6 +287,15 @@ contextBridge.exposeInMainWorld('workflowSkill', {
     target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
   ) =>
     ipcRenderer.invoke('skills:uninject', skillId, target) as Promise<{ success: boolean; error?: string }>,
+  disconnectSkill: (
+    skillId: string,
+    target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
+  ) =>
+    ipcRenderer.invoke('skills:disconnect', skillId, target) as Promise<DisconnectSkillResult>,
+  adoptSkill: (
+    target: { type?: 'global' | 'project'; toolId?: string; projectPath?: string; relPath?: string; skillId?: string; targetPath?: string }
+  ) =>
+    ipcRenderer.invoke('skills:adopt', target) as Promise<AdoptSkillResult>,
   batchInjectSkills: (
     skillIds: string[],
     target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }

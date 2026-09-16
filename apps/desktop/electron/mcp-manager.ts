@@ -20,6 +20,7 @@ import {
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { parseTOML } from 'toml-eslint-parser'
 import {
+  type AdoptMCPResult,
   type BatchItemResult,
   type CentralMCPServer,
   type MCPDistributionPreflightItem,
@@ -2861,6 +2862,35 @@ export async function exportMCPProfileSnapshot(
 // Central MCP Source Assets & Target Injection (OPC-56)
 // =========================================================================
 
+export function computeMCPTargetHash(server: {
+  name: string
+  transport: MCPTransportType
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+  envHeaders?: Record<string, string>
+  enabled?: boolean
+  sourceRaw?: Record<string, unknown>
+}): string {
+  const norm = {
+    name: server.name,
+    transport: server.transport,
+    command: server.command || '',
+    args: (server.args || []).slice(),
+    env: server.env ? Object.entries(server.env).sort(([a], [b]) => a.localeCompare(b)) : [],
+    cwd: server.cwd || '',
+    url: server.url || '',
+    headers: server.headers ? Object.entries(server.headers).sort(([a], [b]) => a.localeCompare(b)) : [],
+    envHeaders: server.envHeaders ? Object.entries(server.envHeaders).sort(([a], [b]) => a.localeCompare(b)) : [],
+    enabled: server.enabled !== false,
+    sourceRaw: server.sourceRaw ? Object.entries(server.sourceRaw).sort(([a], [b]) => a.localeCompare(b)) : [],
+  }
+  return createHash('sha256').update(JSON.stringify(norm)).digest('hex').slice(0, 16)
+}
+
 export function getCentralMCPRegistryPath(options?: MCPOptions): string {
   const traceHome = getEffectiveTraceHome(options)
   return path.join(traceHome, 'mcp-central.json')
@@ -2889,24 +2919,76 @@ export function saveCentralMCPRegistry(
   writeFileSync(filePath, JSON.stringify(registry, null, 2), 'utf8')
 }
 
+function matchesMcpTarget(
+  association: MCPTargetAssociation,
+  target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string },
+  projectPath?: string,
+): boolean {
+  if (association.tool !== target.tool || association.scope !== target.scope) return false
+  if (target.scope !== 'project') return true
+  if (!association.projectPath || !projectPath) return false
+  return path.resolve(association.projectPath) === path.resolve(projectPath)
+}
+
 export async function readCentralMCPServers(options?: MCPOptions): Promise<CentralMCPServer[]> {
   const registry = loadCentralMCPRegistry(options)
 
-  // Also discover servers from tools that might have been configured before or externally
+  // Ensure all registry entries are app-managed, and check target associations for conflicts
+  for (const server of Object.values(registry)) {
+    if (!server.ownership) server.ownership = 'app'
+
+    for (const assoc of server.targetAssociations || []) {
+      try {
+        const targetOptions = assoc.projectPath ? { ...options, projectWorkspace: assoc.projectPath } : options
+        const currentServers = readMCPServersForTool(assoc.tool, assoc.scope, targetOptions)
+        const targetServer = currentServers.find((s) => s.name === server.name)
+        if (!targetServer) {
+          assoc.lastSyncStatus = 'failed'
+          assoc.lastError = '目标工具配置中未找到该服务'
+        } else {
+          const currentHash = computeMCPTargetHash(targetServer)
+          if (assoc.targetHash) {
+            if (currentHash !== assoc.targetHash) {
+              assoc.lastSyncStatus = 'conflict'
+              assoc.lastError = '目标配置已被外部修改，存在冲突'
+            } else {
+              assoc.lastSyncStatus = 'synced'
+              assoc.lastError = undefined
+            }
+          } else {
+            // Backward compatibility: backfill hash
+            assoc.targetHash = currentHash
+            assoc.lastSyncStatus = 'synced'
+            assoc.lastError = undefined
+          }
+        }
+      } catch (err: any) {
+        assoc.lastSyncStatus = 'failed'
+        assoc.lastError = err?.message || String(err)
+      }
+    }
+  }
+
+  // Purely read-only discovery of external servers: DO NOT save to mcp-central.json!
+  const externalServers: CentralMCPServer[] = []
   try {
     const discovered = await readAllMCPServers(options)
-    let registryModified = false
+    const projectPath = options?.projectWorkspace || options?.getProjectWorkspace?.()
 
-    const registerDiscovered = (server: MCPServerDefinition) => {
-      const id = server.name
-      const projectPath =
-        server.scope === 'project'
-          ? options?.projectWorkspace || options?.getProjectWorkspace?.()
-          : undefined
+    const checkAndAddExternal = (server: MCPServerDefinition) => {
+      const isAssociated = Object.values(registry).some((central) =>
+        central.name === server.name &&
+        (central.targetAssociations || []).some((a) => matchesMcpTarget(
+          a,
+          { tool: server.sourceTool, scope: server.scope, projectPath },
+          projectPath,
+        ))
+      )
 
-      if (!registry[id]) {
-        registry[id] = {
-          id,
+      if (!isAssociated) {
+        const extId = `external:${server.sourceTool}:${server.scope}:${server.name}`
+        externalServers.push({
+          id: extId,
           name: server.name,
           transport: server.transport,
           command: server.command,
@@ -2917,49 +2999,27 @@ export async function readCentralMCPServers(options?: MCPOptions): Promise<Centr
           headers: server.headers,
           envHeaders: server.envHeaders,
           enabled: server.enabled,
-          updatedAt: server.updatedAt || Date.now(),
-          targetAssociations: [
-            {
-              tool: server.sourceTool,
-              scope: server.scope,
-              projectPath,
-              injectedAt: Date.now(),
-              lastSyncStatus: 'synced',
-            },
-          ],
-        }
-        registryModified = true
-      } else {
-        const existingAssocs = registry[id].targetAssociations || []
-        const exists = existingAssocs.some(
-          (a) =>
-            a.tool === server.sourceTool &&
-            a.scope === server.scope &&
-            (!projectPath || !a.projectPath || path.resolve(a.projectPath) === path.resolve(projectPath))
-        )
-        if (!exists) {
-          existingAssocs.push({
+          description: `从 ${server.sourceTool} (${server.scope === 'global' ? '全局' : '项目'}) 发现的外部配置`,
+          ownership: 'external',
+          scopeStatus: '外部持有',
+          discoveredTarget: {
             tool: server.sourceTool,
             scope: server.scope,
-            projectPath,
-            injectedAt: Date.now(),
-            lastSyncStatus: 'synced',
-          })
-          registry[id].targetAssociations = existingAssocs
-          registryModified = true
-        }
+            projectPath: server.scope === 'project' ? projectPath : undefined,
+            configPath: server.configPath,
+          },
+          sourceRaw: server.sourceRaw,
+          updatedAt: server.updatedAt || Date.now(),
+          targetAssociations: [],
+        })
       }
     }
 
-    for (const s of discovered.global) registerDiscovered(s)
-    for (const s of discovered.project) registerDiscovered(s)
-
-    if (registryModified) {
-      saveCentralMCPRegistry(registry, options)
-    }
+    for (const s of discovered.global) checkAndAddExternal(s)
+    for (const s of discovered.project) checkAndAddExternal(s)
   } catch {}
 
-  return Object.values(registry)
+  return [...Object.values(registry), ...externalServers]
 }
 
 export function saveCentralMCPServer(
@@ -2981,7 +3041,10 @@ export function saveCentralMCPServer(
   const id = input.id || input.name
 
   const existing = registry[id] || registry[input.name]
-  const targetAssociations = input.targetAssociations || existing?.targetAssociations || []
+  const targetAssociations = (input.targetAssociations || existing?.targetAssociations || []).map((association) => ({
+    ...association,
+    rawEntry: association.rawEntry ? { ...association.rawEntry } : undefined,
+  }))
 
   const server: CentralMCPServer = {
     id,
@@ -2998,6 +3061,8 @@ export function saveCentralMCPServer(
     description: input.description,
     targetAssociations,
     updatedAt: Date.now(),
+    ownership: 'app',
+    sourceRaw: input.sourceRaw || existing?.sourceRaw,
   }
 
   // Synchronize changes to all associated injected targets
@@ -3005,6 +3070,20 @@ export function saveCentralMCPServer(
   for (const assoc of targetAssociations) {
     try {
       const targetOptions = assoc.projectPath ? { ...options, projectWorkspace: assoc.projectPath } : options
+      const currentTarget = readMCPServersForTool(assoc.tool, assoc.scope, targetOptions)
+        .find((candidate) => candidate.name === server.name)
+      if (currentTarget && assoc.targetHash && computeMCPTargetHash(currentTarget) !== assoc.targetHash) {
+        assoc.lastSyncStatus = 'conflict'
+        assoc.lastError = '目标配置已被外部修改，已拒绝覆盖，请先核对目标配置'
+        syncResults.push({
+          tool: assoc.tool,
+          scope: assoc.scope,
+          projectPath: assoc.projectPath,
+          success: false,
+          error: assoc.lastError,
+        })
+        continue
+      }
       const saveRes = saveMCPServer(
         { tool: assoc.tool, scope: assoc.scope },
         {
@@ -3018,11 +3097,16 @@ export function saveCentralMCPServer(
           headers: server.headers,
           envHeaders: server.envHeaders,
           enabled: server.enabled,
+          sourceRaw: assoc.rawEntry || server.sourceRaw,
         },
         targetOptions
       )
       assoc.lastSyncStatus = saveRes.success ? 'synced' : 'failed'
       assoc.lastError = saveRes.error
+      if (saveRes.success) {
+        assoc.targetHash = saveRes.server ? computeMCPTargetHash(saveRes.server) : computeMCPTargetHash(server)
+        assoc.rawEntry = saveRes.server?.sourceRaw || assoc.rawEntry || server.sourceRaw
+      }
       syncResults.push({
         tool: assoc.tool,
         scope: assoc.scope,
@@ -3077,6 +3161,30 @@ export function injectMCPServerToTarget(
 
   const targetOptions = projectPath ? { ...options, projectWorkspace: projectPath } : options
 
+  const existingTarget = readMCPServersForTool(target.tool, target.scope, targetOptions)
+    .find((candidate) => candidate.name === server.name)
+  const associations = server.targetAssociations || []
+  const existingAssociation = associations.find((association) => matchesMcpTarget(
+    association,
+    target,
+    projectPath,
+  ))
+  if (existingTarget && !existingAssociation) {
+    return {
+      success: false,
+      error: `目标配置已存在: ${target.tool} (${target.scope}) 的 ${server.name}。请先纳入应用管理，避免覆盖外部资产。`,
+    }
+  }
+  if (existingTarget && existingAssociation?.targetHash) {
+    const currentHash = computeMCPTargetHash(existingTarget)
+    if (currentHash !== existingAssociation.targetHash) {
+      existingAssociation.lastSyncStatus = 'conflict'
+      existingAssociation.lastError = '目标配置已被外部修改，已拒绝覆盖，请先核对目标配置'
+      saveCentralMCPRegistry(registry, options)
+      return { success: false, error: `${existingAssociation.lastError}: ${target.tool} (${server.name})` }
+    }
+  }
+
   const saveRes = saveMCPServer(
     { tool: target.tool, scope: target.scope },
     {
@@ -3090,6 +3198,7 @@ export function injectMCPServerToTarget(
       headers: server.headers,
       envHeaders: server.envHeaders,
       enabled: server.enabled,
+      sourceRaw: server.sourceRaw,
     },
     targetOptions
   )
@@ -3098,14 +3207,12 @@ export function injectMCPServerToTarget(
     return { success: false, error: saveRes.error || '写入目标配置失败' }
   }
 
+  const projectedServer = saveRes.server || server
+  const targetHash = computeMCPTargetHash(projectedServer)
+
   // Update target associations
   const assocs = server.targetAssociations || []
-  const existingIdx = assocs.findIndex(
-    (a) =>
-      a.tool === target.tool &&
-      a.scope === target.scope &&
-      (!projectPath || !a.projectPath || path.resolve(a.projectPath) === path.resolve(projectPath))
-  )
+  const existingIdx = assocs.findIndex((a) => matchesMcpTarget(a, target, projectPath))
 
   const newAssoc: MCPTargetAssociation = {
     tool: target.tool,
@@ -3113,6 +3220,8 @@ export function injectMCPServerToTarget(
     projectPath,
     injectedAt: Date.now(),
     lastSyncStatus: 'synced',
+    targetHash,
+    rawEntry: projectedServer.sourceRaw || server.sourceRaw,
   }
 
   if (existingIdx >= 0) {
@@ -3122,6 +3231,7 @@ export function injectMCPServerToTarget(
   }
 
   server.targetAssociations = assocs
+  server.ownership = 'app'
   registry[server.id] = server
   saveCentralMCPRegistry(registry, options)
 
@@ -3137,6 +3247,10 @@ export function uninjectMCPServerFromTarget(
     validateToolAndScope(target.tool, target.scope)
   } catch (err) {
     return { success: false, error: (err as Error).message }
+  }
+
+  if (serverIdOrName.startsWith('external:')) {
+    return { success: false, error: '未纳入应用管理的外部资产不支持断开，请先转为应用管理' }
   }
 
   const registry = loadCentralMCPRegistry(options)
@@ -3164,23 +3278,38 @@ export function uninjectMCPServerFromTarget(
   }
 
   const targetOptions = projectPath ? { ...options, projectWorkspace: projectPath } : options
+  const association = (server.targetAssociations || []).find((item) => matchesMcpTarget(item, target, projectPath))
+  if (!association) {
+    return { success: false, error: '该目标未被 Trace 纳入管理，已保留外部 MCP 配置' }
+  }
+
+  // Conflict Guard: Check for external modification before uninjecting
+  try {
+    const currentServers = readMCPServersForTool(target.tool, target.scope, targetOptions)
+    const currentTargetServer = currentServers.find((s) => s.name === server.name)
+    if (currentTargetServer) {
+      const currentHash = computeMCPTargetHash(currentTargetServer)
+      if (association.targetHash && association.targetHash !== currentHash) {
+        association.lastSyncStatus = 'conflict'
+        association.lastError = '目标配置已被外部修改，存在冲突，已拒绝断开'
+        saveCentralMCPRegistry(registry, options)
+        return {
+          success: false,
+          error: `目标配置已被外部修改，存在冲突，已拒绝断开。请先在目标工具中核对: ${target.tool} (${server.name})`,
+        }
+      }
+    }
+  } catch (err: any) {
+    // If reading target failed due to syntax or file error, we proceed cautiously
+  }
 
   // Delete from target config
   const delRes = deleteMCPServer({ tool: target.tool, scope: target.scope, name: server.name }, targetOptions)
   if (!delRes.success) {
     // Record failed status in target associations
-    const assocs = server.targetAssociations || []
-    const match = assocs.find(
-      (a) =>
-        a.tool === target.tool &&
-        a.scope === target.scope &&
-        (!projectPath || !a.projectPath || path.resolve(a.projectPath) === path.resolve(projectPath))
-    )
-    if (match) {
-      match.lastSyncStatus = 'failed'
-      match.lastError = delRes.error || '从目标工具配置中删除失败'
-      saveCentralMCPRegistry(registry, options)
-    }
+    association.lastSyncStatus = 'failed'
+    association.lastError = delRes.error || '从目标工具配置中删除失败'
+    saveCentralMCPRegistry(registry, options)
     return { success: false, error: delRes.error || '从目标工具配置中删除失败' }
   }
 
@@ -3198,6 +3327,111 @@ export function uninjectMCPServerFromTarget(
   saveCentralMCPRegistry(registry, options)
 
   return { success: true }
+}
+
+export function adoptMCPServer(
+  target: { tool: MCPSourceTool; scope: MCPScope; name: string; projectPath?: string },
+  options?: MCPOptions
+): AdoptMCPResult {
+  try {
+    validateToolAndScope(target.tool, target.scope)
+  } catch (err) {
+    return { success: false, error: (err as Error).message }
+  }
+
+  const projectPath =
+    target.scope === 'project'
+      ? target.projectPath || options?.projectWorkspace || options?.getProjectWorkspace?.()
+      : undefined
+
+  if (target.scope === 'project' && !projectPath) {
+    return { success: false, error: '未指定有效的项目路径' }
+  }
+
+  const targetOptions = projectPath ? { ...options, projectWorkspace: projectPath } : options
+
+  let targetServer: MCPServerDefinition | undefined
+  try {
+    const servers = readMCPServersForTool(target.tool, target.scope, targetOptions)
+    targetServer = servers.find((s) => s.name === target.name)
+  } catch (err: any) {
+    return { success: false, error: `读取目标工具配置失败: ${err?.message || String(err)}` }
+  }
+
+  if (!targetServer) {
+    return { success: false, error: `在 ${target.tool} (${target.scope}) 中未找到服务: ${target.name}` }
+  }
+
+  const registry = loadCentralMCPRegistry(options)
+  const existingByName = Object.values(registry).find((server) => server.name === targetServer!.name)
+  const id = existingByName?.id || targetServer.name
+
+  const initialHash = computeMCPTargetHash(targetServer)
+  const newAssoc: MCPTargetAssociation = {
+    tool: target.tool,
+    scope: target.scope,
+    projectPath,
+    injectedAt: Date.now(),
+    lastSyncStatus: 'synced',
+    targetHash: initialHash,
+    rawEntry: targetServer.sourceRaw,
+  }
+
+  let centralServer: CentralMCPServer
+  if (existingByName) {
+    // Compare the semantic MCP definition only. Native adapter fields are
+    // allowed to differ because the adopted target's raw entry becomes the
+    // preservation source for that particular tool.
+    const existingHash = computeMCPTargetHash({ ...existingByName, sourceRaw: undefined })
+    const targetHash = computeMCPTargetHash({ ...targetServer, sourceRaw: undefined })
+    if (existingHash !== targetHash) {
+      return {
+        success: false,
+        error: `中央已有同名 MCP 资产 ${targetServer.name}，但配置不同。请先解决冲突后再纳入应用管理。`,
+      }
+    }
+    centralServer = {
+      ...existingByName,
+      ownership: 'app',
+      sourceRaw: targetServer.sourceRaw,
+      targetAssociations: [...(existingByName.targetAssociations || [])],
+      updatedAt: Date.now(),
+    }
+    const existingIdx = centralServer.targetAssociations!.findIndex((association) =>
+      matchesMcpTarget(association, target, projectPath))
+    if (existingIdx >= 0) {
+      centralServer.targetAssociations![existingIdx] = newAssoc
+    } else {
+      centralServer.targetAssociations!.push(newAssoc)
+    }
+  } else {
+    centralServer = {
+      id,
+      name: targetServer.name,
+      transport: targetServer.transport,
+      command: targetServer.command,
+      args: targetServer.args,
+      env: targetServer.env,
+      cwd: targetServer.cwd,
+      url: targetServer.url,
+      headers: targetServer.headers,
+      envHeaders: targetServer.envHeaders,
+      enabled: targetServer.enabled,
+      ownership: 'app',
+      sourceRaw: targetServer.sourceRaw,
+      targetAssociations: [newAssoc],
+      updatedAt: Date.now(),
+    }
+  }
+
+  // Adoption is intentionally read-only against the native target. The target
+  // already contains the external entry; storing its semantic form plus the
+  // raw adapter entry is enough to make Trace the owner without rewriting
+  // comments, unrelated keys, or tool-specific fields.
+  registry[id] = centralServer
+  saveCentralMCPRegistry(registry, options)
+
+  return { success: true, server: centralServer }
 }
 
 export function deleteCentralMCPServer(

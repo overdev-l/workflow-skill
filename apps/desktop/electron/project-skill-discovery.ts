@@ -50,14 +50,45 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
       const entry = path.join(directory, name)
       const relativePath = path.join(relPath, name)
       try {
-        if (!statSync(entry).isDirectory()) continue
-        const source = realpathSync(entry)
+        let isSym = false
+        try {
+          const entryLstat = lstatSync(entry)
+          isSym = entryLstat.isSymbolicLink()
+        } catch (error) {
+          if (!missing(error)) errors.push(`${relativePath}：${message(error)}`)
+          continue
+        }
+
+        let source: string
+        try {
+          if (!statSync(entry).isDirectory()) continue
+          source = realpathSync(entry)
+        } catch (error) {
+          if (isSym) {
+            errors.push(`${relativePath}：软链接损坏或目标不存在`)
+          } else if (!missing(error)) {
+            errors.push(`${relativePath}：${message(error)}`)
+          }
+          continue
+        }
+
         const mdPath = path.join(source, 'SKILL.md')
         // Ordinary directories without SKILL.md are not skills.
         try { lstatSync(mdPath) } catch (error) { if (missing(error)) continue; throw error }
         const markdown = readFileSync(mdPath, 'utf8')
         const existing = bySource.get(source)
-        if (existing) { existing.projectSource!.relativePaths.push(relativePath); continue }
+        if (existing) {
+          existing.projectSource!.relativePaths.push(relativePath)
+          existing.targetBindings?.push({
+            scope: 'project',
+            projectPath: project,
+            relPath,
+            targetPath: entry,
+            status: existing.ownership === 'app' ? 'linked' : 'external',
+            linkTarget: isSym ? source : undefined,
+          })
+          continue
+        }
         let metadata: Record<string, unknown> = {}
         const frontmatter = markdown.match(/^\uFEFF?---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
         if (frontmatter) {
@@ -68,12 +99,13 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
             if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) metadata = parsed
           } catch (error) { errors.push(`${relativePath} 元数据解析失败，已保留原文：${message(error)}`) }
         }
-        const record = managed.get(source)
+        const record = isSym ? managed.get(source) : undefined
+        const isAppManaged = Boolean(record)
         const id = record?.id || `project:${createHash('sha256').update(canonicalProject + '\0' + source).digest('hex')}`
         const skillName = typeof metadata.name === 'string' && metadata.name.trim() ? metadata.name : name
         const description = typeof metadata.description === 'string' ? metadata.description : ''
         bySource.set(source, {
-          id, name: skillName, description, apps: strings(record?.apps), updatedLabel: '项目本地',
+          id, name: skillName, description, apps: strings(record?.apps), updatedLabel: isAppManaged ? '应用管理' : '外部持有',
           pinned: Boolean(record?.pinned), sourceRuns: record?.sourceRuns || 0, versions: record?.versions || 1,
           workflow: record?.workflow && Array.isArray(record.workflow.nodes) && Array.isArray(record.workflow.edges)
             ? record.workflow : { id: `wf-${id}`, name: skillName, summary: description, repeatCount: 0,
@@ -81,7 +113,26 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
           targetTools: strings(record?.targetTools), targetProjects: [project],
           tags: strings(metadata.tags), triggers: strings(metadata.triggers),
           skillPath: source, skillMarkdown: markdown,
-          projectSource: { projectPath: project, relativePaths: [relativePath], ...(record ? { managedSkillId: record.id } : {}) },
+          ownership: isAppManaged ? 'app' : 'external',
+          scopeStatus: isAppManaged ? '项目软链' : '外部持有',
+          sourcePath: isAppManaged ? path.join(central, record!.id) : entry,
+          externalSource: !isAppManaged ? {
+            type: 'project',
+            projectPath: project,
+            relPath,
+            fullPath: entry,
+            isSymlink: isSym,
+            symlinkTarget: isSym ? source : undefined,
+          } : undefined,
+          targetBindings: [{
+            scope: 'project',
+            projectPath: project,
+            relPath,
+            targetPath: entry,
+            status: isAppManaged ? 'linked' : 'external',
+            linkTarget: isSym ? source : undefined,
+          }],
+          projectSource: { projectPath: project, relativePaths: [relativePath], ...(isAppManaged ? { managedSkillId: record!.id } : {}) },
         })
       } catch (error) { errors.push(`${relativePath}：${message(error)}`) }
     }

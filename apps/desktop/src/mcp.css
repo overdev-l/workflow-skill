@@ -179,6 +179,88 @@
   border: 1px solid color-mix(in oklch, var(--color-danger) 25%, transparent);
 }
 
+.mcp-badge--external {
+  background: color-mix(in oklch, var(--color-accent) 14%, transparent);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in oklch, var(--color-accent) 30%, transparent);
+}
+
+.mcp-badge--injected {
+  background: var(--color-success-bg);
+  color: var(--color-success-ink);
+  border: 1px solid color-mix(in oklch, var(--color-success) 30%, transparent);
+}
+
+.mcp-badge--conflict {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-ink);
+  border: 1px solid color-mix(in oklch, var(--color-danger) 30%, transparent);
+}
+
+.mcp-badge--unbound {
+  background: var(--surface-float);
+  color: var(--color-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.mcp-badge--app {
+  background: var(--surface-float);
+  color: var(--color-ink);
+  border: 1px solid var(--border-subtle);
+}
+
+.mcp-ownership-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 14px;
+  border-radius: var(--radius-card, 8px);
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(20px);
+  margin-bottom: 12px;
+}
+
+.mcp-ownership-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mcp-ownership-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+}
+
+.mcp-ownership-val {
+  font-size: 0.8125rem;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-ownership-card__header,
+.mcp-ownership-title-row,
+.mcp-ownership-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mcp-ownership-card__header { justify-content: space-between; min-width: 0; }
+.mcp-ownership-title-row { margin-top: 3px; }
+.mcp-ownership-hint { color: var(--color-muted); font-size: 0.6875rem; }
+.mcp-ownership-targets { display: flex; flex-direction: column; gap: 5px; padding-top: 5px; border-top: 1px solid var(--border-subtle); }
+.mcp-ownership-target { justify-content: space-between; min-width: 0; min-height: 22px; }
+.mcp-ownership-target__copy { display: flex; align-items: center; min-width: 0; flex: 1; gap: 6px; color: var(--color-ink); font-size: 0.75rem; }
+.mcp-ownership-target__copy > span:not(.mcp-badge) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-ownership-target__path { min-width: 0; max-width: 36%; color: var(--color-muted); font-size: 0.625rem; }
+
 .mcp-master-action-bar {
   padding: 6px 10px;
   display: flex;

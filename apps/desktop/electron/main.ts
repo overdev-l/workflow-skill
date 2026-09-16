@@ -33,6 +33,7 @@ import {
   uninjectMCPServerFromTarget,
   batchInjectMCPServers,
   batchUninjectMCPServers,
+  adoptMCPServer,
 } from './mcp-manager'
 import {
   listProjects,
@@ -62,6 +63,9 @@ import {
   uninjectSkillFromTarget,
   batchInjectSkills,
   batchUninjectSkills,
+  adoptSkillAsset,
+  disconnectSkillTarget,
+  discoverAllGlobalSkills,
 } from './skill-injection-manager'
 import { AccountManager } from './account-manager'
 import { AccountOAuthService } from './account-oauth'
@@ -1021,119 +1025,50 @@ app.whenReady().then(() => {
 
   ipcMain.handle('system:link-skill-project', (_event, skillId: string, projectPath: string) => {
     if (!skillId || !projectPath) return { success: false }
-    const root = getStoredTraceHome()
-    const skillsDir = path.join(root, 'skills')
-    const filePath = path.join(skillsDir, `${skillId}.json`)
-    if (!existsSync(filePath)) return { success: false }
-
-    try {
-      const skill: Skill = JSON.parse(readFileSync(filePath, 'utf8'))
-      const centralFolder = ensureSkillCentralDirectory(skill)
-
-      const projectSkillDir = path.join(projectPath, '.agents', 'skills')
-      if (!existsSync(projectSkillDir)) {
-        mkdirSync(projectSkillDir, { recursive: true })
-      }
-
-      const targetLink = path.join(projectSkillDir, skillId)
-      safeRemoveLink(targetLink)
-
-      const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
-      symlinkSync(path.resolve(centralFolder), path.resolve(targetLink), symlinkType)
-
-      const updatedProjects = Array.from(new Set([...(skill.targetProjects || []), projectPath]))
-      skill.targetProjects = updatedProjects
-      writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
-
-      return { success: true, linkPath: targetLink }
-    } catch (err) {
-      console.error(`Failed to link skill ${skillId} to project ${projectPath}:`, err)
-      return { success: false }
-    }
+    return injectSkillToTarget(skillId, { scope: 'project', projectPath, relPath: '.agents/skills' }, {
+      traceHome: getStoredTraceHome(),
+      defaultProjectWorkspace: getStoredProjectWorkspace(),
+    })
   })
 
   ipcMain.handle('system:unlink-skill-project', (_event, skillId: string, projectPath: string) => {
     if (!skillId || !projectPath) return { success: false }
-    const root = getStoredTraceHome()
-    const skillsDir = path.join(root, 'skills')
-    const filePath = path.join(skillsDir, `${skillId}.json`)
-    if (!existsSync(filePath)) return { success: false }
-
-    try {
-      const skill: Skill = JSON.parse(readFileSync(filePath, 'utf8'))
-      const projectSkillDir = path.join(projectPath, '.agents', 'skills')
-      const targetLink = path.join(projectSkillDir, skillId)
-      safeRemoveLink(targetLink)
-
-      skill.targetProjects = (skill.targetProjects || []).filter((p) => p !== projectPath)
-      writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
-
-      return { success: true }
-    } catch (err) {
-      console.error(`Failed to unlink skill ${skillId} from project ${projectPath}:`, err)
-      return { success: false }
-    }
+    return uninjectSkillFromTarget(skillId, { scope: 'project', projectPath, relPath: '.agents/skills' }, {
+      traceHome: getStoredTraceHome(),
+      defaultProjectWorkspace: getStoredProjectWorkspace(),
+    })
   })
 
   ipcMain.handle('system:link-all-skills-project', (_event, projectPath: string) => {
     if (!projectPath) return { success: false, count: 0 }
-    const root = getStoredTraceHome()
-    const centralSkillsDir = path.join(root, 'skills')
-    const allSkills = discoverAllGlobalSkills()
-    const projectSkillDir = path.join(projectPath, '.agents', 'skills')
-    if (!existsSync(projectSkillDir)) {
-      mkdirSync(projectSkillDir, { recursive: true })
+    const managedSkills = discoverAllGlobalSkills({ traceHome: getStoredTraceHome() })
+      .filter((skill) => skill.ownership === 'app')
+    const managedResult = batchInjectSkills(
+      managedSkills.map((skill) => skill.id),
+      { scope: 'project', projectPath, relPath: '.agents/skills' },
+      { traceHome: getStoredTraceHome() },
+    )
+    notifySkillsChanged()
+    return {
+      success: managedResult.results.every((item) => item.success),
+      count: managedResult.results.filter((item) => item.success).length,
     }
-
-    let count = 0
-    const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
-
-    for (const skill of allSkills) {
-      try {
-        const centralFolder = ensureSkillCentralDirectory(skill)
-        const targetLink = path.join(projectSkillDir, skill.id)
-        safeRemoveLink(targetLink)
-        symlinkSync(path.resolve(centralFolder), path.resolve(targetLink), symlinkType)
-
-        const filePath = path.join(centralSkillsDir, `${skill.id}.json`)
-        if (existsSync(filePath)) {
-          const parsed = JSON.parse(readFileSync(filePath, 'utf8'))
-          parsed.targetProjects = Array.from(new Set([...(parsed.targetProjects || []), projectPath]))
-          writeFileSync(filePath, JSON.stringify(parsed, null, 2), 'utf8')
-        }
-        count++
-      } catch (err) {
-        console.error(`Failed to bulk link skill ${skill.id} to project:`, err)
-      }
-    }
-    return { success: true, count }
   })
 
   ipcMain.handle('system:unlink-all-skills-project', (_event, projectPath: string) => {
     if (!projectPath) return { success: false, count: 0 }
-    const root = getStoredTraceHome()
-    const centralSkillsDir = path.join(root, 'skills')
-    const allSkills = discoverAllGlobalSkills()
-    const projectSkillDir = path.join(projectPath, '.agents', 'skills')
-
-    let count = 0
-    for (const skill of allSkills) {
-      try {
-        const targetLink = path.join(projectSkillDir, skill.id)
-        safeRemoveLink(targetLink)
-
-        const filePath = path.join(centralSkillsDir, `${skill.id}.json`)
-        if (existsSync(filePath)) {
-          const parsed = JSON.parse(readFileSync(filePath, 'utf8'))
-          parsed.targetProjects = (parsed.targetProjects || []).filter((p: string) => p !== projectPath)
-          writeFileSync(filePath, JSON.stringify(parsed, null, 2), 'utf8')
-        }
-        count++
-      } catch (err) {
-        console.error(`Failed to bulk unlink skill ${skill.id} from project:`, err)
-      }
+    const managedSkills = discoverAllGlobalSkills({ traceHome: getStoredTraceHome() })
+      .filter((skill) => skill.ownership === 'app')
+    const managedResult = batchUninjectSkills(
+      managedSkills.map((skill) => skill.id),
+      { scope: 'project', projectPath, relPath: '.agents/skills' },
+      { traceHome: getStoredTraceHome() },
+    )
+    notifySkillsChanged()
+    return {
+      success: managedResult.results.every((item) => item.success),
+      count: managedResult.results.filter((item) => item.success).length,
     }
-    return { success: true, count }
   })
 
   ipcMain.handle('system:get-project-workspace', () => getStoredProjectWorkspace())
@@ -1360,154 +1295,9 @@ ${skill.description || ''}
     return { name, description, tags, triggers }
   }
 
-  function discoverAllGlobalSkills(): Skill[] {
-    const root = getStoredTraceHome()
-    const centralSkillsDir = path.join(root, 'skills')
-    ensureTraceDirectories(root)
-
-    const skillsMap = new Map<string, Skill>()
-
-    // 1. Load existing central skills from ~/.trace/skills
-    try {
-      if (existsSync(centralSkillsDir)) {
-        const files = readdirSync(centralSkillsDir)
-        for (const file of files) {
-          if (file.endsWith('.json')) {
-            try {
-              const content = readFileSync(path.join(centralSkillsDir, file), 'utf8')
-              const parsed = JSON.parse(content)
-              if (parsed && parsed.id) {
-                const skillFolder = path.join(centralSkillsDir, parsed.id)
-                const mdPath = path.join(skillFolder, 'SKILL.md')
-                if (existsSync(mdPath)) {
-                  parsed.skillMarkdown = readFileSync(mdPath, 'utf8')
-                }
-                parsed.skillPath = skillFolder
-                skillsMap.set(parsed.id, parsed)
-              }
-            } catch {}
-          }
-        }
-      }
-    } catch {}
-
-    // 2. Discover skills from all installed AI tool directories
-    const installedTools = detectInstalledAITools().filter((t) => t.installed)
-    for (const tool of installedTools) {
-      const toolDir = getAIToolDirectory(tool)
-      if (!existsSync(toolDir)) continue
-
-      try {
-        const items = readdirSync(toolDir)
-        for (const item of items) {
-          if (item.startsWith('.')) continue
-          const itemPath = path.join(toolDir, item)
-          let stat
-          try {
-            stat = lstatSync(itemPath)
-          } catch {
-            continue
-          }
-
-          let realPath = itemPath
-          if (stat.isSymbolicLink()) {
-            try {
-              realPath = realpathSync(itemPath)
-            } catch {
-              continue
-            }
-          }
-
-          let isDir = false
-          try {
-            isDir = statSync(realPath).isDirectory()
-          } catch {
-            continue
-          }
-          if (!isDir) continue
-
-          const skillId = item
-          const skillMdPath = path.join(realPath, 'SKILL.md')
-          let skillMd = ''
-          if (existsSync(skillMdPath)) {
-            try {
-              skillMd = readFileSync(skillMdPath, 'utf8')
-            } catch {}
-          }
-
-          const parsed = parseSkillMetadata(skillMd)
-          const name = parsed.name || skillId
-          const description = parsed.description || `从 ${tool.name} 目录发现的全局技能`
-
-          if (!skillsMap.has(skillId)) {
-            const skillObj: Skill = {
-              id: skillId,
-              name,
-              description,
-              apps: ['AI Agent Runtime'],
-              updatedLabel: '刚刚同步',
-              pinned: false,
-              sourceRuns: 1,
-              versions: 1,
-              workflow: {
-                id: `wf-${skillId}`,
-                name: name || skillId,
-                summary: description || `Global skill workflow for ${skillId}`,
-                repeatCount: 1,
-                estimatedMinutes: 2,
-                confidence: 98,
-                nodes: [
-                  {
-                    id: 'step-1',
-                    label: 'Load Skill Protocol',
-                    kind: 'action',
-                    app: 'AI Agent Runtime',
-                    confidence: 100,
-                  },
-                  {
-                    id: 'step-2',
-                    label: 'Execute Instructions',
-                    kind: 'action',
-                    confidence: 96,
-                  },
-                ],
-                edges: [{ from: 'step-1', to: 'step-2' }],
-              },
-              targetTools: [tool.id],
-              tags: parsed.tags.length > 0 ? parsed.tags : [tool.id.replace('-code', '').replace('-std', '')],
-              triggers: parsed.triggers,
-              skillPath: realPath,
-              skillMarkdown: skillMd,
-            }
-
-            // Also persist to central repository ~/.trace/skills/<id>.json & SKILL.md
-            try {
-              ensureSkillCentralDirectory(skillObj)
-              const jsonPath = path.join(centralSkillsDir, `${skillId}.json`)
-              writeFileSync(jsonPath, JSON.stringify(skillObj, null, 2), 'utf8')
-            } catch {}
-
-            skillsMap.set(skillId, skillObj)
-          } else {
-            const existing = skillsMap.get(skillId)!
-            if (!existing.targetTools?.includes(tool.id)) {
-              existing.targetTools = Array.from(new Set([...(existing.targetTools || []), tool.id]))
-              try {
-                const jsonPath = path.join(centralSkillsDir, `${skillId}.json`)
-                writeFileSync(jsonPath, JSON.stringify(existing, null, 2), 'utf8')
-              } catch {}
-            }
-          }
-        }
-      } catch (e: any) {
-        console.warn(`[Trace] Error scanning ${toolDir}:`, e?.message)
-      }
-    }
-
-    return Array.from(skillsMap.values())
-  }
-
-  ipcMain.handle('system:load-local-skills', () => discoverAllGlobalSkills())
+  ipcMain.handle('system:load-local-skills', () => {
+    return discoverAllGlobalSkills({ traceHome: getStoredTraceHome() })
+  })
 
   ipcMain.handle('system:save-local-skill', (_event, skill: Skill) => {
     if (!skill || !skill.id) return false
@@ -1535,64 +1325,18 @@ ${skill.description || ''}
 
   ipcMain.handle('system:link-skill-target', (_event, skillId: string, targetId: string) => {
     if (!skillId || !targetId) return { success: false }
-    const root = getStoredTraceHome()
-    const skillsDir = path.join(root, 'skills')
-    const filePath = path.join(skillsDir, `${skillId}.json`)
-    if (!existsSync(filePath)) return { success: false }
-
-    try {
-      const skill: Skill = JSON.parse(readFileSync(filePath, 'utf8'))
-      const centralFolder = ensureSkillCentralDirectory(skill)
-
-      const tool = DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
-      if (!tool) return { success: false }
-
-      const toolDir = getAIToolDirectory(tool)
-      if (!existsSync(toolDir)) {
-        mkdirSync(toolDir, { recursive: true })
-      }
-
-      const targetLink = path.join(toolDir, skillId)
-      safeRemoveLink(targetLink)
-
-      const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
-      symlinkSync(path.resolve(centralFolder), path.resolve(targetLink), symlinkType)
-
-      const updatedTools = Array.from(new Set([...(skill.targetTools || []), targetId]))
-      skill.targetTools = updatedTools
-      writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
-
-      return { success: true, linkPath: targetLink }
-    } catch (err: any) {
-      console.error(`Failed to link skill ${skillId} to ${targetId}:`, err)
-      return { success: false }
-    }
+    return injectSkillToTarget(skillId, { scope: 'global', targetId }, {
+      traceHome: getStoredTraceHome(),
+      defaultProjectWorkspace: getStoredProjectWorkspace(),
+    })
   })
 
   ipcMain.handle('system:unlink-skill-target', (_event, skillId: string, targetId: string) => {
     if (!skillId || !targetId) return { success: false }
-    const root = getStoredTraceHome()
-    const skillsDir = path.join(root, 'skills')
-    const filePath = path.join(skillsDir, `${skillId}.json`)
-
-    try {
-      const tool = DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
-      if (tool) {
-        const toolDir = getAIToolDirectory(tool)
-        const targetLink = path.join(toolDir, skillId)
-        safeRemoveLink(targetLink)
-      }
-
-      if (existsSync(filePath)) {
-        const skill: Skill = JSON.parse(readFileSync(filePath, 'utf8'))
-        skill.targetTools = (skill.targetTools || []).filter((id) => id !== targetId)
-        writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
-      }
-
-      return { success: true }
-    } catch {
-      return { success: false }
-    }
+    return uninjectSkillFromTarget(skillId, { scope: 'global', targetId }, {
+      traceHome: getStoredTraceHome(),
+      defaultProjectWorkspace: getStoredProjectWorkspace(),
+    })
   })
 
   ipcMain.handle('system:get-skill-link-health', (_event, skillId: string) => {
@@ -1626,83 +1370,30 @@ ${skill.description || ''}
 
   ipcMain.handle('system:link-all-skills-target', (_event, targetId: string) => {
     if (!targetId) return { success: false, count: 0 }
-    const root = getStoredTraceHome()
-    const skillsDir = path.join(root, 'skills')
-    ensureTraceDirectories(root)
-
-    const tool = DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
-    if (!tool) return { success: false, count: 0 }
-
-    const toolDir = getAIToolDirectory(tool)
-    if (!existsSync(toolDir)) {
-      mkdirSync(toolDir, { recursive: true })
-    }
-
-    let count = 0
-    try {
-      if (existsSync(skillsDir)) {
-        const files = readdirSync(skillsDir)
-        for (const file of files) {
-          if (file.endsWith('.json')) {
-            try {
-              const filePath = path.join(skillsDir, file)
-              const skill: Skill = JSON.parse(readFileSync(filePath, 'utf8'))
-              if (skill && skill.id) {
-                const centralFolder = ensureSkillCentralDirectory(skill)
-                const targetLink = path.join(toolDir, skill.id)
-                safeRemoveLink(targetLink)
-                const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
-                symlinkSync(path.resolve(centralFolder), path.resolve(targetLink), symlinkType)
-
-                const updatedTools = Array.from(new Set([...(skill.targetTools || []), targetId]))
-                skill.targetTools = updatedTools
-                writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
-                count++
-              }
-            } catch {}
-          }
-        }
-      }
-      return { success: true, count }
-    } catch {
-      return { success: false, count: 0 }
-    }
+    const allSkills = discoverAllGlobalSkills({ traceHome: getStoredTraceHome() })
+      .filter((skill) => skill.ownership === 'app')
+    const result = batchInjectSkills(
+      allSkills.map((skill) => skill.id),
+      { scope: 'global', targetId },
+      { traceHome: getStoredTraceHome() },
+    )
+    const count = result.results.filter((item) => item.success).length
+    notifySkillsChanged()
+    return { success: result.results.every((item) => item.success), count }
   })
 
   ipcMain.handle('system:unlink-all-skills-target', (_event, targetId: string) => {
     if (!targetId) return { success: false, count: 0 }
-    const root = getStoredTraceHome()
-    const skillsDir = path.join(root, 'skills')
-
-    const tool = DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
-    let count = 0
-
-    try {
-      if (tool) {
-        const toolDir = getAIToolDirectory(tool)
-        if (existsSync(toolDir)) {
-          const files = readdirSync(skillsDir)
-          for (const file of files) {
-            if (file.endsWith('.json')) {
-              try {
-                const filePath = path.join(skillsDir, file)
-                const skill: Skill = JSON.parse(readFileSync(filePath, 'utf8'))
-                if (skill && skill.id) {
-                  const targetLink = path.join(toolDir, skill.id)
-                  safeRemoveLink(targetLink)
-                  skill.targetTools = (skill.targetTools || []).filter((id) => id !== targetId)
-                  writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
-                  count++
-                }
-              } catch {}
-            }
-          }
-        }
-      }
-      return { success: true, count }
-    } catch {
-      return { success: false, count: 0 }
-    }
+    const allSkills = discoverAllGlobalSkills({ traceHome: getStoredTraceHome() })
+      .filter((skill) => skill.ownership === 'app')
+    const result = batchUninjectSkills(
+      allSkills.map((skill) => skill.id),
+      { scope: 'global', targetId },
+      { traceHome: getStoredTraceHome() },
+    )
+    const count = result.results.filter((item) => item.success).length
+    notifySkillsChanged()
+    return { success: result.results.every((item) => item.success), count }
   })
 
   ipcMain.handle('system:read-skill-markdown', (_event, skillId: string) => {
@@ -1920,6 +1611,18 @@ ${skill.description || ''}
     return result
   })
 
+  ipcMain.handle('mcp:adopt', async (_event, target: any) => {
+    const result = adoptMCPServer(target, getMCPOptions())
+    if (result.success) notifyMCPChanged()
+    return result
+  })
+
+  ipcMain.handle('mcp:disconnect', async (_event, serverIdOrName: string, target: any) => {
+    const result = uninjectMCPServerFromTarget(serverIdOrName, target, getMCPOptions())
+    if (result.success) notifyMCPChanged()
+    return result
+  })
+
   // --- Unified Skill Injection IPC (OPC-56) ---
   ipcMain.handle(
     'skills:inject',
@@ -1937,6 +1640,30 @@ ${skill.description || ''}
     'skills:uninject',
     async (_event, skillId: string, target: any) => {
       const res = uninjectSkillFromTarget(skillId, target, {
+        traceHome: getStoredTraceHome(),
+        defaultProjectWorkspace: getStoredProjectWorkspace(),
+      })
+      if (res.success) notifySkillsChanged()
+      return res
+    }
+  )
+
+  ipcMain.handle(
+    'skills:disconnect',
+    async (_event, skillId: string, target: any) => {
+      const res = disconnectSkillTarget(skillId, target, {
+        traceHome: getStoredTraceHome(),
+        defaultProjectWorkspace: getStoredProjectWorkspace(),
+      })
+      if (res.success) notifySkillsChanged()
+      return res
+    }
+  )
+
+  ipcMain.handle(
+    'skills:adopt',
+    async (_event, target: any) => {
+      const res = adoptSkillAsset(target, {
         traceHome: getStoredTraceHome(),
         defaultProjectWorkspace: getStoredProjectWorkspace(),
       })

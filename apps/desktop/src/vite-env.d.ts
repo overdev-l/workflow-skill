@@ -11,11 +11,15 @@ import type {
 } from '@workflow-skill/capture-protocol'
 import type {
   AIProjectItem,
+  AdoptMCPResult,
+  AdoptSkillResult,
   BatchItemResult,
   CentralMCPServer,
   ClaudeLinkResult,
   ClaudeLinkStatus,
   DeleteSkillMode,
+  DisconnectMCPResult,
+  DisconnectSkillResult,
   MCPDistributionPreflightResult,
   MCPDistributionReport,
   MCPDistributionTarget,
@@ -161,6 +165,8 @@ declare global {
       uninjectMCPServer?: (serverIdOrName: string, target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => Promise<{ success: boolean; error?: string }>
       batchInjectMCPServers?: (serverIds: string[], target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => Promise<{ results: BatchItemResult[] }>
       batchUninjectMCPServers?: (serverIds: string[], target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => Promise<{ results: BatchItemResult[] }>
+      adoptMCPServer?: (target: { tool: MCPSourceTool; scope: MCPScope; name: string; projectPath?: string }) => Promise<AdoptMCPResult>
+      disconnectMCPServer?: (serverIdOrName: string, target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => Promise<DisconnectMCPResult>
 
       // --- Unified Skill Injection & Batching (OPC-56) ---
       injectSkill?: (
@@ -179,6 +185,13 @@ declare global {
         skillIds: string[],
         target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
       ) => Promise<{ results: BatchItemResult[] }>
+      disconnectSkill?: (
+        skillId: string,
+        target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }
+      ) => Promise<DisconnectSkillResult>
+      adoptSkill?: (
+        target: { type?: 'global' | 'project'; toolId?: string; projectPath?: string; relPath?: string; skillId?: string; targetPath?: string }
+      ) => Promise<AdoptSkillResult>
       onSkillsChanged?: (listener: () => void) => () => void
     }
   }

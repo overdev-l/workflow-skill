@@ -1199,6 +1199,29 @@ function ExpandableSkillDesc({ text }: { text: string }) {
   )
 }
 
+function getSkillOwnershipLabel(skill: Skill): string {
+  if (skill.ownership === 'external') return '外部持有'
+  if (skill.scopeStatus === '冲突' || skill.scopeStatus === '链接损坏') return skill.scopeStatus
+  if (skill.scopeStatus === '全局软链' || skill.scopeStatus === '项目软链') return skill.scopeStatus
+  if (skill.ownership === 'app') return '应用管理'
+  return skill.scopeStatus || '未注入'
+}
+
+function getSkillOwnershipClass(skill: Skill): string {
+  const label = getSkillOwnershipLabel(skill)
+  if (label === '外部持有') return 'skill-ownership-badge--external'
+  if (label === '冲突' || label === '链接损坏') return 'skill-ownership-badge--conflict'
+  if (label === '全局软链' || label === '项目软链') return 'skill-ownership-badge--linked'
+  if (label === '未注入') return 'skill-ownership-badge--unbound'
+  return 'skill-ownership-badge--app'
+}
+
+function getSkillTargetLabel(target: { scope: 'global' | 'project'; toolId?: string; projectPath?: string; relPath?: string }): string {
+  if (target.scope === 'global') return target.toolId || '全局环境'
+  const projectName = target.projectPath?.split(/[\\/]/).filter(Boolean).pop() || '项目'
+  return `${projectName}${target.relPath ? ` · ${target.relPath}` : ''}`
+}
+
 /* =========================================================================
    3-Column macOS Pro View: Skills Architecture (Column 2 + Column 3)
    ========================================================================= */
@@ -1235,6 +1258,8 @@ function SkillsThreeColumn({
   const [createOpen, setCreateOpen] = useState(false)
   const [createBusy, setCreateBusy] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [adoptingSkill, setAdoptingSkill] = useState(false)
+  const [disconnectingSkillTarget, setDisconnectingSkillTarget] = useState<string | null>(null)
   useUpdateBlocker('skill-add', addOpen || createOpen)
   useEffect(() => {
     let active = true
@@ -1269,6 +1294,14 @@ function SkillsThreeColumn({
   const visibleSkills = skillTab === 'project' ? projectDiscovery.skills : skillsInScope(skills, target)
   const activeLocalSkill = visibleSkills.find(skill => skill.id === selectedSkillId) || visibleSkills[0] || null
   const activeLinkedTools = aiTools.filter(tool => activeLocalSkill?.targetTools?.includes(tool.id))
+  const activeSkillBindings = (activeLocalSkill?.targetBindings || []).filter(binding => {
+    if (binding.scope !== skillTab) return false
+    if (skillTab === 'project' && selectedProject?.path && binding.projectPath) {
+      return binding.projectPath === selectedProject.path
+    }
+    return true
+  })
+  const disconnectableSkillBindings = activeSkillBindings.filter(binding => binding.status === 'linked')
   useEffect(() => {
     let active = true
     setSkillMdContent(activeLocalSkill?.skillMarkdown || '')
@@ -1292,6 +1325,54 @@ function SkillsThreeColumn({
     } finally {
       projectDiscovery.refresh()
       await onReloadSkills().catch(() => notify?.('列表刷新失败，请重新打开 Skill 页面。'))
+    }
+  }
+  const handleAdoptSkill = async () => {
+    const external = activeLocalSkill?.externalSource
+    if (!activeLocalSkill || !external || !window.workflowSkill?.adoptSkill) return
+    const skillId = external.fullPath.split(/[\\/]/).filter(Boolean).pop() || activeLocalSkill.id
+    setAdoptingSkill(true)
+    try {
+      const result = await window.workflowSkill.adoptSkill({
+        type: external.type,
+        toolId: external.toolId,
+        projectPath: external.projectPath,
+        relPath: external.relPath,
+        skillId,
+      })
+      if (!result.success || !result.skill) {
+        notify?.(result.error || '纳入应用管理失败')
+        return
+      }
+      onSelectSkillId(result.skill.id)
+      projectDiscovery.refresh()
+      await onReloadSkills()
+      notify?.(`已成功纳入应用管理: ${result.skill.name}`)
+    } catch (error) {
+      notify?.(error instanceof Error ? error.message : '纳入应用管理失败')
+    } finally {
+      setAdoptingSkill(false)
+    }
+  }
+  const handleDisconnectSkillTarget = async (binding: NonNullable<Skill['targetBindings']>[number]) => {
+    if (!activeLocalSkill || !window.workflowSkill?.disconnectSkill) return
+    const key = `${binding.scope}:${binding.toolId || ''}:${binding.projectPath || ''}:${binding.relPath || ''}`
+    setDisconnectingSkillTarget(key)
+    try {
+      const result = await window.workflowSkill.disconnectSkill(activeLocalSkill.id, binding.scope === 'global'
+        ? { scope: 'global', targetId: binding.toolId }
+        : { scope: 'project', projectPath: binding.projectPath, relPath: binding.relPath })
+      if (!result.success) {
+        notify?.(result.error || '断开 Skill 失败')
+        return
+      }
+      projectDiscovery.refresh()
+      await onReloadSkills()
+      notify?.(`已断开 ${getSkillTargetLabel(binding)}，中央 Skill 资产仍保留`)
+    } catch (error) {
+      notify?.(error instanceof Error ? error.message : '断开 Skill 失败')
+    } finally {
+      setDisconnectingSkillTarget(null)
     }
   }
   const fromRemote = (remote: Pick<RemoteSkill, 'id' | 'name' | 'description' | 'tags' | 'skillMarkdown'>): Skill => ({
@@ -1336,7 +1417,11 @@ function SkillsThreeColumn({
           {visibleSkills.map(skill => <button type="button" key={skill.id}
             className={`master-item-row ${activeLocalSkill?.id === skill.id ? 'is-selected' : ''}`}
             aria-pressed={activeLocalSkill?.id === skill.id} onClick={() => onSelectSkillId(skill.id)}>
-            <Folder size={15} /><span className="master-item-title">{skill.name}</span>
+            <Folder size={15} />
+            <span className="skill-master-item-copy">
+              <span className="master-item-title">{skill.name}</span>
+              <span className={`skill-ownership-badge ${getSkillOwnershipClass(skill)}`}>{getSkillOwnershipLabel(skill)}</span>
+            </span>
           </button>)}
         </div>
       </aside>
@@ -1354,7 +1439,17 @@ function SkillsThreeColumn({
                   </div>
 
                   <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    {activeLocalSkill.projectSource && !activeLocalSkill.projectSource.managedSkillId ? (
+                    {activeLocalSkill.ownership === 'external' ? (
+                      <button
+                        type="button"
+                        className="btn btn--primary btn--capsule btn--sm"
+                        disabled={adoptingSkill}
+                        onClick={() => void handleAdoptSkill()}
+                      >
+                        {adoptingSkill ? <RefreshCw size={12} className="spin" /> : <Download size={12} />}
+                        <span>{adoptingSkill ? '正在纳入…' : '纳入应用管理'}</span>
+                      </button>
+                    ) : activeLocalSkill.projectSource && !activeLocalSkill.projectSource.managedSkillId ? (
                       <span className="skill-project-local-label">项目本地 Skill</span>
                     ) : <>
                     {/* Explicit Distribution / Link Management Button as sole action */}
@@ -1429,6 +1524,53 @@ function SkillsThreeColumn({
                   <ExpandableSkillDesc text={activeLocalSkill.description} />
                 ) : null}
               </header>
+
+              <div className="skill-ownership-card">
+                <div className="skill-ownership-card__header">
+                  <div>
+                    <div className="skill-ownership-card__eyebrow">资产持有</div>
+                    <div className="skill-ownership-card__title-row">
+                      <span className={`skill-ownership-badge ${getSkillOwnershipClass(activeLocalSkill)}`}>
+                        {getSkillOwnershipLabel(activeLocalSkill)}
+                      </span>
+                      <span className="skill-ownership-card__hint">
+                        {activeLocalSkill.ownership === 'external' ? '当前目录由 AI 应用自行维护' : '中心库由 Trace 维护，目标目录仅作为分发入口'}
+                      </span>
+                    </div>
+                  </div>
+                  {activeLocalSkill.ownership === 'external' ? (
+                    <button type="button" className="btn btn--primary btn--capsule btn--sm" disabled={adoptingSkill} onClick={() => void handleAdoptSkill()}>
+                      {adoptingSkill ? <RefreshCw size={11} className="spin" /> : <Download size={11} />}
+                      <span>转移到应用管理</span>
+                    </button>
+                  ) : null}
+                </div>
+                <div className="skill-ownership-card__path font-mono" title={activeLocalSkill.externalSource?.fullPath || activeLocalSkill.skillPath}>
+                  {activeLocalSkill.externalSource?.fullPath || activeLocalSkill.skillPath || '中心 Skill 目录'}
+                </div>
+                {activeLocalSkill.ownership !== 'external' && activeSkillBindings.length > 0 ? (
+                  <div className="skill-ownership-targets">
+                    {activeSkillBindings.filter(binding => binding.status !== 'unbound').map(binding => {
+                      const key = `${binding.scope}:${binding.toolId || ''}:${binding.projectPath || ''}:${binding.relPath || ''}`
+                      const canDisconnect = binding.status === 'linked'
+                      return (
+                        <div className="skill-ownership-target" key={key}>
+                          <span className={`skill-ownership-target__status is-${binding.status}`} />
+                          <span className="skill-ownership-target__label">{getSkillTargetLabel(binding)}</span>
+                          {canDisconnect ? (
+                            <button type="button" className="btn btn--capsule-ghost btn--sm" disabled={Boolean(disconnectingSkillTarget)} onClick={() => void handleDisconnectSkillTarget(binding)}>
+                              {disconnectingSkillTarget === key ? <RefreshCw size={10} className="spin" /> : <Unlink size={10} />}
+                              <span>断开</span>
+                            </button>
+                          ) : (
+                            <span className="skill-ownership-target__error">{binding.status === 'broken' ? '链接损坏' : '存在冲突'}</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </div>
 
               {/* Pure Document View (Read-Only) */}
               <div className="skill-doc-wrap">

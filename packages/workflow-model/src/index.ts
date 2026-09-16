@@ -377,6 +377,28 @@ export const DEFAULT_AI_TOOLS: AIToolTarget[] = [
   },
 ]
 
+export type AssetOwnership = 'app' | 'external'
+
+export type SkillScopeStatus =
+  | '应用管理'
+  | '全局软链'
+  | '项目软链'
+  | '外部持有'
+  | '冲突'
+  | '未注入'
+  | '链接损坏'
+
+export interface SkillTargetBinding {
+  scope: 'global' | 'project'
+  toolId?: string
+  projectPath?: string
+  relPath?: string
+  targetPath: string
+  status: 'linked' | 'external' | 'conflict' | 'broken' | 'unbound'
+  linkTarget?: string
+  error?: string
+}
+
 export interface Skill {
   id: string
   name: string
@@ -399,6 +421,19 @@ export interface Skill {
     projectPath: string
     relativePaths: string[]
     managedSkillId?: string
+  }
+  ownership?: AssetOwnership
+  scopeStatus?: SkillScopeStatus
+  sourcePath?: string
+  targetBindings?: SkillTargetBinding[]
+  externalSource?: {
+    type: 'global' | 'project'
+    toolId?: string
+    projectPath?: string
+    relPath?: string
+    fullPath: string
+    isSymlink: boolean
+    symlinkTarget?: string
   }
 }
 
@@ -959,13 +994,23 @@ export interface ClaudeLinkResult {
   reason?: string
 }
 
+export type MCPScopeStatus =
+  | '应用管理'
+  | '外部持有'
+  | '全局已注入'
+  | '项目已注入'
+  | '冲突'
+  | '未注入'
+
 export interface MCPTargetAssociation {
   tool: MCPSourceTool
   scope: MCPScope
   projectPath?: string
   injectedAt?: number
-  lastSyncStatus?: 'synced' | 'failed'
+  lastSyncStatus?: 'synced' | 'failed' | 'conflict'
   lastError?: string
+  targetHash?: string
+  rawEntry?: Record<string, unknown>
 }
 
 export interface CentralMCPServer {
@@ -983,6 +1028,38 @@ export interface CentralMCPServer {
   description?: string
   targetAssociations?: MCPTargetAssociation[]
   updatedAt?: number
+  ownership?: AssetOwnership
+  scopeStatus?: MCPScopeStatus
+  discoveredTarget?: {
+    tool: MCPSourceTool
+    scope: MCPScope
+    projectPath?: string
+    configPath: string
+  }
+  sourceRaw?: Record<string, unknown>
+}
+
+export interface AdoptSkillResult {
+  success: boolean
+  skill?: Skill
+  linkPath?: string
+  error?: string
+}
+
+export interface DisconnectSkillResult {
+  success: boolean
+  error?: string
+}
+
+export interface AdoptMCPResult {
+  success: boolean
+  server?: CentralMCPServer
+  error?: string
+}
+
+export interface DisconnectMCPResult {
+  success: boolean
+  error?: string
 }
 
 export interface BatchItemResult {
