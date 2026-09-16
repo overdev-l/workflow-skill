@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -20,7 +21,11 @@ import {
   DEFAULT_AI_TOOLS,
   type AdoptSkillResult,
   type BatchItemResult,
+  type ConflictResolutionStrategy,
   type DisconnectSkillResult,
+  type ResolveSkillConflictInput,
+  type ResolveSkillConflictResult,
+  type ResolveSkillConflictTarget,
   type Skill,
   type SkillTargetBinding,
 } from '@workflow-skill/workflow-model'
@@ -781,6 +786,402 @@ export function disconnectSkillTarget(
 ): DisconnectSkillResult {
   return uninjectSkillFromTarget(skillId, target, options)
 }
+
+export function preserveTargetInTrash(targetPath: string, traceHome: string, prefix: string): string {
+  const trashDir = path.join(traceHome, '.trash')
+  mkdirSync(trashDir, { recursive: true })
+  const backupName = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  const backupPath = path.join(trashDir, backupName)
+
+  let isSym = false
+  try {
+    const lstat = lstatSync(targetPath)
+    isSym = lstat.isSymbolicLink()
+  } catch {
+    return ''
+  }
+
+  if (isSym) {
+    try {
+      renameSync(targetPath, backupPath)
+      return backupPath
+    } catch {
+      let linkDest = ''
+      try {
+        linkDest = readlinkSync(targetPath)
+      } catch {}
+      const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
+      try {
+        if (linkDest) {
+          const absoluteDest = path.isAbsolute(linkDest)
+            ? linkDest
+            : path.resolve(path.dirname(targetPath), linkDest)
+          symlinkSync(absoluteDest, backupPath, symlinkType)
+        }
+      } catch {}
+      try {
+        unlinkSync(targetPath)
+      } catch {}
+      try { lstatSync(backupPath); return backupPath } catch { return '' }
+    }
+  } else {
+    try {
+      renameSync(targetPath, backupPath)
+      return backupPath
+    } catch {
+      try {
+        cpSync(targetPath, backupPath, { recursive: true })
+        rmSync(targetPath, { recursive: true, force: true })
+        return backupPath
+      } catch {
+        return ''
+      }
+    }
+  }
+}
+
+function restoreTargetFromTrash(backupPath: string, targetPath: string): boolean {
+  if (!backupPath) return false
+  try { lstatSync(backupPath) } catch { return false }
+  try {
+    const targetStat = lstatSync(targetPath)
+    if (targetStat.isSymbolicLink()) unlinkSync(targetPath)
+    else rmSync(targetPath, { recursive: true, force: true })
+  } catch {}
+
+  try {
+    mkdirSync(path.dirname(targetPath), { recursive: true })
+    renameSync(backupPath, targetPath)
+    return true
+  } catch {
+    try {
+      const backupStat = lstatSync(backupPath)
+      if (backupStat.isSymbolicLink()) {
+        const linkDest = readlinkSync(backupPath)
+        const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
+        symlinkSync(linkDest, targetPath, symlinkType)
+        unlinkSync(backupPath)
+      } else {
+        cpSync(backupPath, targetPath, { recursive: true })
+        rmSync(backupPath, { recursive: true, force: true })
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
+export function resolveSkillConflict(
+  input: ResolveSkillConflictInput,
+  options?: SkillInjectionOptions
+): ResolveSkillConflictResult {
+  if (!['use_app', 'use_target', 'keep_external'].includes(input.strategy)) {
+    return { success: false, error: '无效的冲突解决策略' }
+  }
+
+  if (!input.skillId || path.basename(input.skillId) !== input.skillId || input.skillId.includes('..')) {
+    return { success: false, error: '技能标识无效，拒绝执行操作' }
+  }
+
+  const traceHome = getEffectiveTraceHome(options?.traceHome)
+  const skillsDir = path.join(traceHome, 'skills')
+  const filePath = path.join(skillsDir, `${input.skillId}.json`)
+  const centralFolder = path.join(skillsDir, input.skillId)
+
+  if (!existsSync(filePath) || !existsSync(centralFolder)) {
+    return { success: false, error: `Skill 不存在: ${input.skillId}` }
+  }
+
+  let skill: Skill
+  let previousSkillJsonContent = ''
+  try {
+    previousSkillJsonContent = readFileSync(filePath, 'utf8')
+    skill = JSON.parse(previousSkillJsonContent)
+  } catch (err: any) {
+    return { success: false, error: `解析 Skill 失败: ${err?.message || String(err)}` }
+  }
+
+  const effectiveHome = getEffectiveHomeDir(options?.homeDir)
+  let targetLink = ''
+  let resolvedProject: string | undefined
+  let validatedRelPath: string | undefined
+
+  if (input.target.scope === 'global') {
+    if (!input.target.toolId) {
+      return { success: false, error: '未指定全局目标工具标识' }
+    }
+    const tool = DEFAULT_AI_TOOLS.find(
+      (t) =>
+        t.scope === 'global' && (
+          t.id === input.target.toolId ||
+          t.id.replace(/-global$/, '') === input.target.toolId ||
+          t.compatibleTools?.some((ct) => ct.id === input.target.toolId)
+        )
+    )
+    if (!tool) {
+      return { success: false, error: `未找到全局 AI 工具: ${input.target.toolId}` }
+    }
+    const toolDir = resolveGlobalSkillDirectory(tool, effectiveHome)
+    targetLink = path.resolve(toolDir, input.skillId)
+  } else if (input.target.scope === 'project') {
+    const projectPath = input.target.projectPath || options?.defaultProjectWorkspace
+    if (!projectPath) {
+      return { success: false, error: '未指定有效的项目路径' }
+    }
+    resolvedProject = path.resolve(projectPath)
+    try {
+      if (!existsSync(resolvedProject) || !statSync(resolvedProject).isDirectory()) {
+        return { success: false, error: `项目路径不存在或不是文件夹: ${projectPath}` }
+      }
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) }
+    }
+
+    const relValidation = validateProjectSkillRelPath(input.target.relPath || '.agents/skills')
+    if (!relValidation.valid || !relValidation.normalized) {
+      return { success: false, error: relValidation.error || '无效的项目技能相对路径' }
+    }
+    validatedRelPath = relValidation.normalized
+    targetLink = path.resolve(resolvedProject, validatedRelPath, input.skillId)
+  } else {
+    return { success: false, error: `未知的目标作用域: ${(input.target as any)?.scope}` }
+  }
+
+  // Verify that the renderer-supplied path, if present, matches the derived path
+  if (input.target.targetPath && path.resolve(input.target.targetPath) !== targetLink) {
+    return { success: false, error: '目标路径不匹配受支持的环境规范路径，拒绝执行操作' }
+  }
+
+  // Inspect current status of the target
+  const inspection = inspectSkillTarget(targetLink, centralFolder)
+  if (!inspection.exists) {
+    return { success: false, error: '目标路径不存在，无冲突可解决' }
+  }
+  if (inspection.status === 'linked') {
+    return { success: false, error: '目标软链接已正常连接到中心库，无冲突可解决' }
+  }
+  if (inspection.status === 'unbound') {
+    return { success: false, error: '目标未连接且不存在冲突，无需解决' }
+  }
+
+  const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
+
+  if (input.strategy === 'use_app') {
+    // 1. Preserve conflicting target into .trash
+    const backupPath = preserveTargetInTrash(targetLink, traceHome, `${input.skillId}-target`)
+    if (!backupPath) {
+      return { success: false, error: '无法安全备份冲突目标，已保留原目标，未执行覆盖' }
+    }
+
+    // 2. Recreate symlink to central folder
+    try {
+      mkdirSync(path.dirname(targetLink), { recursive: true })
+      symlinkSync(path.resolve(centralFolder), path.resolve(targetLink), symlinkType)
+      const verified = inspectSkillTarget(targetLink, centralFolder)
+      if (verified.status !== 'linked') {
+        throw new Error('创建软链接后校验失败')
+      }
+    } catch (err: any) {
+      restoreTargetFromTrash(backupPath, targetLink)
+      return { success: false, error: `重新创建中心软链接失败: ${err?.message || String(err)}` }
+    }
+
+    // 3. Update central metadata
+    if (input.target.scope === 'global') {
+      skill.targetTools = Array.from(new Set([...(skill.targetTools || []), input.target.toolId!]))
+    } else if (resolvedProject && validatedRelPath) {
+      skill.targetProjects = Array.from(new Set([...(skill.targetProjects || []), resolvedProject]))
+      skill.targetProjectPaths = [
+        ...(skill.targetProjectPaths || []).filter(
+          (item) => !(path.resolve(item.projectPath) === resolvedProject && item.relPath === validatedRelPath)
+        ),
+        { projectPath: resolvedProject, relPath: validatedRelPath },
+      ]
+    }
+    skill.updatedLabel = '刚刚解决冲突'
+    try {
+      writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
+    } catch (err: any) {
+      try { unlinkSync(targetLink) } catch {}
+      restoreTargetFromTrash(backupPath, targetLink)
+      try { writeFileSync(filePath, previousSkillJsonContent, 'utf8') } catch {}
+      return { success: false, error: `保存冲突解决结果失败，已恢复原目标: ${err?.message || String(err)}` }
+    }
+
+    return { success: true, skill, backupPath }
+  }
+
+  if (input.strategy === 'use_target') {
+    // 1. Check if target is readable
+    if (inspection.status === 'broken') {
+      return { success: false, error: '目标软链接已损坏且无法读取源文件，无法以目标为准。请选择以应用为准或保留外部。' }
+    }
+
+    let realTargetDir = targetLink
+    try {
+      if (lstatSync(targetLink).isSymbolicLink()) {
+        realTargetDir = realpathSync(targetLink)
+      }
+    } catch {
+      return { success: false, error: '目标软链接已损坏，无法解析源目录，无法以目标为准。请选择以应用为准或保留外部。' }
+    }
+
+    try {
+      if (!statSync(realTargetDir).isDirectory()) {
+        return { success: false, error: '目标源不是文件夹，无法作为技能源' }
+      }
+    } catch (err: any) {
+      return { success: false, error: `无法访问目标源: ${err?.message || String(err)}` }
+    }
+
+    const targetMdPath = path.join(realTargetDir, 'SKILL.md')
+    if (!existsSync(targetMdPath)) {
+      return { success: false, error: '目标目录中未找到 SKILL.md，无法作为技能源' }
+    }
+
+    let targetSkillMd = ''
+    try {
+      targetSkillMd = readFileSync(targetMdPath, 'utf8')
+    } catch (err: any) {
+      return { success: false, error: `读取目标 SKILL.md 失败: ${err?.message || String(err)}` }
+    }
+
+    // 2. Parse metadata from target SKILL.md
+    let targetName = ''
+    let targetDesc = ''
+    let tags: string[] = []
+    let triggers: string[] = []
+    const frontmatter = targetSkillMd.match(/^\uFEFF?---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+    if (frontmatter) {
+      try {
+        const doc = parseDocument(frontmatter[1])
+        const parsed = doc.toJS()
+        if (parsed && typeof parsed === 'object') {
+          if (typeof (parsed as any).name === 'string') targetName = (parsed as any).name.trim()
+          if (typeof (parsed as any).description === 'string') targetDesc = (parsed as any).description.trim()
+          if (Array.isArray((parsed as any).tags)) tags = (parsed as any).tags.filter((t: any) => typeof t === 'string')
+          if (Array.isArray((parsed as any).triggers)) triggers = (parsed as any).triggers.filter((t: any) => typeof t === 'string')
+        }
+      } catch {}
+    }
+    if (!targetName) {
+      const h1 = targetSkillMd.match(/^#\s+(.+)$/m)
+      if (h1) targetName = h1[1].trim()
+    }
+
+    // 3. Preserve old central source in .trash before replacing
+    const trashDir = path.join(traceHome, '.trash')
+    mkdirSync(trashDir, { recursive: true })
+    const centralBackupPath = path.join(trashDir, `${input.skillId}-central-${Date.now()}`)
+    const previousCentralJsonContent = readFileSync(filePath, 'utf8')
+    const centralJsonBackupPath = `${centralBackupPath}.json`
+    try {
+      cpSync(centralFolder, centralBackupPath, { recursive: true })
+      writeFileSync(centralJsonBackupPath, previousCentralJsonContent, 'utf8')
+    } catch (err: any) {
+      try { rmSync(centralBackupPath, { recursive: true, force: true }) } catch {}
+      try { unlinkSync(centralJsonBackupPath) } catch {}
+      return { success: false, error: `备份中央技能目录失败: ${err?.message || String(err)}` }
+    }
+
+    const restoreCentral = () => {
+      try {
+        rmSync(centralFolder, { recursive: true, force: true })
+        cpSync(centralBackupPath, centralFolder, { recursive: true })
+        writeFileSync(filePath, previousCentralJsonContent, 'utf8')
+      } catch {}
+    }
+
+    // 4. Import target contents into centralFolder
+    try {
+      rmSync(centralFolder, { recursive: true, force: true })
+      mkdirSync(centralFolder, { recursive: true })
+      cpSync(realTargetDir, centralFolder, { recursive: true })
+    } catch (err: any) {
+      // Rollback centralFolder from centralBackupPath
+      try {
+        rmSync(centralFolder, { recursive: true, force: true })
+        cpSync(centralBackupPath, centralFolder, { recursive: true })
+      } catch {}
+      return { success: false, error: `导入目标技能内容失败: ${err?.message || String(err)}` }
+    }
+
+    // 5. Update central metadata JSON
+    skill.name = targetName || skill.name
+    skill.description = targetDesc || skill.description
+    skill.skillMarkdown = targetSkillMd
+    if (tags.length > 0) skill.tags = tags
+    if (triggers.length > 0) skill.triggers = triggers
+    skill.versions = (skill.versions || 1) + 1
+    skill.updatedLabel = '刚刚解决冲突'
+
+    if (input.target.scope === 'global') {
+      skill.targetTools = Array.from(new Set([...(skill.targetTools || []), input.target.toolId!]))
+    } else if (resolvedProject && validatedRelPath) {
+      skill.targetProjects = Array.from(new Set([...(skill.targetProjects || []), resolvedProject]))
+      skill.targetProjectPaths = [
+        ...(skill.targetProjectPaths || []).filter(
+          (item) => !(path.resolve(item.projectPath) === resolvedProject && item.relPath === validatedRelPath)
+        ),
+        { projectPath: resolvedProject, relPath: validatedRelPath },
+      ]
+    }
+
+    try {
+      writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
+    } catch (err: any) {
+      restoreCentral()
+      return { success: false, error: `写入中央技能元数据失败: ${err?.message || String(err)}` }
+    }
+
+    // 6. Replace target with symlink to centralFolder
+    const targetBackupPath = preserveTargetInTrash(targetLink, traceHome, `${input.skillId}-target`)
+    if (!targetBackupPath) {
+      restoreCentral()
+      return { success: false, error: '无法安全备份目标技能，已恢复原中央资产，未替换目标' }
+    }
+    try {
+      symlinkSync(path.resolve(centralFolder), path.resolve(targetLink), symlinkType)
+      const verified = inspectSkillTarget(targetLink, centralFolder)
+      if (verified.status !== 'linked') {
+        throw new Error('替换为中央软链接后校验失败')
+      }
+    } catch (err: any) {
+      restoreTargetFromTrash(targetBackupPath, targetLink)
+      restoreCentral()
+      return { success: false, error: `创建中央软链接失败: ${err?.message || String(err)}` }
+    }
+
+    return { success: true, skill, backupPath: centralBackupPath }
+  }
+
+  if (input.strategy === 'keep_external') {
+    // Leave target completely untouched, and remove only the association from Trace metadata
+    if (input.target.scope === 'global') {
+      skill.targetTools = (skill.targetTools || []).filter(
+        (t) => t !== input.target.toolId && t !== input.target.toolId?.replace(/-global$/, '')
+      )
+    } else if (resolvedProject && validatedRelPath) {
+      skill.targetProjectPaths = (skill.targetProjectPaths || []).filter(
+        (item) => !(path.resolve(item.projectPath) === resolvedProject && item.relPath === validatedRelPath)
+      )
+      const hasOtherInProject = (skill.targetProjectPaths || []).some(
+        (item) => path.resolve(item.projectPath) === resolvedProject
+      )
+      if (!hasOtherInProject) {
+        skill.targetProjects = (skill.targetProjects || []).filter((p) => path.resolve(p) !== resolvedProject)
+      }
+    }
+    skill.updatedLabel = '刚刚解决冲突'
+    writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
+
+    return { success: true, skill }
+  }
+
+  return { success: false, error: '未知的冲突解决策略' }
+}
+
 
 export function discoverAllGlobalSkills(options?: SkillInjectionOptions): Skill[] {
   const root = getEffectiveTraceHome(options?.traceHome)

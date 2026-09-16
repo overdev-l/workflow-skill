@@ -83,11 +83,13 @@ import {
   SUPPORTED_PROJECT_SKILL_PATHS,
   type AIToolCategory,
   type AIToolTarget,
+  type ConflictResolutionStrategy,
   type DeleteSkillMode,
   type ProjectRecord,
   type ManagedProjectRecord,
   type RemoteSkill,
   type Skill,
+  type SkillTargetBinding,
   type Workflow,
   type WorkflowNode,
 } from '@workflow-skill/workflow-model'
@@ -103,6 +105,7 @@ import { useProjectSkills } from './use-project-skills'
 import { addSkillToScope, skillsInScope, type SkillScopeTarget } from './skill-scope'
 import { WorkflowGraph } from './components/WorkflowGraph'
 import { McpThreeColumn } from './components/McpThreeColumn'
+import { ConflictResolutionDialog } from './components/ConflictResolutionDialog'
 import { RulesThreeColumn } from './components/RulesThreeColumn'
 import { AccountSettings } from './components/AccountSettings'
 import { AIToolLogo } from './AIToolLogo'
@@ -1260,7 +1263,11 @@ function SkillsThreeColumn({
   const [createError, setCreateError] = useState('')
   const [adoptingSkill, setAdoptingSkill] = useState(false)
   const [disconnectingSkillTarget, setDisconnectingSkillTarget] = useState<string | null>(null)
+  const [skillConflictBinding, setSkillConflictBinding] = useState<SkillTargetBinding | null>(null)
+  const [skillConflictBusy, setSkillConflictBusy] = useState(false)
+  const [skillConflictError, setSkillConflictError] = useState('')
   useUpdateBlocker('skill-add', addOpen || createOpen)
+  useUpdateBlocker('skill-conflict', Boolean(skillConflictBinding))
   useEffect(() => {
     let active = true
     let generation = 0
@@ -1373,6 +1380,39 @@ function SkillsThreeColumn({
       notify?.(error instanceof Error ? error.message : '断开 Skill 失败')
     } finally {
       setDisconnectingSkillTarget(null)
+    }
+  }
+  const handleResolveSkillConflict = async (strategy: ConflictResolutionStrategy) => {
+    if (!activeLocalSkill || !skillConflictBinding || !window.workflowSkill?.resolveSkillConflict) return
+    setSkillConflictBusy(true)
+    setSkillConflictError('')
+    try {
+      const binding = skillConflictBinding
+      const result = await window.workflowSkill.resolveSkillConflict({
+        skillId: activeLocalSkill.id,
+        target: {
+          scope: binding.scope,
+          toolId: binding.toolId,
+          projectPath: binding.projectPath,
+          relPath: binding.relPath,
+          targetPath: binding.targetPath,
+        },
+        strategy,
+      })
+      if (!result.success) {
+        setSkillConflictError(result.error || '解决 Skill 冲突失败')
+        return
+      }
+      setSkillConflictBinding(null)
+      projectDiscovery.refresh()
+      await onReloadSkills()
+      notify?.(result.backupPath
+        ? `Skill 冲突已解决，原版本已备份到 ${result.backupPath}`
+        : strategy === 'keep_external' ? '已保留外部 Skill，并解除应用关联' : 'Skill 冲突已解决')
+    } catch (error) {
+      setSkillConflictError(error instanceof Error ? error.message : '解决 Skill 冲突失败')
+    } finally {
+      setSkillConflictBusy(false)
     }
   }
   const fromRemote = (remote: Pick<RemoteSkill, 'id' | 'name' | 'description' | 'tags' | 'skillMarkdown'>): Skill => ({
@@ -1563,7 +1603,15 @@ function SkillsThreeColumn({
                               <span>断开</span>
                             </button>
                           ) : (
-                            <span className="skill-ownership-target__error">{binding.status === 'broken' ? '链接损坏' : '存在冲突'}</span>
+                            <button
+                              type="button"
+                              className="btn btn--capsule-ghost btn--sm"
+                              disabled={skillConflictBusy}
+                              onClick={() => { setSkillConflictBinding(binding); setSkillConflictError('') }}
+                            >
+                              <AlertTriangle size={10} />
+                              <span>{binding.status === 'broken' ? '修复链接' : '解决冲突'}</span>
+                            </button>
                           )}
                         </div>
                       )
@@ -1609,6 +1657,20 @@ function SkillsThreeColumn({
           open={Boolean(linkModalSkill)}
           onClose={() => setLinkModalSkill(null)}
           onToggleLinkTarget={onToggleLinkTarget}
+        />
+        <ConflictResolutionDialog
+          open={Boolean(skillConflictBinding && activeLocalSkill)}
+          assetKind="Skill"
+          assetName={activeLocalSkill?.name || ''}
+          targetLabel={skillConflictBinding ? getSkillTargetLabel(skillConflictBinding) : ''}
+          sourcePath={activeLocalSkill?.sourcePath || activeLocalSkill?.skillPath}
+          targetPath={skillConflictBinding?.targetPath}
+          statusLabel={skillConflictBinding?.status === 'broken' ? '链接损坏' : '存在冲突'}
+          canUseTarget={skillConflictBinding?.status !== 'broken'}
+          busy={skillConflictBusy}
+          error={skillConflictError}
+          onClose={() => { if (!skillConflictBusy) setSkillConflictBinding(null) }}
+          onResolve={handleResolveSkillConflict}
         />
         <AddSkillDialog open={addOpen} targetLabel={targetLabel}
           disabledReason={addTarget?.scope === 'project' && !projects.some(project => project.id === addTarget.id && project.path === addTarget.path && project.status === 'valid') ? '目标项目已移除或目录不可用，请重新选择。' : undefined} onClose={() => setAddOpen(false)}

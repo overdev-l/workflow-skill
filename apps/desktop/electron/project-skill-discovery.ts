@@ -19,6 +19,7 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
   const errors: string[] = []
   const bySource = new Map<string, Skill>()
   const managed = new Map<string, Skill>()
+  const managedById = new Map<string, Skill>()
   const central = path.join(traceHome, 'skills')
   try {
     for (const file of readdirSync(central).sort()) {
@@ -28,6 +29,7 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
         if (!skill || typeof skill.id !== 'string' || file !== `${skill.id}.json` || path.basename(skill.id) !== skill.id) continue
         const source = realpathSync(path.join(central, skill.id))
         if (!managed.has(source)) managed.set(source, skill)
+        if (!managedById.has(skill.id)) managedById.set(skill.id, skill)
       } catch { /* Invalid central records do not prevent read-only local discovery. */ }
     }
   } catch (error) {
@@ -49,6 +51,39 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
       if (name.startsWith('.')) continue
       const entry = path.join(directory, name)
       const relativePath = path.join(relPath, name)
+      const expectedManagedSkill = managedById.get(name)
+      const expectedManagedSource = expectedManagedSkill ? path.join(central, expectedManagedSkill.id) : undefined
+      const addConflictBinding = (status: 'conflict' | 'broken', linkTarget?: string) => {
+        if (!expectedManagedSkill || !expectedManagedSource) return
+        const existing = bySource.get(expectedManagedSource)
+        const binding = {
+          scope: 'project' as const,
+          projectPath: project,
+          relPath,
+          targetPath: entry,
+          status,
+          linkTarget,
+          error: status === 'broken' ? '软链接指向不存在的目标路径' : '目标未指向应用中央 Skill',
+        }
+        if (existing) {
+          existing.targetBindings?.push(binding)
+          existing.projectSource?.relativePaths.push(relativePath)
+          return
+        }
+        let centralMarkdown = expectedManagedSkill.skillMarkdown || ''
+        try { centralMarkdown = readFileSync(path.join(expectedManagedSource, 'SKILL.md'), 'utf8') } catch {}
+        bySource.set(expectedManagedSource, {
+          ...expectedManagedSkill,
+          updatedLabel: status === 'broken' ? '链接损坏' : '冲突',
+          skillPath: expectedManagedSource,
+          skillMarkdown: centralMarkdown,
+          ownership: 'app',
+          scopeStatus: status === 'broken' ? '链接损坏' : '冲突',
+          sourcePath: expectedManagedSource,
+          targetBindings: [binding],
+          projectSource: { projectPath: project, relativePaths: [relativePath], managedSkillId: expectedManagedSkill.id },
+        })
+      }
       try {
         let isSym = false
         try {
@@ -65,8 +100,12 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
           source = realpathSync(entry)
         } catch (error) {
           if (isSym) {
+            addConflictBinding('broken')
+            if (expectedManagedSkill) continue
             errors.push(`${relativePath}：软链接损坏或目标不存在`)
           } else if (!missing(error)) {
+            addConflictBinding('conflict')
+            if (expectedManagedSkill) continue
             errors.push(`${relativePath}：${message(error)}`)
           }
           continue
@@ -101,6 +140,10 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
         }
         const record = isSym ? managed.get(source) : undefined
         const isAppManaged = Boolean(record)
+        if (expectedManagedSkill && !isAppManaged) {
+          addConflictBinding('conflict', isSym ? source : undefined)
+          continue
+        }
         const id = record?.id || `project:${createHash('sha256').update(canonicalProject + '\0' + source).digest('hex')}`
         const skillName = typeof metadata.name === 'string' && metadata.name.trim() ? metadata.name : name
         const description = typeof metadata.description === 'string' ? metadata.description : ''

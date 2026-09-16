@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import type {
   CentralMCPServer,
+  ConflictResolutionStrategy,
   MCPScope,
   MCPScopeStatus,
   MCPSourceTool,
@@ -27,6 +28,7 @@ import type {
 } from '@workflow-skill/workflow-model'
 import { MCP_SOURCE_TOOLS } from '@workflow-skill/workflow-model'
 import { AIToolLogo } from '../AIToolLogo'
+import { ConflictResolutionDialog } from './ConflictResolutionDialog'
 import { useI18n } from '../i18n'
 import '../mcp.css'
 
@@ -204,8 +206,11 @@ export function McpThreeColumn({
   const [injectionSaving, setInjectionSaving] = useState(false)
   const [adopting, setAdopting] = useState(false)
   const [disconnectingTarget, setDisconnectingTarget] = useState<string | null>(null)
+  const [mcpConflictAssociation, setMcpConflictAssociation] = useState<MCPTargetAssociation | null>(null)
+  const [mcpConflictBusy, setMcpConflictBusy] = useState(false)
+  const [mcpConflictError, setMcpConflictError] = useState('')
 
-  const isBusy = formSaving || toggling || deleting || loading || createSaving || injectionSaving || adopting || Boolean(disconnectingTarget)
+  const isBusy = formSaving || toggling || deleting || loading || createSaving || injectionSaving || adopting || Boolean(disconnectingTarget) || mcpConflictBusy || Boolean(mcpConflictAssociation)
 
   // 1. Load Central Servers & Projects
   const loadCentralServers = async () => {
@@ -278,7 +283,7 @@ export function McpThreeColumn({
     }
   }, [])
 
-  useUpdateBlocker('mcp-actions', createModalOpen || createSaving || formSaving || toggling || deleting || injectionOpen || injectionSaving)
+  useUpdateBlocker('mcp-actions', createModalOpen || createSaving || formSaving || toggling || deleting || injectionOpen || injectionSaving || Boolean(mcpConflictAssociation))
 
   // Dirty detection for editable fields
   const isDirty = useMemo(() => {
@@ -634,6 +639,37 @@ export function McpThreeColumn({
       notify?.(err.message || '断开失败')
     } finally {
       setDisconnectingTarget(null)
+    }
+  }
+
+  const handleResolveMcpConflict = async (strategy: ConflictResolutionStrategy) => {
+    if (!selectedServer || !mcpConflictAssociation || !window.workflowSkill?.resolveMCPConflict) return
+    setMcpConflictBusy(true)
+    setMcpConflictError('')
+    try {
+      const association = mcpConflictAssociation
+      const result = await window.workflowSkill.resolveMCPConflict({
+        serverIdOrName: selectedServer.id,
+        target: {
+          tool: association.tool,
+          scope: association.scope,
+          projectPath: association.projectPath,
+        },
+        strategy,
+      })
+      if (!result.success) {
+        setMcpConflictError(result.error || '解决 MCP 冲突失败')
+        return
+      }
+      setMcpConflictAssociation(null)
+      await loadCentralServers()
+      notify?.(result.backupPath
+        ? `MCP 冲突已解决，原版本已备份到 ${result.backupPath}`
+        : strategy === 'keep_external' ? '已保留外部 MCP，并解除应用关联' : 'MCP 冲突已解决')
+    } catch (error) {
+      setMcpConflictError(error instanceof Error ? error.message : '解决 MCP 冲突失败')
+    } finally {
+      setMcpConflictBusy(false)
     }
   }
 
@@ -1084,10 +1120,22 @@ export function McpThreeColumn({
                           <span className={`mcp-badge ${getMcpBadgeClass(state)}`}>{state}</span>
                           {association.scope === 'project' ? <span className="mcp-ownership-target__path font-mono">{association.projectPath}</span> : null}
                         </div>
-                        <button type="button" className="btn btn--capsule-ghost btn--sm" disabled={isBusy} onClick={() => void handleDisconnectTarget(association)}>
-                          {disconnectingTarget === key ? <RefreshCw size={10} className="spin" /> : <Unlink size={10} />}
-                          <span>断开</span>
-                        </button>
+                        {association.lastSyncStatus === 'conflict' ? (
+                          <button
+                            type="button"
+                            className="btn btn--capsule-ghost btn--sm"
+                            disabled={isBusy}
+                            onClick={() => { setMcpConflictAssociation(association); setMcpConflictError('') }}
+                          >
+                            <AlertCircle size={10} />
+                            <span>解决冲突</span>
+                          </button>
+                        ) : (
+                          <button type="button" className="btn btn--capsule-ghost btn--sm" disabled={isBusy} onClick={() => void handleDisconnectTarget(association)}>
+                            {disconnectingTarget === key ? <RefreshCw size={10} className="spin" /> : <Unlink size={10} />}
+                            <span>断开</span>
+                          </button>
+                        )}
                       </div>
                     )
                   })}
@@ -1677,6 +1725,23 @@ export function McpThreeColumn({
           </div>
         </div>
       )}
+
+      <ConflictResolutionDialog
+        open={Boolean(mcpConflictAssociation && selectedServer)}
+        assetKind="MCP"
+        assetName={selectedServer?.name || ''}
+        targetLabel={mcpConflictAssociation
+          ? `${TOOL_NAMES[mcpConflictAssociation.tool] || mcpConflictAssociation.tool} · ${mcpConflictAssociation.scope === 'project' ? `项目 · ${mcpConflictAssociation.projectPath || ''}` : '全局'}`
+          : ''}
+        sourcePath={selectedServer ? `Trace 中央库 · ${selectedServer.id}` : undefined}
+        targetPath={mcpConflictAssociation?.configPath || selectedServer?.discoveredTarget?.configPath}
+        statusLabel="目标配置已被外部修改"
+        canUseTarget
+        busy={mcpConflictBusy}
+        error={mcpConflictError}
+        onClose={() => { if (!mcpConflictBusy) setMcpConflictAssociation(null) }}
+        onResolve={handleResolveMcpConflict}
+      />
 
       {/* Create New Server Modal */}
       {createModalOpen && (

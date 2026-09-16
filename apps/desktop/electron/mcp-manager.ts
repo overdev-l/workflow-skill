@@ -23,6 +23,7 @@ import {
   type AdoptMCPResult,
   type BatchItemResult,
   type CentralMCPServer,
+  type ConflictResolutionStrategy,
   type MCPDistributionPreflightItem,
   type MCPDistributionPreflightResult,
   type MCPDistributionReport,
@@ -34,6 +35,9 @@ import {
   type MCPSourceTool,
   type MCPTargetAssociation,
   type MCPTransportType,
+  type ResolveMCPConflictInput,
+  type ResolveMCPConflictResult,
+  type ResolveMCPConflictTarget,
   MCP_SOURCE_TOOLS,
 } from '@workflow-skill/workflow-model'
 
@@ -2946,6 +2950,7 @@ export async function readCentralMCPServers(options?: MCPOptions): Promise<Centr
           assoc.lastSyncStatus = 'failed'
           assoc.lastError = '目标工具配置中未找到该服务'
         } else {
+          assoc.configPath = targetServer.configPath
           const currentHash = computeMCPTargetHash(targetServer)
           if (assoc.targetHash) {
             if (currentHash !== assoc.targetHash) {
@@ -3106,6 +3111,7 @@ export function saveCentralMCPServer(
       if (saveRes.success) {
         assoc.targetHash = saveRes.server ? computeMCPTargetHash(saveRes.server) : computeMCPTargetHash(server)
         assoc.rawEntry = saveRes.server?.sourceRaw || assoc.rawEntry || server.sourceRaw
+        assoc.configPath = saveRes.server?.configPath || assoc.configPath
       }
       syncResults.push({
         tool: assoc.tool,
@@ -3222,6 +3228,7 @@ export function injectMCPServerToTarget(
     lastSyncStatus: 'synced',
     targetHash,
     rawEntry: projectedServer.sourceRaw || server.sourceRaw,
+    configPath: saveRes.server?.configPath,
   }
 
   if (existingIdx >= 0) {
@@ -3375,6 +3382,7 @@ export function adoptMCPServer(
     lastSyncStatus: 'synced',
     targetHash: initialHash,
     rawEntry: targetServer.sourceRaw,
+    configPath: targetServer.configPath,
   }
 
   let centralServer: CentralMCPServer
@@ -3433,6 +3441,217 @@ export function adoptMCPServer(
 
   return { success: true, server: centralServer }
 }
+
+export function resolveMCPConflict(
+  input: ResolveMCPConflictInput,
+  options?: MCPOptions
+): ResolveMCPConflictResult {
+  if (!['use_app', 'use_target', 'keep_external'].includes(input.strategy)) {
+    return { success: false, error: '无效的冲突解决策略' }
+  }
+
+  try {
+    validateToolAndScope(input.target.tool, input.target.scope)
+  } catch (err: any) {
+    return { success: false, error: err.message || String(err) }
+  }
+
+  const projectPath =
+    input.target.scope === 'project'
+      ? input.target.projectPath || options?.projectWorkspace || options?.getProjectWorkspace?.()
+      : undefined
+
+  if (input.target.scope === 'project') {
+    if (!projectPath) {
+      return { success: false, error: '未指定有效的项目路径' }
+    }
+    try {
+      if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
+        return { success: false, error: `项目路径不存在或不是文件夹: ${projectPath}` }
+      }
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) }
+    }
+  }
+
+  const targetOptions = projectPath ? { ...options, projectWorkspace: projectPath } : options
+  const registry = loadCentralMCPRegistry(options)
+  const server =
+    registry[input.serverIdOrName] ||
+    Object.values(registry).find((s) => s.name === input.serverIdOrName || s.id === input.serverIdOrName)
+
+  if (!server) {
+    return { success: false, error: `找不到 MCP 资产: ${input.serverIdOrName}` }
+  }
+
+  const associations = server.targetAssociations || []
+  const assocIndex = associations.findIndex((a) => matchesMcpTarget(a, input.target, projectPath))
+  if (assocIndex < 0) {
+    return { success: false, error: '该目标未与该服务关联，无法解决冲突' }
+  }
+  const assoc = associations[assocIndex]
+
+  let currentServers: MCPServerDefinition[] = []
+  try {
+    currentServers = readMCPServersForTool(input.target.tool, input.target.scope, targetOptions)
+  } catch (err: any) {
+    return { success: false, error: `读取目标配置失败: ${err?.message || String(err)}` }
+  }
+
+  const currentTarget = currentServers.find((s) => s.name === server.name)
+
+  if (currentTarget) {
+    const currentHash = computeMCPTargetHash(currentTarget)
+    if (input.expectedTargetHash && currentHash !== input.expectedTargetHash) {
+      return {
+        success: false,
+        error: '目标配置已在外部再次发生变动，请核对最新配置后再试',
+      }
+    }
+    if (assoc.targetHash && currentHash === assoc.targetHash && assoc.lastSyncStatus === 'synced') {
+      return {
+        success: false,
+        error: '目标配置未发生冲突，无需解决',
+      }
+    }
+  } else {
+    if (input.strategy === 'use_target') {
+      return { success: false, error: '目标工具配置中未找到该服务，无法以目标为准' }
+    }
+    if (assoc.lastSyncStatus !== 'conflict' && !input.expectedTargetHash) {
+      return { success: false, error: '目标配置未发生冲突，无需解决' }
+    }
+  }
+
+  const traceHome = getEffectiveTraceHome(options)
+  const trashDir = path.join(traceHome, '.trash')
+  mkdirSync(trashDir, { recursive: true })
+
+  if (input.strategy === 'use_app') {
+    // 1. Back up native config
+    const configPath = resolveMCPConfigPath(input.target.tool, input.target.scope, targetOptions)
+    const backupPath = path.join(
+      trashDir,
+      `mcp-${input.target.tool}-${input.target.scope}-${Date.now()}-${path.basename(configPath)}`
+    )
+    if (existsSync(configPath)) {
+      try {
+        writeFileSync(backupPath, readFileSync(configPath, 'utf8'), 'utf8')
+      } catch (err: any) {
+        return { success: false, error: `备份目标配置文件失败: ${err?.message || String(err)}` }
+      }
+    }
+
+    // 2. Force write central semantic entry through lossless adapter
+    const saveRes = saveMCPServer(
+      {
+        tool: input.target.tool,
+        scope: input.target.scope,
+        expectedRevision: currentTarget?.revision,
+      },
+      {
+        name: server.name,
+        transport: server.transport,
+        command: server.command,
+        args: server.args,
+        env: server.env,
+        cwd: server.cwd,
+        url: server.url,
+        headers: server.headers,
+        envHeaders: server.envHeaders,
+        enabled: server.enabled,
+        sourceRaw: assoc.rawEntry || server.sourceRaw,
+      },
+      targetOptions
+    )
+
+    if (!saveRes.success) {
+      return { success: false, error: saveRes.error || '写入目标配置失败' }
+    }
+
+    const projected = saveRes.server || server
+    const newHash = computeMCPTargetHash(projected)
+    assoc.lastSyncStatus = 'synced'
+    assoc.lastError = undefined
+    assoc.targetHash = newHash
+    assoc.rawEntry = projected.sourceRaw || assoc.rawEntry || server.sourceRaw
+    assoc.configPath = saveRes.server?.configPath || assoc.configPath
+    server.updatedAt = Date.now()
+
+    registry[server.id] = server
+    saveCentralMCPRegistry(registry, options)
+
+    return { success: true, server, backupPath }
+  }
+
+  if (input.strategy === 'use_target') {
+    if (!currentTarget) {
+      return { success: false, error: '目标工具配置中未找到该服务，无法以目标为准' }
+    }
+
+    // Back up old central server record to .trash
+    const backupPath = path.join(trashDir, `mcp-central-${server.id}-${Date.now()}.json`)
+    try {
+      writeFileSync(backupPath, JSON.stringify(server, null, 2), 'utf8')
+    } catch (err: any) {
+      return { success: false, error: `备份中央 MCP 资产失败: ${err?.message || String(err)}` }
+    }
+
+    // Re-read the revision immediately before importing the target. If the
+    // target changed while the dialog was open, leave both central and target
+    // untouched and ask the user to review the new conflict.
+    if (currentTarget.revision) {
+      const latestRevision = computeServerRevision(
+        input.target.tool,
+        input.target.scope,
+        server.name,
+        targetOptions,
+      )
+      if (latestRevision !== currentTarget.revision) {
+        return { success: false, error: '目标配置已在外部再次发生变动，请重新加载后再解决冲突' }
+      }
+    }
+
+    // Update central server semantic fields while preserving existing managed identity (server.id)
+    server.name = currentTarget.name
+    server.transport = currentTarget.transport
+    server.command = currentTarget.command
+    server.args = currentTarget.args ? [...currentTarget.args] : undefined
+    server.env = currentTarget.env ? { ...currentTarget.env } : undefined
+    server.cwd = currentTarget.cwd
+    server.url = currentTarget.url
+    server.headers = currentTarget.headers ? { ...currentTarget.headers } : undefined
+    server.envHeaders = currentTarget.envHeaders ? { ...currentTarget.envHeaders } : undefined
+    server.enabled = currentTarget.enabled
+    server.sourceRaw = currentTarget.sourceRaw ? { ...currentTarget.sourceRaw } : undefined
+    server.updatedAt = Date.now()
+
+    assoc.lastSyncStatus = 'synced'
+    assoc.lastError = undefined
+    assoc.targetHash = computeMCPTargetHash(currentTarget)
+    assoc.rawEntry = currentTarget.sourceRaw ? { ...currentTarget.sourceRaw } : undefined
+    assoc.configPath = currentTarget.configPath
+
+    // Other targets are isolated and NOT mutated
+    registry[server.id] = server
+    saveCentralMCPRegistry(registry, options)
+
+    return { success: true, server, backupPath }
+  }
+
+  if (input.strategy === 'keep_external') {
+    // Leave native target untouched, remove only that association
+    server.targetAssociations = associations.filter((a) => !matchesMcpTarget(a, input.target, projectPath))
+    server.updatedAt = Date.now()
+    registry[server.id] = server
+    saveCentralMCPRegistry(registry, options)
+
+    return { success: true, server }
+  }
+
+  return { success: false, error: '未知的冲突解决策略' }
+}
+
 
 export function deleteCentralMCPServer(
   serverIdOrName: string,

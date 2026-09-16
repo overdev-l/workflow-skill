@@ -34,6 +34,7 @@ import {
   batchInjectMCPServers,
   batchUninjectMCPServers,
   adoptMCPServer,
+  resolveMCPConflict,
 } from './mcp-manager'
 import {
   listProjects,
@@ -65,6 +66,7 @@ import {
   batchUninjectSkills,
   adoptSkillAsset,
   disconnectSkillTarget,
+  resolveSkillConflict,
   discoverAllGlobalSkills,
 } from './skill-injection-manager'
 import { AccountManager } from './account-manager'
@@ -1623,6 +1625,12 @@ ${skill.description || ''}
     return result
   })
 
+  ipcMain.handle('mcp:resolve-conflict', async (_event, input: any) => {
+    const result = resolveMCPConflict(input, getMCPOptions())
+    if (result.success) notifyMCPChanged()
+    return result
+  })
+
   // --- Unified Skill Injection IPC (OPC-56) ---
   ipcMain.handle(
     'skills:inject',
@@ -1664,6 +1672,18 @@ ${skill.description || ''}
     'skills:adopt',
     async (_event, target: any) => {
       const res = adoptSkillAsset(target, {
+        traceHome: getStoredTraceHome(),
+        defaultProjectWorkspace: getStoredProjectWorkspace(),
+      })
+      if (res.success) notifySkillsChanged()
+      return res
+    }
+  )
+
+  ipcMain.handle(
+    'skills:resolve-conflict',
+    async (_event, input: any) => {
+      const res = resolveSkillConflict(input, {
         traceHome: getStoredTraceHome(),
         defaultProjectWorkspace: getStoredProjectWorkspace(),
       })

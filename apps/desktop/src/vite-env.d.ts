@@ -34,6 +34,10 @@ import type {
   ProjectSkillDiscoveryResult,
   PublicRule,
   RepositorySkillSearchResult,
+  ResolveMCPConflictInput,
+  ResolveMCPConflictResult,
+  ResolveSkillConflictInput,
+  ResolveSkillConflictResult,
   Workflow,
 } from '@workflow-skill/workflow-model'
 
@@ -167,6 +171,7 @@ declare global {
       batchUninjectMCPServers?: (serverIds: string[], target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => Promise<{ results: BatchItemResult[] }>
       adoptMCPServer?: (target: { tool: MCPSourceTool; scope: MCPScope; name: string; projectPath?: string }) => Promise<AdoptMCPResult>
       disconnectMCPServer?: (serverIdOrName: string, target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) => Promise<DisconnectMCPResult>
+      resolveMCPConflict?: (input: ResolveMCPConflictInput) => Promise<ResolveMCPConflictResult>
 
       // --- Unified Skill Injection & Batching (OPC-56) ---
       injectSkill?: (
@@ -192,6 +197,7 @@ declare global {
       adoptSkill?: (
         target: { type?: 'global' | 'project'; toolId?: string; projectPath?: string; relPath?: string; skillId?: string; targetPath?: string }
       ) => Promise<AdoptSkillResult>
+      resolveSkillConflict?: (input: ResolveSkillConflictInput) => Promise<ResolveSkillConflictResult>
       onSkillsChanged?: (listener: () => void) => () => void
     }
   }

@@ -33,6 +33,10 @@ import type {
   ProjectSkillDiscoveryResult,
   PublicRule,
   RepositorySkillSearchResult,
+  ResolveMCPConflictInput,
+  ResolveMCPConflictResult,
+  ResolveSkillConflictInput,
+  ResolveSkillConflictResult,
   Workflow,
 } from '@workflow-skill/workflow-model'
 
@@ -275,6 +279,8 @@ contextBridge.exposeInMainWorld('workflowSkill', {
     ipcRenderer.invoke('mcp:adopt', target) as Promise<AdoptMCPResult>,
   disconnectMCPServer: (serverIdOrName: string, target: { tool: MCPSourceTool; scope: MCPScope; projectPath?: string }) =>
     ipcRenderer.invoke('mcp:disconnect', serverIdOrName, target) as Promise<DisconnectMCPResult>,
+  resolveMCPConflict: (input: ResolveMCPConflictInput) =>
+    ipcRenderer.invoke('mcp:resolve-conflict', input) as Promise<ResolveMCPConflictResult>,
 
   // --- Unified Skill Injection & Batching (OPC-56) ---
   injectSkill: (
@@ -296,6 +302,8 @@ contextBridge.exposeInMainWorld('workflowSkill', {
     target: { type?: 'global' | 'project'; toolId?: string; projectPath?: string; relPath?: string; skillId?: string; targetPath?: string }
   ) =>
     ipcRenderer.invoke('skills:adopt', target) as Promise<AdoptSkillResult>,
+  resolveSkillConflict: (input: ResolveSkillConflictInput) =>
+    ipcRenderer.invoke('skills:resolve-conflict', input) as Promise<ResolveSkillConflictResult>,
   batchInjectSkills: (
     skillIds: string[],
     target: { scope: 'global' | 'project'; targetId?: string; projectPath?: string; relPath?: string }

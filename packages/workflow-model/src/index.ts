@@ -1011,6 +1011,7 @@ export interface MCPTargetAssociation {
   lastError?: string
   targetHash?: string
   rawEntry?: Record<string, unknown>
+  configPath?: string
 }
 
 export interface CentralMCPServer {
@@ -1076,3 +1077,46 @@ export const SUPPORTED_PROJECT_SKILL_PATHS: Array<{ id: string; name: string; re
   { id: 'trae', name: 'Trae IDE', relPath: '.trae/skills' },
   { id: 'gemini', name: 'Google Antigravity & Gemini', relPath: '.gemini/skills' },
 ]
+
+export type ConflictResolutionStrategy = 'use_app' | 'use_target' | 'keep_external'
+
+export interface ResolveSkillConflictTarget {
+  scope: 'global' | 'project'
+  toolId?: string
+  projectPath?: string
+  relPath?: string
+  targetPath?: string
+}
+
+export interface ResolveSkillConflictInput {
+  skillId: string
+  target: ResolveSkillConflictTarget
+  strategy: ConflictResolutionStrategy
+}
+
+export interface ResolveSkillConflictResult {
+  success: boolean
+  skill?: Skill
+  backupPath?: string
+  error?: string
+}
+
+export interface ResolveMCPConflictTarget {
+  tool: MCPSourceTool
+  scope: MCPScope
+  projectPath?: string
+}
+
+export interface ResolveMCPConflictInput {
+  serverIdOrName: string
+  target: ResolveMCPConflictTarget
+  strategy: ConflictResolutionStrategy
+  expectedTargetHash?: string
+}
+
+export interface ResolveMCPConflictResult {
+  success: boolean
+  server?: CentralMCPServer
+  backupPath?: string
+  error?: string
+}
