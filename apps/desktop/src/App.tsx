@@ -1224,7 +1224,6 @@ function SkillsThreeColumn({
   notify?: (msg: string) => void
 }) {
   const [skillTab, setSkillTab] = useState<'global' | 'project'>('global')
-  const [query, setQuery] = useState('')
   const [projects, setProjects] = useState<ManagedProjectRecord[]>([])
   const [projectId, setProjectId] = useState('')
   const [projectError, setProjectError] = useState('')
@@ -1268,9 +1267,7 @@ function SkillsThreeColumn({
   const installedTools = useMemo(() => aiTools.filter(tool => tool.installed), [aiTools])
   const projectDiscovery = useProjectSkills(target?.scope === 'project' ? target.path : null)
   const visibleSkills = skillTab === 'project' ? projectDiscovery.skills : skillsInScope(skills, target)
-  const filteredLocalSkills = visibleSkills.filter(skill =>
-    `${skill.name} ${skill.description} ${(skill.tags || []).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()))
-  const activeLocalSkill = filteredLocalSkills.find(skill => skill.id === selectedSkillId) || filteredLocalSkills[0] || null
+  const activeLocalSkill = visibleSkills.find(skill => skill.id === selectedSkillId) || visibleSkills[0] || null
   const activeLinkedTools = aiTools.filter(tool => activeLocalSkill?.targetTools?.includes(tool.id))
   useEffect(() => {
     let active = true
@@ -1330,17 +1327,13 @@ function SkillsThreeColumn({
             </div>
             {(projectError || selectedProject?.status === 'missing') && <p role="alert" className="master-list-status">{projectError || '项目目录不可用，请在项目管理中修复。'}</p>}
           </>}
-          <label className="master-search-input">
-            <Search size={13} /><input aria-label="筛选 Skill" value={query} onChange={event => setQuery(event.target.value)} placeholder="筛选 Skill…" />
-            {query && <button type="button" className="clear-search-btn" aria-label="清除筛选" onClick={() => setQuery('')}><X size={12} /></button>}
-          </label>
         </div>
         <div className="master-list-scroll">
           {skillTab === 'project' && projectDiscovery.errors.length > 0 && <div className="master-list-status" role="alert">
             <span>{projectDiscovery.errors.join('；')}</span>
             <button type="button" className="btn btn--capsule btn--secondary btn--sm" onClick={projectDiscovery.refresh}>重新扫描</button>
           </div>}
-          {filteredLocalSkills.map(skill => <button type="button" key={skill.id}
+          {visibleSkills.map(skill => <button type="button" key={skill.id}
             className={`master-item-row ${activeLocalSkill?.id === skill.id ? 'is-selected' : ''}`}
             aria-pressed={activeLocalSkill?.id === skill.id} onClick={() => onSelectSkillId(skill.id)}>
             <Folder size={15} /><span className="master-item-title">{skill.name}</span>
@@ -1455,7 +1448,7 @@ function SkillsThreeColumn({
           ) : (
             <div className="clean-empty-state">
               <FolderTree size={30} className="empty-icon-glow" />
-              <h3 className="empty-title">{skillTab === 'project' && projectDiscovery.loading ? '正在扫描项目 Skill…' : skillTab === 'project' && projectDiscovery.errors.length ? '项目 Skill 扫描未完成，请重试' : query ? '没有匹配的 Skill' : skillTab === 'project' && !target ? '请在项目管理中添加或修复项目' : '当前范围暂无 Skill，点击 + 添加'}</h3>
+              <h3 className="empty-title">{skillTab === 'project' && projectDiscovery.loading ? '正在扫描项目 Skill…' : skillTab === 'project' && projectDiscovery.errors.length ? '项目 Skill 扫描未完成，请重试' : skillTab === 'project' && !target ? '请在项目管理中添加或修复项目' : '当前范围暂无 Skill，点击 + 添加'}</h3>
             </div>
           )
 }
