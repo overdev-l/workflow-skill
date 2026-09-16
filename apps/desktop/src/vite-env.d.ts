@@ -13,6 +13,7 @@ import type {
   AIProjectItem,
   AdoptMCPResult,
   AdoptSkillResult,
+  BatchSkillAdoptionResult,
   BatchItemResult,
   CentralMCPServer,
   ClaudeLinkResult,
@@ -38,6 +39,7 @@ import type {
   ResolveMCPConflictResult,
   ResolveSkillConflictInput,
   ResolveSkillConflictResult,
+  SkillAdoptionPlan,
   Workflow,
 } from '@workflow-skill/workflow-model'
 
@@ -197,6 +199,8 @@ declare global {
       adoptSkill?: (
         target: { type?: 'global' | 'project'; toolId?: string; projectPath?: string; relPath?: string; skillId?: string; targetPath?: string }
       ) => Promise<AdoptSkillResult>
+      getSkillAdoptionPlan?: () => Promise<SkillAdoptionPlan>
+      adoptAllSkills?: () => Promise<BatchSkillAdoptionResult>
       resolveSkillConflict?: (input: ResolveSkillConflictInput) => Promise<ResolveSkillConflictResult>
       onSkillsChanged?: (listener: () => void) => () => void
     }

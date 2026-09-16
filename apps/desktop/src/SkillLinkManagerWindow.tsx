@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Check,
+  Download,
   Folder,
   FolderGit2,
   FolderOpen,
@@ -133,13 +134,38 @@ export function SkillLinkManagerWindow() {
   const targetProjects = currentSkill?.targetProjects || []
   const targetProjectPaths = currentSkill?.targetProjectPaths
 
+  const getGlobalTargetBinding = (toolId: string) => currentSkill?.targetBindings?.find(
+    (item) => item.scope === 'global' && item.toolId === toolId,
+  )
+
+  const getGlobalTargetStatus = (toolId: string): 'linked' | 'external' | 'conflict' | 'broken' | 'unbound' => {
+    const binding = getGlobalTargetBinding(toolId)
+    if (binding) return binding.status
+    return targetTools.includes(toolId) ? 'linked' : 'unbound'
+  }
+
+  const getProjectTargetBinding = (projectPath: string, relPath: string) => currentSkill?.targetBindings?.find(
+    (item) => item.scope === 'project'
+      && item.projectPath?.toLowerCase() === projectPath.toLowerCase()
+      && item.relPath === relPath,
+  )
+
+  const getProjectTargetStatus = (projectPath: string, relPath: string): 'linked' | 'external' | 'conflict' | 'broken' | 'unbound' => {
+    const binding = getProjectTargetBinding(projectPath, relPath)
+    if (binding) return binding.status
+    return targetProjectPaths?.some((item) => item.projectPath.toLowerCase() === projectPath.toLowerCase() && item.relPath === relPath)
+      ? 'linked'
+      : 'unbound'
+  }
+
   // Filter global tools
   const globalTools = aiTools.filter((t) => (t.scope === 'global' || !t.scope) && t.installed !== false)
 
   // Toggle Global AI Tool Target
   const handleToggleGlobalTarget = async (tool: AIToolTarget) => {
     if (!currentSkill || busy) return
-    const isCurrentlyLinked = targetTools.includes(tool.id)
+    const status = getGlobalTargetStatus(tool.id)
+    const isCurrentlyLinked = status === 'linked'
     const displayName = getAIToolDisplayName(tool)
 
     setBusy(true)
@@ -163,6 +189,27 @@ export function SkillLinkManagerWindow() {
         )
         setToast(`已从 ${displayName} 取消注入`)
       } else {
+        if (status === 'conflict' || status === 'broken') {
+          setToast(`${displayName} 的目标内容需要先在详情中处理${status === 'broken' ? '断链' : '冲突'}`)
+          return
+        }
+        if (status === 'external' && currentSkill.ownership === 'app' && window.workflowSkill?.adoptSkill) {
+          const binding = getGlobalTargetBinding(tool.id)
+          const bindingSkillId = binding?.targetPath.split(/[\\/]/).filter(Boolean).pop()
+          const result = await window.workflowSkill.adoptSkill({
+            type: 'global',
+            toolId: tool.id,
+            skillId: bindingSkillId || currentSkill.id,
+            targetPath: binding?.targetPath,
+          })
+          if (!result.success) {
+            setToast(`接管失败: ${result.error || '未知错误'}`)
+            return
+          }
+          await reloadData()
+          setToast(`已接管并连接 ${displayName}`)
+          return
+        }
         if (window.workflowSkill?.injectSkill) {
           const res = await window.workflowSkill.injectSkill(currentSkill.id, { scope: 'global', targetId: tool.id })
           if (!res.success) {
@@ -191,10 +238,8 @@ export function SkillLinkManagerWindow() {
   // Toggle Project Path Target
   const handleToggleProjectPath = async (proj: AIProjectItem, relPath: string) => {
     if (!currentSkill || busy) return
-    const isCurrentlyLinked = targetProjectPaths
-      ? targetProjectPaths.some((item) =>
-          item.projectPath.toLowerCase() === proj.path.toLowerCase() && item.relPath === relPath)
-      : targetProjects.some((p) => p && p.toLowerCase() === proj.path.toLowerCase())
+    const status = getProjectTargetStatus(proj.path, relPath)
+    const isCurrentlyLinked = status === 'linked'
 
     setBusy(true)
     try {
@@ -225,6 +270,28 @@ export function SkillLinkManagerWindow() {
         )
         setToast(`已从 ${proj.name}/${relPath} 取消注入`)
       } else {
+        if (status === 'conflict' || status === 'broken') {
+          setToast(`${proj.name}/${relPath} 需要先处理${status === 'broken' ? '断链' : '冲突'}`)
+          return
+        }
+        if (status === 'external' && currentSkill.ownership === 'app' && window.workflowSkill?.adoptSkill) {
+          const binding = getProjectTargetBinding(proj.path, relPath)
+          const bindingSkillId = binding?.targetPath.split(/[\\/]/).filter(Boolean).pop()
+          const result = await window.workflowSkill.adoptSkill({
+            type: 'project',
+            projectPath: proj.path,
+            relPath,
+            skillId: bindingSkillId || currentSkill.id,
+            targetPath: binding?.targetPath,
+          })
+          if (!result.success) {
+            setToast(`接管失败: ${result.error || '未知错误'}`)
+            return
+          }
+          await reloadData()
+          setToast(`已接管并连接 ${proj.name}/${relPath}`)
+          return
+        }
         if (window.workflowSkill?.injectSkill) {
           const res = await window.workflowSkill.injectSkill(currentSkill.id, {
             scope: 'project',
@@ -397,13 +464,14 @@ export function SkillLinkManagerWindow() {
           /* List 1: Installed AI Global Environments */
           <div className="env-clean-list">
             {globalTools.map((tool) => {
-              const isLinked = targetTools.includes(tool.id)
+              const status = getGlobalTargetStatus(tool.id)
+              const isLinked = status === 'linked'
               const displayName = getAIToolDisplayName(tool)
 
               return (
                 <div
                   key={tool.id}
-                  className={`env-clean-row ${isLinked ? 'is-linked' : ''}`}
+                  className={`env-clean-row ${isLinked ? 'is-linked' : ''} ${status === 'conflict' ? 'is-conflict' : ''}`}
                   onClick={() => void handleToggleGlobalTarget(tool)}
                 >
                   <div className="env-row-left">
@@ -420,11 +488,11 @@ export function SkillLinkManagerWindow() {
 
                   <button
                     type="button"
-                    className={`btn btn--capsule btn--sm ${isLinked ? 'btn--secondary' : 'btn--primary'}`}
+                    className={`btn btn--capsule btn--sm ${isLinked ? 'btn--secondary' : status === 'external' ? 'btn--secondary' : 'btn--primary'}`}
                     style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
                   >
-                    {isLinked ? <Unlink size={11} /> : <Link2 size={11} />}
-                    <span>{isLinked ? '清除链接' : '创建链接'}</span>
+                    {isLinked ? <Unlink size={11} /> : status === 'external' ? <Download size={11} /> : <Link2 size={11} />}
+                    <span>{isLinked ? '断开' : status === 'external' ? '接管并连接' : status === 'conflict' ? '处理冲突' : status === 'broken' ? '修复链接' : '连接'}</span>
                   </button>
                 </div>
               )
@@ -502,14 +570,12 @@ export function SkillLinkManagerWindow() {
 
                     <div className="env-tree-children" style={{ paddingLeft: '12px', marginTop: '4px' }}>
                       {SUPPORTED_PROJECT_SKILL_PATHS.map((sp) => {
-                        const isLinked = targetProjectPaths
-                          ? targetProjectPaths.some((item) =>
-                              item.projectPath.toLowerCase() === proj.path.toLowerCase() && item.relPath === sp.relPath)
-                          : isProjectLinked
+                        const status = getProjectTargetStatus(proj.path, sp.relPath)
+                        const isLinked = status === 'linked'
                         return (
                           <div
                             key={sp.id}
-                            className={`env-tree-node-row ${isLinked ? 'is-linked' : ''}`}
+                            className={`env-tree-node-row ${isLinked ? 'is-linked' : ''} ${status === 'conflict' ? 'is-conflict' : ''}`}
                             onClick={() => void handleToggleProjectPath(proj, sp.relPath)}
                           >
                             <div className="node-content-left">
@@ -524,11 +590,11 @@ export function SkillLinkManagerWindow() {
 
                             <button
                               type="button"
-                              className={`btn btn--capsule btn--sm ${isLinked ? 'btn--secondary' : 'btn--primary'}`}
+                              className={`btn btn--capsule btn--sm ${isLinked || status === 'external' ? 'btn--secondary' : 'btn--primary'}`}
                               style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
                             >
-                              {isLinked ? <Unlink size={11} /> : <Link2 size={11} />}
-                              <span>{isLinked ? '已注入' : '注入'}</span>
+                              {isLinked ? <Unlink size={11} /> : status === 'external' ? <Download size={11} /> : <Link2 size={11} />}
+                              <span>{isLinked ? '断开' : status === 'external' ? '接管并连接' : status === 'conflict' ? '处理冲突' : status === 'broken' ? '修复链接' : '连接'}</span>
                             </button>
                           </div>
                         )

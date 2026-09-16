@@ -65,6 +65,8 @@ import {
   batchInjectSkills,
   batchUninjectSkills,
   adoptSkillAsset,
+  adoptAllSkills,
+  buildSkillAdoptionPlan,
   disconnectSkillTarget,
   resolveSkillConflict,
   discoverAllGlobalSkills,
@@ -1679,6 +1681,30 @@ ${skill.description || ''}
       return res
     }
   )
+
+  const getSkillAdoptionOptions = () => {
+    const traceHome = getStoredTraceHome()
+    const defaultProjectWorkspace = getStoredProjectWorkspace()
+    const managedProjectPaths = listManagedProjects(traceHome)
+      .filter((project) => project.status === 'valid')
+      .map((project) => project.path)
+    return {
+      traceHome,
+      defaultProjectWorkspace,
+      projectPaths: Array.from(new Set([
+        ...managedProjectPaths,
+        ...(defaultProjectWorkspace ? [defaultProjectWorkspace] : []),
+      ])),
+    }
+  }
+
+  ipcMain.handle('skills:adoption-plan', () => buildSkillAdoptionPlan(getSkillAdoptionOptions()))
+
+  ipcMain.handle('skills:adopt-all', async () => {
+    const res = adoptAllSkills(getSkillAdoptionOptions())
+    if (res.adoptedCount > 0 || res.linkedTargetCount > 0) notifySkillsChanged()
+    return res
+  })
 
   ipcMain.handle(
     'skills:resolve-conflict',

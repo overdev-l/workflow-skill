@@ -383,10 +383,13 @@ export type SkillScopeStatus =
   | '应用管理'
   | '全局软链'
   | '项目软链'
+  | '待接管'
   | '外部持有'
   | '冲突'
   | '未注入'
   | '链接损坏'
+
+export type SkillTargetStatus = 'linked' | 'external' | 'conflict' | 'broken' | 'unbound'
 
 export interface SkillTargetBinding {
   scope: 'global' | 'project'
@@ -394,7 +397,7 @@ export interface SkillTargetBinding {
   projectPath?: string
   relPath?: string
   targetPath: string
-  status: 'linked' | 'external' | 'conflict' | 'broken' | 'unbound'
+  status: SkillTargetStatus
   linkTarget?: string
   error?: string
 }
@@ -1044,6 +1047,72 @@ export interface AdoptSkillResult {
   success: boolean
   skill?: Skill
   linkPath?: string
+  error?: string
+}
+
+export interface SkillAdoptionPlanTarget {
+  scope: 'global' | 'project'
+  toolId?: string
+  projectPath?: string
+  relPath?: string
+  skillId: string
+  targetPath: string
+  sourcePath: string
+  canonicalSourcePath: string
+  status: SkillTargetStatus
+  isSymlink: boolean
+  contentHash?: string
+  error?: string
+}
+
+export type SkillAdoptionPlanItemStatus = 'ready' | 'already-managed' | 'conflict' | 'invalid'
+
+export interface SkillAdoptionPlanItem {
+  key: string
+  suggestedSkillId: string
+  name: string
+  sourcePath: string
+  contentHash: string
+  targets: SkillAdoptionPlanTarget[]
+  status: SkillAdoptionPlanItemStatus
+  reason?: string
+}
+
+export interface SkillAdoptionPlan {
+  generatedAt: number
+  projectPaths: string[]
+  items: SkillAdoptionPlanItem[]
+  totalSkills: number
+  totalTargets: number
+  adoptableTargets: number
+  conflictTargets: number
+  errors: string[]
+}
+
+export interface SkillAdoptionTargetResult {
+  targetPath: string
+  success: boolean
+  linkPath?: string
+  error?: string
+}
+
+export interface SkillAdoptionItemResult {
+  key: string
+  skillId?: string
+  success: boolean
+  adopted: boolean
+  targets: SkillAdoptionTargetResult[]
+  error?: string
+}
+
+export interface BatchSkillAdoptionResult {
+  success: boolean
+  plan: SkillAdoptionPlan
+  results: SkillAdoptionItemResult[]
+  adoptedCount: number
+  linkedTargetCount: number
+  failedCount: number
+  skippedCount: number
   error?: string
 }
 

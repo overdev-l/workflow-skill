@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { parseDocument } from 'yaml'
 import type { ProjectSkillDiscoveryResult, Skill } from '@workflow-skill/workflow-model'
@@ -8,6 +8,35 @@ import { SUPPORTED_PROJECT_SKILL_PATHS } from './project-manager.ts'
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 const missing = (error: unknown) => (error as NodeJS.ErrnoException)?.code === 'ENOENT'
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+
+function skillDirectoryFingerprint(directory: string): string {
+  const hash = createHash('sha256')
+  const visit = (current: string, relative: string) => {
+    for (const name of readdirSync(current).sort((a, b) => a.localeCompare(b))) {
+      const entry = path.join(current, name)
+      const entryRelative = path.join(relative, name).split(path.sep).join('/')
+      const stat = lstatSync(entry)
+      if (stat.isDirectory()) {
+        hash.update(`dir\0${entryRelative}\0`)
+        visit(entry, entryRelative)
+      } else if (stat.isSymbolicLink()) {
+        hash.update(`link\0${entryRelative}\0${readlinkSync(entry)}\0`)
+      } else if (stat.isFile()) {
+        hash.update(`file\0${entryRelative}\0`)
+        hash.update(readFileSync(entry))
+        hash.update('\0')
+      } else {
+        hash.update(`other\0${entryRelative}\0${stat.mode}\0`)
+      }
+    }
+  }
+  visit(directory, '')
+  return hash.digest('hex')
+}
+
+const trySkillDirectoryFingerprint = (directory: string): string | undefined => {
+  try { return skillDirectoryFingerprint(directory) } catch { return undefined }
+}
 
 /** Discover physical project assets without importing or changing any source. */
 export function discoverProjectSkills(projectPath: string, traceHome: string): ProjectSkillDiscoveryResult {
@@ -52,8 +81,11 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
       const entry = path.join(directory, name)
       const relativePath = path.join(relPath, name)
       const expectedManagedSkill = managedById.get(name)
-      const expectedManagedSource = expectedManagedSkill ? path.join(central, expectedManagedSkill.id) : undefined
-      const addConflictBinding = (status: 'conflict' | 'broken', linkTarget?: string) => {
+      let expectedManagedSource: string | undefined
+      if (expectedManagedSkill) {
+        try { expectedManagedSource = realpathSync(path.join(central, expectedManagedSkill.id)) } catch {}
+      }
+      const addConflictBinding = (status: 'conflict' | 'broken' | 'external', linkTarget?: string) => {
         if (!expectedManagedSkill || !expectedManagedSource) return
         const existing = bySource.get(expectedManagedSource)
         const binding = {
@@ -63,23 +95,46 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
           targetPath: entry,
           status,
           linkTarget,
-          error: status === 'broken' ? '软链接指向不存在的目标路径' : '目标未指向应用中央 Skill',
+          error: status === 'broken'
+            ? '软链接指向不存在的目标路径'
+            : status === 'external'
+              ? '目标内容与应用源一致，但尚未建立 Trace 软链接，可纳入应用管理'
+              : '目标未指向应用中央 Skill，且内容与应用源不一致',
         }
         if (existing) {
           existing.targetBindings?.push(binding)
           existing.projectSource?.relativePaths.push(relativePath)
+          if (status === 'conflict') {
+            existing.scopeStatus = '冲突'
+            existing.updatedLabel = '冲突'
+          } else if (status === 'broken' && existing.scopeStatus !== '冲突') {
+            existing.scopeStatus = '链接损坏'
+            existing.updatedLabel = '链接损坏'
+          } else if (status === 'external' && existing.scopeStatus !== '冲突' && existing.scopeStatus !== '链接损坏') {
+            existing.scopeStatus = '待接管'
+            existing.updatedLabel = '待接管'
+          }
           return
         }
         let centralMarkdown = expectedManagedSkill.skillMarkdown || ''
         try { centralMarkdown = readFileSync(path.join(expectedManagedSource, 'SKILL.md'), 'utf8') } catch {}
         bySource.set(expectedManagedSource, {
           ...expectedManagedSkill,
-          updatedLabel: status === 'broken' ? '链接损坏' : '冲突',
+          updatedLabel: status === 'broken' ? '链接损坏' : status === 'external' ? '待接管' : '冲突',
           skillPath: expectedManagedSource,
           skillMarkdown: centralMarkdown,
           ownership: 'app',
-          scopeStatus: status === 'broken' ? '链接损坏' : '冲突',
+          scopeStatus: status === 'broken' ? '链接损坏' : status === 'external' ? '待接管' : '冲突',
           sourcePath: expectedManagedSource,
+          targetProjects: Array.from(new Set([...(expectedManagedSkill.targetProjects || []), project])),
+          targetProjectPaths: Array.from(
+            new Map(
+              [
+                ...(expectedManagedSkill.targetProjectPaths || []),
+                { projectPath: project, relPath },
+              ].map((item) => [`${path.resolve(item.projectPath)}\0${item.relPath}`, item] as const),
+            ).values(),
+          ),
           targetBindings: [binding],
           projectSource: { projectPath: project, relativePaths: [relativePath], managedSkillId: expectedManagedSkill.id },
         })
@@ -141,7 +196,12 @@ export function discoverProjectSkills(projectPath: string, traceHome: string): P
         const record = isSym ? managed.get(source) : undefined
         const isAppManaged = Boolean(record)
         if (expectedManagedSkill && !isAppManaged) {
-          addConflictBinding('conflict', isSym ? source : undefined)
+          const centralHash = expectedManagedSource ? trySkillDirectoryFingerprint(expectedManagedSource) : undefined
+          const targetHash = trySkillDirectoryFingerprint(source)
+          addConflictBinding(
+            centralHash && targetHash && centralHash === targetHash ? 'external' : 'conflict',
+            isSym ? source : undefined,
+          )
           continue
         }
         const id = record?.id || `project:${createHash('sha256').update(canonicalProject + '\0' + source).digest('hex')}`

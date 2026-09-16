@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import {
   cpSync,
   existsSync,
@@ -20,6 +21,7 @@ import { parseDocument } from 'yaml'
 import {
   DEFAULT_AI_TOOLS,
   type AdoptSkillResult,
+  type BatchSkillAdoptionResult,
   type BatchItemResult,
   type ConflictResolutionStrategy,
   type DisconnectSkillResult,
@@ -27,6 +29,10 @@ import {
   type ResolveSkillConflictResult,
   type ResolveSkillConflictTarget,
   type Skill,
+  type SkillAdoptionPlan,
+  type SkillAdoptionPlanItem,
+  type SkillAdoptionPlanTarget,
+  type SkillAdoptionTargetResult,
   type SkillTargetBinding,
 } from '@workflow-skill/workflow-model'
 import { SUPPORTED_PROJECT_SKILL_PATHS } from './project-manager.ts'
@@ -35,6 +41,7 @@ export interface SkillInjectionOptions {
   traceHome?: string
   defaultProjectWorkspace?: string
   homeDir?: string
+  projectPaths?: string[]
 }
 
 export function getEffectiveTraceHome(customTraceHome?: string): string {
@@ -45,6 +52,45 @@ export function getEffectiveTraceHome(customTraceHome?: string): string {
 export function getEffectiveHomeDir(customHomeDir?: string): string {
   if (customHomeDir) return customHomeDir
   return os.homedir()
+}
+
+/**
+ * Create a deterministic fingerprint for a Skill directory without following
+ * nested symlinks. The latter is important here: a Skill may contain helper
+ * links, but discovery must never walk outside the asset it is inspecting.
+ */
+export function getSkillDirectoryFingerprint(directory: string): string {
+  const hash = createHash('sha256')
+  const visit = (current: string, relative: string) => {
+    const entries = readdirSync(current).sort((a, b) => a.localeCompare(b))
+    for (const name of entries) {
+      const entry = path.join(current, name)
+      const entryRelative = path.join(relative, name).split(path.sep).join('/')
+      const stat = lstatSync(entry)
+      if (stat.isDirectory()) {
+        hash.update(`dir\0${entryRelative}\0`)
+        visit(entry, entryRelative)
+      } else if (stat.isSymbolicLink()) {
+        hash.update(`link\0${entryRelative}\0${readlinkSync(entry)}\0`)
+      } else if (stat.isFile()) {
+        hash.update(`file\0${entryRelative}\0`)
+        hash.update(readFileSync(entry))
+        hash.update('\0')
+      } else {
+        hash.update(`other\0${entryRelative}\0${stat.mode}\0`)
+      }
+    }
+  }
+  visit(directory, '')
+  return hash.digest('hex')
+}
+
+function tryGetSkillDirectoryFingerprint(directory: string): string | undefined {
+  try {
+    return getSkillDirectoryFingerprint(directory)
+  } catch {
+    return undefined
+  }
 }
 
 function resolveGlobalSkillDirectory(tool: (typeof DEFAULT_AI_TOOLS)[number], homeDir: string): string {
@@ -130,7 +176,8 @@ export function safeRemoveLink(targetLinkPath: string): boolean {
 
 export function inspectSkillTarget(
   targetLinkPath: string,
-  expectedCentralFolder?: string
+  expectedCentralFolder?: string,
+  expectedContentHash?: string,
 ): {
   exists: boolean
   isSymlink: boolean
@@ -149,8 +196,22 @@ export function inspectSkillTarget(
             : path.resolve(expectedCentralFolder)
           if (real === expectedReal) {
             return { exists: true, isSymlink: true, targetPath: real, status: 'linked' }
+          } else if (expectedContentHash && tryGetSkillDirectoryFingerprint(real) === expectedContentHash) {
+            return {
+              exists: true,
+              isSymlink: true,
+              targetPath: real,
+              status: 'external',
+              error: '目标是外部软链接，但内容与应用源一致，可纳入应用管理',
+            }
           } else {
-            return { exists: true, isSymlink: true, targetPath: real, status: 'external' }
+            return {
+              exists: true,
+              isSymlink: true,
+              targetPath: real,
+              status: expectedContentHash ? 'conflict' : 'external',
+              error: expectedContentHash ? '目标软链接指向外部目录且内容与应用源不一致' : undefined,
+            }
           }
         }
         return { exists: true, isSymlink: true, targetPath: real, status: 'linked' }
@@ -162,7 +223,24 @@ export function inspectSkillTarget(
       }
     } else if (lstat.isDirectory()) {
       if (expectedCentralFolder) {
-        return { exists: true, isSymlink: false, targetPath: targetLinkPath, status: 'conflict', error: '目标已存在且为普通目录，非 Trace 管理软链接' }
+        if (expectedContentHash && tryGetSkillDirectoryFingerprint(targetLinkPath) === expectedContentHash) {
+          return {
+            exists: true,
+            isSymlink: false,
+            targetPath: targetLinkPath,
+            status: 'external',
+            error: '目标是普通目录，但内容与应用源一致，可纳入应用管理',
+          }
+        }
+        return {
+          exists: true,
+          isSymlink: false,
+          targetPath: targetLinkPath,
+          status: 'conflict',
+          error: expectedContentHash
+            ? '目标是普通目录且内容与应用源不一致'
+            : '目标已存在且为普通目录，非 Trace 管理软链接',
+        }
       }
       return { exists: true, isSymlink: false, targetPath: targetLinkPath, status: 'external' }
     } else {
@@ -768,15 +846,465 @@ export function adoptSkillAsset(
   }
 
   // Source replaced successfully. Preserve a recoverable backup when possible.
-  const trashPath = path.join(traceHome, '.trash', `${id}-${Date.now()}`)
-  try {
-    mkdirSync(path.dirname(trashPath), { recursive: true })
-    renameSync(backupDir, trashPath)
-  } catch {
-    // Keep the side-by-side backup if it cannot be moved across volumes.
-  }
+  // Preserve the pre-adoption source with the same cross-volume fallback used
+  // by conflict resolution. If the configured Trace storage is on another
+  // volume, the backup may remain beside the source rather than being lost.
+  preserveTargetInTrash(backupDir, traceHome, `${id}-adopt`)
 
   return { success: true, skill: skillRecord, linkPath: sourcePath }
+}
+
+function isPathInside(parent: string, candidate: string): boolean {
+  const normalizeExistingPath = (value: string) => {
+    try { return realpathSync(value) } catch { return path.resolve(value) }
+  }
+  const relative = path.relative(normalizeExistingPath(parent), normalizeExistingPath(candidate))
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+}
+
+function normalizePathWithoutFinalSymlink(value: string): string {
+  const resolved = path.resolve(value)
+  try { return path.join(realpathSync(path.dirname(resolved)), path.basename(resolved)) }
+  catch { return resolved }
+}
+
+function isDirectCentralLink(targetPath: string, centralFolder: string): boolean {
+  try {
+    const stat = lstatSync(targetPath)
+    if (!stat.isSymbolicLink()) return false
+    const linkTarget = readlinkSync(targetPath)
+    const resolvedLinkTarget = path.isAbsolute(linkTarget)
+      ? linkTarget
+      : path.resolve(path.dirname(targetPath), linkTarget)
+    return normalizePathWithoutFinalSymlink(resolvedLinkTarget) === normalizePathWithoutFinalSymlink(centralFolder)
+  } catch {
+    return false
+  }
+}
+
+function normalizeSkillId(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'skill'
+}
+
+function resolveGlobalTool(targetId: string) {
+  return DEFAULT_AI_TOOLS.find(
+    (tool) => tool.scope === 'global' && (
+      tool.id === targetId ||
+      tool.id.replace(/-global$/, '') === targetId ||
+      tool.compatibleTools?.some((compatible) => compatible.id === targetId)
+    )
+  )
+}
+
+function readExistingCentralHash(centralSkillsDir: string, suggestedSkillId: string): string | undefined {
+  const folder = path.join(centralSkillsDir, suggestedSkillId)
+  const record = path.join(centralSkillsDir, `${suggestedSkillId}.json`)
+  if (!existsSync(folder) || !existsSync(record)) return undefined
+  return tryGetSkillDirectoryFingerprint(folder)
+}
+
+interface CollectedSkillAdoptionTarget {
+  target: SkillAdoptionPlanTarget
+}
+
+function collectSkillAdoptionTarget(
+  descriptor: AdoptSkillTarget,
+  targetPath: string,
+  centralSkillsDir: string,
+  errors: string[],
+): CollectedSkillAdoptionTarget | null {
+  let stat
+  try {
+    stat = lstatSync(targetPath)
+  } catch (err: any) {
+    if (err?.code !== 'ENOENT') errors.push(`${targetPath}：无法读取目标，${err?.message || String(err)}`)
+    return null
+  }
+
+  const isSymlink = stat.isSymbolicLink()
+  let canonicalSourcePath: string
+  try {
+    canonicalSourcePath = realpathSync(targetPath)
+  } catch (err: any) {
+    errors.push(`${targetPath}：${isSymlink ? '软链接已损坏，' : ''}无法接管（${err?.message || String(err)}）`)
+    return null
+  }
+
+  let sourceStat
+  try {
+    sourceStat = statSync(canonicalSourcePath)
+  } catch (err: any) {
+    errors.push(`${targetPath}：源目录不可访问，${err?.message || String(err)}`)
+    return null
+  }
+  if (!sourceStat.isDirectory()) return null
+  if (isPathInside(centralSkillsDir, canonicalSourcePath)) return null
+
+  const skillMarkdownPath = path.join(canonicalSourcePath, 'SKILL.md')
+  if (!existsSync(skillMarkdownPath)) return null
+  const contentHash = tryGetSkillDirectoryFingerprint(canonicalSourcePath)
+  if (!contentHash) {
+    errors.push(`${targetPath}：无法计算 Skill 内容指纹，已跳过`)
+    return null
+  }
+
+  const skillId = path.basename(targetPath)
+  return {
+    target: {
+      scope: descriptor.type === 'project' ? 'project' : 'global',
+      toolId: descriptor.toolId,
+      projectPath: descriptor.projectPath,
+      relPath: descriptor.relPath,
+      skillId,
+      targetPath,
+      sourcePath: targetPath,
+      canonicalSourcePath,
+      status: 'external',
+      isSymlink,
+      contentHash,
+    },
+  }
+}
+
+function collectGlobalSkillAdoptionTargets(
+  centralSkillsDir: string,
+  effectiveHome: string,
+  errors: string[],
+): CollectedSkillAdoptionTarget[] {
+  const targets: CollectedSkillAdoptionTarget[] = []
+  for (const tool of DEFAULT_AI_TOOLS.filter((candidate) => candidate.scope === 'global')) {
+    const toolDir = resolveGlobalSkillDirectory(tool, effectiveHome)
+    if (!existsSync(toolDir)) continue
+    let items: string[]
+    try {
+      items = readdirSync(toolDir).sort((a, b) => a.localeCompare(b))
+    } catch (err: any) {
+      errors.push(`${tool.name}：无法读取技能目录，${err?.message || String(err)}`)
+      continue
+    }
+    for (const item of items) {
+      if (item.startsWith('.')) continue
+      const targetPath = path.join(toolDir, item)
+      const collected = collectSkillAdoptionTarget(
+        { type: 'global', toolId: tool.id },
+        targetPath,
+        centralSkillsDir,
+        errors,
+      )
+      if (collected) targets.push(collected)
+    }
+  }
+  return targets
+}
+
+function collectProjectSkillAdoptionTargets(
+  centralSkillsDir: string,
+  projectPaths: string[],
+  errors: string[],
+): CollectedSkillAdoptionTarget[] {
+  const targets: CollectedSkillAdoptionTarget[] = []
+  const projects = Array.from(new Set(projectPaths.map((project) => path.resolve(project))))
+  for (const projectPath of projects) {
+    try {
+      if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
+        errors.push(`项目路径不存在或不是文件夹：${projectPath}`)
+        continue
+      }
+    } catch (err: any) {
+      errors.push(`项目路径不可访问：${projectPath}（${err?.message || String(err)}）`)
+      continue
+    }
+
+    for (const supportedPath of SUPPORTED_PROJECT_SKILL_PATHS) {
+      const skillDir = path.join(projectPath, supportedPath.relPath)
+      if (!existsSync(skillDir)) continue
+      let items: string[]
+      try {
+        items = readdirSync(skillDir).sort((a, b) => a.localeCompare(b))
+      } catch (err: any) {
+        errors.push(`${projectPath}/${supportedPath.relPath}：无法读取技能目录，${err?.message || String(err)}`)
+        continue
+      }
+      for (const item of items) {
+        if (item.startsWith('.')) continue
+        const targetPath = path.join(skillDir, item)
+        const collected = collectSkillAdoptionTarget(
+          { type: 'project', projectPath, relPath: supportedPath.relPath },
+          targetPath,
+          centralSkillsDir,
+          errors,
+        )
+        if (collected) targets.push(collected)
+      }
+    }
+  }
+  return targets
+}
+
+function adoptionPlanItemStatus(
+  centralSkillsDir: string,
+  suggestedSkillId: string,
+  contentHash: string,
+): { status: SkillAdoptionPlanItem['status']; reason?: string } {
+  const existingHash = readExistingCentralHash(centralSkillsDir, suggestedSkillId)
+  if (!existingHash) return { status: 'ready' }
+  if (existingHash === contentHash) {
+    return { status: 'ready', reason: '中心库已有相同内容，接管时复用现有源资产' }
+  }
+  return {
+    status: 'conflict',
+    reason: `中心库已有 ${suggestedSkillId}，但内容不同。为避免静默覆盖，该项需要单独确认。`,
+  }
+}
+
+/** Build a read-only plan for taking over existing global/project Skills. */
+export function buildSkillAdoptionPlan(options?: SkillInjectionOptions): SkillAdoptionPlan {
+  const traceHome = getEffectiveTraceHome(options?.traceHome)
+  const centralSkillsDir = path.join(traceHome, 'skills')
+  const errors: string[] = []
+  const collected = [
+    ...collectGlobalSkillAdoptionTargets(centralSkillsDir, getEffectiveHomeDir(options?.homeDir), errors),
+    ...collectProjectSkillAdoptionTargets(centralSkillsDir, options?.projectPaths || [], errors),
+  ]
+  const grouped = new Map<string, CollectedSkillAdoptionTarget[]>()
+  for (const item of collected) {
+    const hash = item.target.contentHash || ''
+    const key = `${item.target.canonicalSourcePath}\0${hash}`
+    const group = grouped.get(key) || []
+    group.push(item)
+    grouped.set(key, group)
+  }
+
+  const items: SkillAdoptionPlanItem[] = Array.from(grouped.entries()).map(([key, group]) => {
+    const first = group[0].target
+    const suggestedSkillId = normalizeSkillId(first.skillId)
+    const contentHash = first.contentHash || ''
+    const status = adoptionPlanItemStatus(centralSkillsDir, suggestedSkillId, contentHash)
+    return {
+      key,
+      suggestedSkillId,
+      name: first.skillId,
+      sourcePath: first.canonicalSourcePath,
+      contentHash,
+      targets: group.map((entry) => entry.target),
+      ...status,
+    }
+  }).sort((a, b) => a.name.localeCompare(b.name))
+
+  // Multiple physical sources with the same Skill name are safe only when
+  // their content is identical. Keep divergent versions visible for explicit
+  // handling instead of relying on execution order to allocate a suffix.
+  const sameNameGroups = new Map<string, SkillAdoptionPlanItem[]>()
+  for (const item of items) {
+    const group = sameNameGroups.get(item.suggestedSkillId) || []
+    group.push(item)
+    sameNameGroups.set(item.suggestedSkillId, group)
+  }
+  for (const [suggestedSkillId, groups] of sameNameGroups) {
+    const hashes = new Set(groups.map((item) => item.contentHash))
+    if (hashes.size <= 1) continue
+    for (const item of groups) {
+      item.status = 'conflict'
+      item.reason = `发现多个名为 ${suggestedSkillId} 但内容不同的 Skill。为避免静默覆盖，该项需要单独确认。`
+    }
+  }
+
+  const totalTargets = items.reduce((sum, item) => sum + item.targets.length, 0)
+  const adoptableTargets = items
+    .filter((item) => item.status === 'ready')
+    .reduce((sum, item) => sum + item.targets.length, 0)
+  const conflictTargets = items
+    .filter((item) => item.status === 'conflict' || item.status === 'invalid')
+    .reduce((sum, item) => sum + item.targets.length, 0)
+
+  return {
+    generatedAt: Date.now(),
+    projectPaths: Array.from(new Set((options?.projectPaths || []).map((project) => path.resolve(project)))),
+    items,
+    totalSkills: items.length,
+    totalTargets,
+    adoptableTargets,
+    conflictTargets,
+    errors,
+  }
+}
+
+function updateAdoptedSkillBinding(
+  skillId: string,
+  target: SkillAdoptionPlanTarget,
+  options: SkillInjectionOptions,
+): { success: boolean; error?: string } {
+  const traceHome = getEffectiveTraceHome(options.traceHome)
+  const filePath = path.join(traceHome, 'skills', `${skillId}.json`)
+  try {
+    const skill = JSON.parse(readFileSync(filePath, 'utf8')) as Skill
+    skill.ownership = 'app'
+    skill.skillPath = path.join(traceHome, 'skills', skillId)
+    skill.updatedLabel = '刚刚纳入'
+    if (target.scope === 'global' && target.toolId) {
+      const tool = resolveGlobalTool(target.toolId)
+      const canonicalToolId = tool?.id || target.toolId
+      skill.targetTools = Array.from(new Set([...(skill.targetTools || []), canonicalToolId]))
+      skill.scopeStatus = '全局软链'
+    } else if (target.scope === 'project' && target.projectPath && target.relPath) {
+      const projectPath = path.resolve(target.projectPath)
+      skill.targetProjects = Array.from(new Set([...(skill.targetProjects || []), projectPath]))
+      skill.targetProjectPaths = Array.from(
+        new Map(
+          [...(skill.targetProjectPaths || []), { projectPath, relPath: target.relPath }]
+            .map((item) => [`${path.resolve(item.projectPath)}\0${item.relPath}`, item] as const),
+        ).values(),
+      )
+      skill.scopeStatus = '项目软链'
+    }
+    writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf8')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: `保存纳入后的 Skill 关联失败: ${err?.message || String(err)}` }
+  }
+}
+
+function resolvePlanTargetStatus(target: SkillAdoptionPlanTarget, centralFolder: string) {
+  return inspectSkillTarget(target.targetPath, centralFolder, target.contentHash)
+}
+
+function linkAdoptedTarget(
+  skillId: string,
+  target: SkillAdoptionPlanTarget,
+  options: SkillInjectionOptions,
+): SkillAdoptionTargetResult {
+  const traceHome = getEffectiveTraceHome(options.traceHome)
+  const centralFolder = path.join(traceHome, 'skills', skillId)
+  const current = resolvePlanTargetStatus(target, centralFolder)
+  if (current.status === 'conflict' || current.status === 'broken') {
+    return { targetPath: target.targetPath, success: false, error: current.error || '目标在预览后发生变化，已保留原内容' }
+  }
+  if (current.status === 'linked' && isDirectCentralLink(target.targetPath, centralFolder)) {
+    const metadata = updateAdoptedSkillBinding(skillId, target, options)
+    return metadata.success
+      ? { targetPath: target.targetPath, success: true, linkPath: target.targetPath }
+      : { targetPath: target.targetPath, success: false, error: metadata.error }
+  }
+
+  let backupPath = ''
+  let originalLinkTarget = ''
+  let createdLink = false
+  try {
+    mkdirSync(path.dirname(target.targetPath), { recursive: true })
+    if (current.exists && current.status === 'external') {
+      if (target.contentHash && current.targetPath) {
+        const currentHash = tryGetSkillDirectoryFingerprint(current.targetPath)
+        if (currentHash !== target.contentHash) {
+          return { targetPath: target.targetPath, success: false, error: '目标内容在接管前发生变化，已保留原内容' }
+        }
+      }
+      backupPath = preserveTargetInTrash(target.targetPath, traceHome, `${skillId}-adopt`)
+      if (!backupPath) return { targetPath: target.targetPath, success: false, error: '无法备份目标内容，已保留原目标' }
+    } else if (current.exists && current.status === 'linked') {
+      originalLinkTarget = readlinkSync(target.targetPath)
+      unlinkSync(target.targetPath)
+    }
+    const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
+    symlinkSync(path.resolve(centralFolder), path.resolve(target.targetPath), symlinkType)
+    createdLink = true
+    const verified = inspectSkillTarget(target.targetPath, centralFolder)
+    if (verified.status !== 'linked') throw new Error('创建后 realpath 校验失败')
+    const metadata = updateAdoptedSkillBinding(skillId, target, options)
+    if (!metadata.success) {
+      try { unlinkSync(target.targetPath) } catch {}
+      if (originalLinkTarget) {
+        try { symlinkSync(originalLinkTarget, target.targetPath, symlinkType) } catch {}
+      } else {
+        restoreTargetFromTrash(backupPath, target.targetPath)
+      }
+      return { targetPath: target.targetPath, success: false, error: metadata.error }
+    }
+    return { targetPath: target.targetPath, success: true, linkPath: target.targetPath }
+  } catch (err: any) {
+    if (createdLink) {
+      try { unlinkSync(target.targetPath) } catch {}
+    }
+    if (originalLinkTarget) {
+      try {
+        symlinkSync(originalLinkTarget, target.targetPath, process.platform === 'win32' ? 'junction' : 'dir')
+      } catch {}
+    } else {
+      restoreTargetFromTrash(backupPath, target.targetPath)
+    }
+    return { targetPath: target.targetPath, success: false, error: `创建统一软链接失败: ${err?.message || String(err)}` }
+  }
+}
+
+/** Execute a previously previewable, idempotent batch Skill adoption. */
+export function adoptAllSkills(options?: SkillInjectionOptions): BatchSkillAdoptionResult {
+  const plan = buildSkillAdoptionPlan(options)
+  const results: BatchSkillAdoptionResult['results'] = []
+  let adoptedCount = 0
+  let linkedTargetCount = 0
+  let failedCount = 0
+  let skippedCount = 0
+
+  for (const item of plan.items) {
+    if (item.status !== 'ready' || item.targets.length === 0) {
+      skippedCount += 1
+      results.push({
+        key: item.key,
+        success: false,
+        adopted: false,
+        targets: [],
+        error: item.reason || '该 Skill 需要单独处理，未执行批量接管',
+      })
+      continue
+    }
+
+    const first = item.targets[0]
+    const firstDescriptor: AdoptSkillTarget = {
+      type: first.scope,
+      toolId: first.toolId,
+      projectPath: first.projectPath,
+      relPath: first.relPath,
+      skillId: first.skillId,
+      targetPath: first.targetPath,
+    }
+    const adopted = adoptSkillAsset(firstDescriptor, options)
+    if (!adopted.success || !adopted.skill) {
+      failedCount += 1
+      results.push({ key: item.key, success: false, adopted: false, targets: [], error: adopted.error || '接管 Skill 失败' })
+      continue
+    }
+
+    adoptedCount += 1
+    const targetResults: SkillAdoptionTargetResult[] = []
+    for (const target of item.targets) {
+      const result = linkAdoptedTarget(adopted.skill.id, target, options || {})
+      targetResults.push(result)
+      if (result.success) linkedTargetCount += 1
+    }
+    const itemSuccess = targetResults.every((result) => result.success)
+    if (!itemSuccess) failedCount += 1
+    results.push({
+      key: item.key,
+      skillId: adopted.skill.id,
+      success: itemSuccess,
+      adopted: true,
+      targets: targetResults,
+      error: itemSuccess ? undefined : '部分目标未能完成统一软链接',
+    })
+  }
+
+  return {
+    success: failedCount === 0 && plan.errors.length === 0,
+    plan,
+    results,
+    adoptedCount,
+    linkedTargetCount,
+    failedCount,
+    skippedCount,
+  }
 }
 
 export function disconnectSkillTarget(
@@ -810,19 +1338,23 @@ export function preserveTargetInTrash(targetPath: string, traceHome: string, pre
       try {
         linkDest = readlinkSync(targetPath)
       } catch {}
+      if (!linkDest) return ''
       const symlinkType = process.platform === 'win32' ? 'junction' : 'dir'
       try {
-        if (linkDest) {
-          const absoluteDest = path.isAbsolute(linkDest)
-            ? linkDest
-            : path.resolve(path.dirname(targetPath), linkDest)
-          symlinkSync(absoluteDest, backupPath, symlinkType)
-        }
-      } catch {}
+        const absoluteDest = path.isAbsolute(linkDest)
+          ? linkDest
+          : path.resolve(path.dirname(targetPath), linkDest)
+        symlinkSync(absoluteDest, backupPath, symlinkType)
+      } catch {
+        return ''
+      }
       try {
         unlinkSync(targetPath)
-      } catch {}
-      try { lstatSync(backupPath); return backupPath } catch { return '' }
+        return backupPath
+      } catch {
+        try { unlinkSync(backupPath) } catch {}
+        return ''
+      }
     }
   } else {
     try {
@@ -832,7 +1364,7 @@ export function preserveTargetInTrash(targetPath: string, traceHome: string, pre
       try {
         cpSync(targetPath, backupPath, { recursive: true })
         rmSync(targetPath, { recursive: true, force: true })
-        return backupPath
+        try { lstatSync(targetPath); return '' } catch { return backupPath }
       } catch {
         return ''
       }
@@ -1213,10 +1745,12 @@ export function discoverAllGlobalSkills(options?: SkillInjectionOptions): Skill[
               }
               parsed.skillPath = skillFolder
               parsed.ownership = 'app'
+              const expectedContentHash = tryGetSkillDirectoryFingerprint(skillFolder)
 
               // Validate target bindings for global tools
               const bindings: SkillTargetBinding[] = []
               let hasHealthyLink = false
+              let hasExternalTarget = false
               let hasConflict = false
               let hasBrokenLink = false
 
@@ -1224,16 +1758,10 @@ export function discoverAllGlobalSkills(options?: SkillInjectionOptions): Skill[
               for (const tool of DEFAULT_AI_TOOLS.filter((candidate) => candidate.scope === 'global')) {
                 const toolDir = resolveGlobalSkillDirectory(tool, effectiveHome)
                 const targetLink = path.join(toolDir, parsed.id)
-                const inspection = inspectSkillTarget(targetLink, skillFolder)
-                const storedToolId = (parsed.targetTools || []).find((toolId) =>
-                  toolId === tool.id ||
-                  toolId === tool.id.replace(/-global$/, '') ||
-                  tool.compatibleTools?.some((compatible) => compatible.id === toolId)
-                )
-                const toolId = storedToolId || tool.id
+                const inspection = inspectSkillTarget(targetLink, skillFolder, expectedContentHash)
                 bindings.push({
                   scope: 'global',
-                  toolId,
+                  toolId: tool.id,
                   targetPath: targetLink,
                   status: inspection.status,
                   linkTarget: inspection.targetPath,
@@ -1241,9 +1769,10 @@ export function discoverAllGlobalSkills(options?: SkillInjectionOptions): Skill[
                 })
                 if (inspection.status === 'linked') {
                   hasHealthyLink = true
-                  linkedTargetIds.push(toolId)
+                  linkedTargetIds.push(tool.id)
                 }
-                if (inspection.status === 'conflict' || inspection.status === 'external') hasConflict = true
+                if (inspection.status === 'external') hasExternalTarget = true
+                if (inspection.status === 'conflict') hasConflict = true
                 if (inspection.status === 'broken') hasBrokenLink = true
               }
 
@@ -1256,6 +1785,8 @@ export function discoverAllGlobalSkills(options?: SkillInjectionOptions): Skill[
                 parsed.scopeStatus = '冲突'
               } else if (hasBrokenLink) {
                 parsed.scopeStatus = '链接损坏'
+              } else if (hasExternalTarget) {
+                parsed.scopeStatus = '待接管'
               } else if (hasHealthyLink) {
                 parsed.scopeStatus = '全局软链'
               } else {
@@ -1315,15 +1846,17 @@ export function discoverAllGlobalSkills(options?: SkillInjectionOptions): Skill[
           const centralId = centralRel.split(path.sep)[0]
           if (skillsMap.has(centralId)) {
             const skill = skillsMap.get(centralId)!
-            if (!skill.targetTools?.includes(tool.id)) {
-              skill.targetTools = Array.from(new Set([...(skill.targetTools || []), tool.id]))
-            }
-            if (skill.scopeStatus !== '冲突') {
+            if (skill.scopeStatus !== '冲突' && skill.scopeStatus !== '待接管') {
               skill.scopeStatus = '全局软链'
             }
           }
           continue
         }
+
+        // A central record with the same id already owns this physical entry.
+        // Keep its per-target binding instead of creating a duplicate external
+        // row for the ordinary directory or wrong link.
+        if (skillsMap.has(item)) continue
 
         // Otherwise, it's an external directory or external symlink!
         const skillMdPath = path.join(realPath, 'SKILL.md')

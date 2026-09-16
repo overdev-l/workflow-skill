@@ -12,6 +12,7 @@ import type {
   AIProjectItem,
   AdoptMCPResult,
   AdoptSkillResult,
+  BatchSkillAdoptionResult,
   BatchItemResult,
   CentralMCPServer,
   ClaudeLinkResult,
@@ -37,6 +38,7 @@ import type {
   ResolveMCPConflictResult,
   ResolveSkillConflictInput,
   ResolveSkillConflictResult,
+  SkillAdoptionPlan,
   Workflow,
 } from '@workflow-skill/workflow-model'
 
@@ -302,6 +304,10 @@ contextBridge.exposeInMainWorld('workflowSkill', {
     target: { type?: 'global' | 'project'; toolId?: string; projectPath?: string; relPath?: string; skillId?: string; targetPath?: string }
   ) =>
     ipcRenderer.invoke('skills:adopt', target) as Promise<AdoptSkillResult>,
+  getSkillAdoptionPlan: () =>
+    ipcRenderer.invoke('skills:adoption-plan') as Promise<SkillAdoptionPlan>,
+  adoptAllSkills: () =>
+    ipcRenderer.invoke('skills:adopt-all') as Promise<BatchSkillAdoptionResult>,
   resolveSkillConflict: (input: ResolveSkillConflictInput) =>
     ipcRenderer.invoke('skills:resolve-conflict', input) as Promise<ResolveSkillConflictResult>,
   batchInjectSkills: (

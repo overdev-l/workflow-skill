@@ -7066,6 +7066,12 @@ body.is-resizing-master-column * {
   border-color: color-mix(in oklch, var(--color-accent) 30%, transparent);
 }
 
+.skill-ownership-badge--pending {
+  color: var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 9%, transparent);
+  border-color: color-mix(in oklch, var(--color-accent) 24%, transparent);
+}
+
 .skill-ownership-badge--conflict {
   color: var(--color-danger-ink);
   background: var(--color-danger-bg);
@@ -7107,10 +7113,46 @@ body.is-resizing-master-column * {
 .skill-ownership-target { min-width: 0; min-height: 22px; }
 .skill-ownership-target__status { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--color-muted); }
 .skill-ownership-target__status.is-linked { background: var(--color-success); }
+.skill-ownership-target__status.is-external { background: var(--color-accent); }
 .skill-ownership-target__status.is-conflict,
 .skill-ownership-target__status.is-broken { background: var(--color-danger); }
 .skill-ownership-target__label { min-width: 0; flex: 1; overflow: hidden; color: var(--color-ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .skill-ownership-target__error { color: var(--color-danger-ink); font-size: 10px; }
+
+.skill-adoption-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in oklch, var(--color-accent) 7%, transparent);
+}
+.skill-adoption-banner__copy { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--color-accent); font-size: 10px; }
+.skill-adoption-banner__copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-adoption-banner .btn { flex: 0 0 auto; height: 22px; padding-inline: 7px; }
+
+.skill-adoption-dialog { width: min(480px, calc(100vw - 32px)); }
+.skill-adoption-dialog__body { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; }
+.skill-adoption-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.skill-adoption-summary > div { display: flex; flex-direction: column; gap: 2px; padding: 9px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-float); }
+.skill-adoption-summary strong { color: var(--color-ink); font-size: 17px; font-weight: 650; line-height: 1; }
+.skill-adoption-summary span { color: var(--color-muted); font-size: 10px; }
+.skill-adoption-dialog__notice { margin: 0; color: var(--color-muted); font-size: 11px; line-height: 1.45; }
+.skill-adoption-dialog__notice code { color: var(--color-ink); font-size: 10px; }
+.skill-adoption-list { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-float); }
+.skill-adoption-list__row { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 21px; color: var(--color-ink); font-size: 11px; }
+.skill-adoption-list__row svg { flex: 0 0 auto; color: var(--color-success-ink); }
+.skill-adoption-list__row span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-adoption-list__row small, .skill-adoption-list__more { color: var(--color-muted); font-size: 10px; }
+.skill-adoption-list__more { padding-left: 18px; }
+.skill-adoption-warning { display: flex; align-items: flex-start; gap: 6px; padding: 7px 9px; border: 1px solid color-mix(in oklch, var(--color-accent) 22%, transparent); border-radius: 7px; color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 7%, transparent); font-size: 10px; line-height: 1.4; }
+.skill-adoption-result { display: flex; align-items: flex-start; gap: 9px; padding: 12px; border: 1px solid color-mix(in oklch, var(--color-success) 28%, transparent); border-radius: 8px; color: var(--color-success-ink); background: var(--color-success-bg); }
+.skill-adoption-result.is-partial { border-color: color-mix(in oklch, var(--color-accent) 28%, transparent); color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 8%, transparent); }
+.skill-adoption-result > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.skill-adoption-result strong { font-size: 12px; font-weight: 650; }
+.skill-adoption-result span { color: var(--color-muted); font-size: 10px; }
 
 .conflict-resolution-backdrop {
   position: fixed;

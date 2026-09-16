@@ -83,12 +83,14 @@ import {
   SUPPORTED_PROJECT_SKILL_PATHS,
   type AIToolCategory,
   type AIToolTarget,
+  type BatchSkillAdoptionResult,
   type ConflictResolutionStrategy,
   type DeleteSkillMode,
   type ProjectRecord,
   type ManagedProjectRecord,
   type RemoteSkill,
   type Skill,
+  type SkillAdoptionPlan,
   type SkillTargetBinding,
   type Workflow,
   type WorkflowNode,
@@ -732,6 +734,108 @@ function SafeDeleteSkillModal({
   )
 }
 
+function SkillAdoptionDialog({
+  open,
+  plan,
+  result,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean
+  plan: SkillAdoptionPlan | null
+  result: BatchSkillAdoptionResult | null
+  busy: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  if (!open || !plan) return null
+
+  const readyItems = plan.items.filter(item => item.status === 'ready')
+  const conflictItems = plan.items.filter(item => item.status !== 'ready')
+  const completedTargets = result?.linkedTargetCount || 0
+  const failedItems = result?.failedCount || 0
+
+  return (
+    <div className="modal-glass-backdrop" onMouseDown={() => { if (!busy) onClose() }}>
+      <div
+        className="glass-dialog-box skill-adoption-dialog modal-pop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="skill-adoption-title"
+        onMouseDown={event => event.stopPropagation()}
+      >
+        <div className="dialog-header-row">
+          <div>
+            <h2 id="skill-adoption-title">统一接管现有 Skill</h2>
+            <p>将现有目录纳入 Trace 中心库，并统一为可恢复的软链接。</p>
+          </div>
+          <button type="button" className="dialog-close-btn" onClick={onClose} disabled={busy} aria-label="关闭">
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="dialog-body skill-adoption-dialog__body">
+          {result ? (
+            <div className={`skill-adoption-result ${result.success ? 'is-success' : 'is-partial'}`} role="status">
+              <CheckCircle2 size={18} />
+              <div>
+                <strong>{result.success ? '接管完成' : '接管已完成一部分'}</strong>
+                <span>已统一连接 {completedTargets} 个入口{failedItems > 0 ? `，${failedItems} 个 Skill 仍需处理` : ''}。</span>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="skill-adoption-summary">
+                <div><strong>{plan.totalSkills}</strong><span>个 Skill</span></div>
+                <div><strong>{plan.totalTargets}</strong><span>个全局 / 项目入口</span></div>
+                <div><strong>{plan.adoptableTargets}</strong><span>个可直接接管</span></div>
+              </div>
+              <p className="skill-adoption-dialog__notice">
+                Trace 会先复制到中心库，再替换目标入口。原目录会保留在 <code>~/.trace/.trash</code>，不会静默删除内容。
+              </p>
+              {readyItems.length > 0 ? (
+                <div className="skill-adoption-list">
+                  {readyItems.slice(0, 6).map(item => (
+                    <div className="skill-adoption-list__row" key={item.key}>
+                      <Check size={12} />
+                      <span>{item.name}</span>
+                      <small>{item.targets.length} 个入口</small>
+                    </div>
+                  ))}
+                  {readyItems.length > 6 ? <small className="skill-adoption-list__more">还有 {readyItems.length - 6} 个 Skill</small> : null}
+                </div>
+              ) : null}
+              {conflictItems.length > 0 ? (
+                <div className="skill-adoption-warning">
+                  <AlertTriangle size={13} />
+                  <span>{conflictItems.length} 个 Skill 与中心库内容不同，本次不会自动覆盖。</span>
+                </div>
+              ) : null}
+              {plan.errors.length > 0 ? (
+                <div className="skill-adoption-warning">
+                  <AlertTriangle size={13} />
+                  <span>{plan.errors.length} 个入口无法读取，将保留原状。</span>
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        <div className="dialog-footer-row">
+          <button type="button" className="btn btn--secondary btn--capsule" onClick={onClose} disabled={busy}>关闭</button>
+          {!result && plan.adoptableTargets > 0 ? (
+            <button type="button" className="btn btn--primary btn--capsule" onClick={onConfirm} disabled={busy}>
+              {busy ? <RefreshCw size={13} className="spin" /> : <Link2 size={13} />}
+              <span>{busy ? '正在接管…' : `接管可处理项 (${plan.adoptableTargets})`}</span>
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface AIEnvGroup {
   key: string
   name: string
@@ -1203,6 +1307,7 @@ function ExpandableSkillDesc({ text }: { text: string }) {
 }
 
 function getSkillOwnershipLabel(skill: Skill): string {
+  if (skill.scopeStatus === '待接管') return '待接管'
   if (skill.ownership === 'external') return '外部持有'
   if (skill.scopeStatus === '冲突' || skill.scopeStatus === '链接损坏') return skill.scopeStatus
   if (skill.scopeStatus === '全局软链' || skill.scopeStatus === '项目软链') return skill.scopeStatus
@@ -1213,6 +1318,7 @@ function getSkillOwnershipLabel(skill: Skill): string {
 function getSkillOwnershipClass(skill: Skill): string {
   const label = getSkillOwnershipLabel(skill)
   if (label === '外部持有') return 'skill-ownership-badge--external'
+  if (label === '待接管') return 'skill-ownership-badge--pending'
   if (label === '冲突' || label === '链接损坏') return 'skill-ownership-badge--conflict'
   if (label === '全局软链' || label === '项目软链') return 'skill-ownership-badge--linked'
   if (label === '未注入') return 'skill-ownership-badge--unbound'
@@ -1266,8 +1372,13 @@ function SkillsThreeColumn({
   const [skillConflictBinding, setSkillConflictBinding] = useState<SkillTargetBinding | null>(null)
   const [skillConflictBusy, setSkillConflictBusy] = useState(false)
   const [skillConflictError, setSkillConflictError] = useState('')
+  const [skillAdoptionPlan, setSkillAdoptionPlan] = useState<SkillAdoptionPlan | null>(null)
+  const [skillAdoptionResult, setSkillAdoptionResult] = useState<BatchSkillAdoptionResult | null>(null)
+  const [skillAdoptionOpen, setSkillAdoptionOpen] = useState(false)
+  const [skillAdoptionBusy, setSkillAdoptionBusy] = useState(false)
   useUpdateBlocker('skill-add', addOpen || createOpen)
   useUpdateBlocker('skill-conflict', Boolean(skillConflictBinding))
+  useUpdateBlocker('skill-adoption', skillAdoptionOpen && skillAdoptionBusy)
   useEffect(() => {
     let active = true
     let generation = 0
@@ -1309,6 +1420,18 @@ function SkillsThreeColumn({
     return true
   })
   const disconnectableSkillBindings = activeSkillBindings.filter(binding => binding.status === 'linked')
+  const refreshSkillAdoptionPlan = async () => {
+    if (!window.workflowSkill?.getSkillAdoptionPlan) return
+    try {
+      const plan = await window.workflowSkill.getSkillAdoptionPlan()
+      setSkillAdoptionPlan(plan)
+    } catch {
+      setSkillAdoptionPlan(null)
+    }
+  }
+  useEffect(() => {
+    void refreshSkillAdoptionPlan()
+  }, [])
   useEffect(() => {
     let active = true
     setSkillMdContent(activeLocalSkill?.skillMarkdown || '')
@@ -1354,9 +1477,59 @@ function SkillsThreeColumn({
       onSelectSkillId(result.skill.id)
       projectDiscovery.refresh()
       await onReloadSkills()
+      await refreshSkillAdoptionPlan()
       notify?.(`已成功纳入应用管理: ${result.skill.name}`)
     } catch (error) {
       notify?.(error instanceof Error ? error.message : '纳入应用管理失败')
+    } finally {
+      setAdoptingSkill(false)
+    }
+  }
+  const handleAdoptAllSkills = async () => {
+    if (skillAdoptionBusy || !window.workflowSkill?.adoptAllSkills) return
+    setSkillAdoptionBusy(true)
+    setSkillAdoptionResult(null)
+    try {
+      const result = await window.workflowSkill.adoptAllSkills()
+      setSkillAdoptionResult(result)
+      projectDiscovery.refresh()
+      await onReloadSkills()
+      await refreshSkillAdoptionPlan()
+      if (result.linkedTargetCount > 0) {
+        notify?.(`已接管 ${result.adoptedCount} 个 Skill，统一连接 ${result.linkedTargetCount} 个入口`)
+      } else if (result.skippedCount > 0) {
+        notify?.(`已完成可处理项，仍有 ${result.skippedCount} 个 Skill 需要单独确认`)
+      }
+    } catch (error) {
+      notify?.(error instanceof Error ? error.message : '批量接管 Skill 失败')
+    } finally {
+      setSkillAdoptionBusy(false)
+    }
+  }
+  const handleAdoptBinding = async (binding: SkillTargetBinding) => {
+    if (!activeLocalSkill || !window.workflowSkill?.adoptSkill || adoptingSkill) return
+    const skillId = binding.targetPath.split(/[\\/]/).filter(Boolean).pop() || activeLocalSkill.id
+    setAdoptingSkill(true)
+    try {
+      const result = await window.workflowSkill.adoptSkill({
+        type: binding.scope,
+        toolId: binding.toolId,
+        projectPath: binding.projectPath,
+        relPath: binding.relPath,
+        skillId,
+        targetPath: binding.targetPath,
+      })
+      if (!result.success || !result.skill) {
+        notify?.(result.error || '接管 Skill 失败')
+        return
+      }
+      onSelectSkillId(result.skill.id)
+      projectDiscovery.refresh()
+      await onReloadSkills()
+      await refreshSkillAdoptionPlan()
+      notify?.(`已接管 ${result.skill.name}，并连接到 ${getSkillTargetLabel(binding)}`)
+    } catch (error) {
+      notify?.(error instanceof Error ? error.message : '接管 Skill 失败')
     } finally {
       setAdoptingSkill(false)
     }
@@ -1406,6 +1579,7 @@ function SkillsThreeColumn({
       setSkillConflictBinding(null)
       projectDiscovery.refresh()
       await onReloadSkills()
+      await refreshSkillAdoptionPlan()
       notify?.(result.backupPath
         ? `Skill 冲突已解决，原版本已备份到 ${result.backupPath}`
         : strategy === 'keep_external' ? '已保留外部 Skill，并解除应用关联' : 'Skill 冲突已解决')
@@ -1446,9 +1620,24 @@ function SkillsThreeColumn({
               </select>
               <ChevronDown size={12} aria-hidden="true" />
             </div>
-            {(projectError || selectedProject?.status === 'missing') && <p role="alert" className="master-list-status">{projectError || '项目目录不可用，请在项目管理中修复。'}</p>}
+          {(projectError || selectedProject?.status === 'missing') && <p role="alert" className="master-list-status">{projectError || '项目目录不可用，请在项目管理中修复。'}</p>}
           </>}
         </div>
+        {skillAdoptionPlan && skillAdoptionPlan.totalTargets > 0 ? (
+          <div className="skill-adoption-banner" role="status">
+            <div className="skill-adoption-banner__copy">
+              <Link2 size={12} />
+              <span>发现 {skillAdoptionPlan.totalSkills} 个现有 Skill</span>
+            </div>
+            <button
+              type="button"
+              className="btn btn--capsule-ghost btn--sm"
+              onClick={() => { setSkillAdoptionResult(null); setSkillAdoptionOpen(true) }}
+            >
+              统一接管
+            </button>
+          </div>
+        ) : null}
         <div className="master-list-scroll">
           {skillTab === 'project' && projectDiscovery.errors.length > 0 && <div className="master-list-status" role="alert">
             <span>{projectDiscovery.errors.join('；')}</span>
@@ -1602,6 +1791,11 @@ function SkillsThreeColumn({
                               {disconnectingSkillTarget === key ? <RefreshCw size={10} className="spin" /> : <Unlink size={10} />}
                               <span>断开</span>
                             </button>
+                          ) : binding.status === 'external' ? (
+                            <button type="button" className="btn btn--capsule-ghost btn--sm" disabled={adoptingSkill} onClick={() => void handleAdoptBinding(binding)}>
+                              {adoptingSkill ? <RefreshCw size={10} className="spin" /> : <Download size={10} />}
+                              <span>接管并连接</span>
+                            </button>
                           ) : (
                             <button
                               type="button"
@@ -1648,6 +1842,15 @@ function SkillsThreeColumn({
           open={Boolean(deleteModalSkill)}
           onClose={() => setDeleteModalSkill(null)}
           onConfirm={onDeleteSkill}
+        />
+
+        <SkillAdoptionDialog
+          open={skillAdoptionOpen}
+          plan={skillAdoptionPlan}
+          result={skillAdoptionResult}
+          busy={skillAdoptionBusy}
+          onClose={() => { if (!skillAdoptionBusy) setSkillAdoptionOpen(false) }}
+          onConfirm={() => void handleAdoptAllSkills()}
         />
 
         <ManageSkillLinksModal
