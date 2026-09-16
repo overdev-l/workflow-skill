@@ -4422,30 +4422,42 @@ export function App() {
     const tool = aiTools.find((t) => t.id === targetId) || DEFAULT_AI_TOOLS.find((t) => t.id === targetId)
     const toolName = tool?.name || targetId
 
-    if (isCurrentlyLinked) {
-      if (window.workflowSkill?.unlinkSkillTarget) {
-        await window.workflowSkill.unlinkSkillTarget(skill.id, targetId)
+    try {
+      if (isCurrentlyLinked) {
+        if (window.workflowSkill?.unlinkSkillTarget) {
+          const res = await window.workflowSkill.unlinkSkillTarget(skill.id, targetId)
+          if (res && res.success === false) {
+            setToast(`Failed to unlink ${skill.name} from ${toolName}`)
+            return
+          }
+        }
+        setSkills((prev) =>
+          prev.map((s) =>
+            s.id === skill.id
+              ? { ...s, targetTools: (s.targetTools || []).filter((id) => id !== targetId) }
+              : s,
+          ),
+        )
+        setToast(t.skills.unlinkedSuccessToast(skill.name, toolName))
+      } else {
+        if (window.workflowSkill?.linkSkillTarget) {
+          const res = await window.workflowSkill.linkSkillTarget(skill.id, targetId)
+          if (res && res.success === false) {
+            setToast(`Failed to link ${skill.name} to ${toolName}`)
+            return
+          }
+        }
+        setSkills((prev) =>
+          prev.map((s) =>
+            s.id === skill.id
+              ? { ...s, targetTools: Array.from(new Set([...(s.targetTools || []), targetId])) }
+              : s,
+          ),
+        )
+        setToast(t.skills.linkedSuccessToast(skill.name, toolName))
       }
-      setSkills((prev) =>
-        prev.map((s) =>
-          s.id === skill.id
-            ? { ...s, targetTools: (s.targetTools || []).filter((id) => id !== targetId) }
-            : s,
-        ),
-      )
-      setToast(t.skills.unlinkedSuccessToast(skill.name, toolName))
-    } else {
-      if (window.workflowSkill?.linkSkillTarget) {
-        await window.workflowSkill.linkSkillTarget(skill.id, targetId)
-      }
-      setSkills((prev) =>
-        prev.map((s) =>
-          s.id === skill.id
-            ? { ...s, targetTools: Array.from(new Set([...(s.targetTools || []), targetId])) }
-            : s,
-        ),
-      )
-      setToast(t.skills.linkedSuccessToast(skill.name, toolName))
+    } catch (err: any) {
+      setToast(err?.message || (isCurrentlyLinked ? `Failed to unlink ${skill.name} from ${toolName}` : `Failed to link ${skill.name} to ${toolName}`))
     }
   }
 

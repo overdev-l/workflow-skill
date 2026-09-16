@@ -91,8 +91,8 @@ declare global {
       unlinkSkillProject?: (skillId: string, projectPath: string) => Promise<{ success: boolean }>
       linkAllSkillsToProject?: (projectPath: string) => Promise<{ success: boolean; count: number }>
       unlinkAllSkillsFromProject?: (projectPath: string) => Promise<{ success: boolean; count: number }>
-      linkSkillTarget?: (skillId: string, targetId: string) => Promise<{ success: boolean; targetDir?: string }>
-      unlinkSkillTarget?: (skillId: string, targetId: string) => Promise<{ success: boolean; targetDir?: string }>
+      linkSkillTarget?: (skillId: string, targetId: string) => Promise<{ success: boolean; error?: string; linkPath?: string; targetDir?: string }>
+      unlinkSkillTarget?: (skillId: string, targetId: string) => Promise<{ success: boolean; error?: string; linkPath?: string; targetDir?: string }>
       linkAllSkillsToTarget?: (targetId: string) => Promise<{ success: boolean; count: number }>
       unlinkAllSkillsFromTarget?: (targetId: string) => Promise<{ success: boolean; count: number }>
       openSkillLinkWindow?: (skillId: string) => Promise<void>

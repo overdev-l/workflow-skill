@@ -132,9 +132,9 @@ contextBridge.exposeInMainWorld('workflowSkill', {
   unlinkAllSkillsFromProject: (projectPath: string) =>
     ipcRenderer.invoke('system:unlink-all-skills-project', projectPath) as Promise<{ success: boolean; count: number }>,
   linkSkillTarget: (skillId: string, targetId: string) =>
-    ipcRenderer.invoke('system:link-skill-target', skillId, targetId) as Promise<{ success: boolean; linkPath?: string }>,
+    ipcRenderer.invoke('system:link-skill-target', skillId, targetId) as Promise<{ success: boolean; error?: string; linkPath?: string; targetDir?: string }>,
   unlinkSkillTarget: (skillId: string, targetId: string) =>
-    ipcRenderer.invoke('system:unlink-skill-target', skillId, targetId) as Promise<{ success: boolean }>,
+    ipcRenderer.invoke('system:unlink-skill-target', skillId, targetId) as Promise<{ success: boolean; error?: string; linkPath?: string; targetDir?: string }>,
   getSkillLinkHealth: (skillId: string) =>
     ipcRenderer.invoke('system:get-skill-link-health', skillId) as Promise<Record<string, 'healthy' | 'broken' | 'unlinked'>>,
   linkAllSkillsToTarget: (targetId: string) =>

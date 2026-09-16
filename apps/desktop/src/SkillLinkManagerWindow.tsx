@@ -178,7 +178,11 @@ export function SkillLinkManagerWindow() {
             return
           }
         } else if (window.workflowSkill?.unlinkSkillTarget) {
-          await window.workflowSkill.unlinkSkillTarget(currentSkill.id, tool.id)
+          const res = await window.workflowSkill.unlinkSkillTarget(currentSkill.id, tool.id)
+          if (res && res.success === false) {
+            setToast(`取消注入失败: ${(res as any).error || '未知错误'}`)
+            return
+          }
         }
         setSkills((prev) =>
           prev.map((s) =>
@@ -217,7 +221,11 @@ export function SkillLinkManagerWindow() {
             return
           }
         } else if (window.workflowSkill?.linkSkillTarget) {
-          await window.workflowSkill.linkSkillTarget(currentSkill.id, tool.id)
+          const res = await window.workflowSkill.linkSkillTarget(currentSkill.id, tool.id)
+          if (res && res.success === false) {
+            setToast(`注入失败: ${(res as any).error || '未知错误'}`)
+            return
+          }
         }
         setSkills((prev) =>
           prev.map((s) =>
