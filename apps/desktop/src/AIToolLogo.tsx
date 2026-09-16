@@ -187,7 +187,24 @@ export function AIToolLogo({
     )
   }
 
-  // 12. Visual Studio Code
+  // 12. xAI Grok CLI (Official xAI Glyph)
+  if (normalized.includes('grok')) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+        <path
+          d="M4.5 3h3.8l11.2 18h-3.8L4.5 3z"
+          fill={color ? "var(--color-ink, #FFFFFF)" : "currentColor"}
+        />
+        <path
+          d="M19.5 3h-3.8L4.5 21h3.8l11.2-18z"
+          fill={color ? "var(--color-ink, #FFFFFF)" : "currentColor"}
+          opacity="0.35"
+        />
+      </svg>
+    )
+  }
+
+  // 13. Visual Studio Code
   if (normalized.includes('vscode') || normalized === 'code' || normalized.includes('vs code')) {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>

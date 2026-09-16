@@ -10,6 +10,13 @@ import {
 } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import {
+  applyEdits,
+  modify,
+  parse as parseJsonc,
+  type ParseError,
+  printParseErrorCode,
+} from 'jsonc-parser'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { parseTOML } from 'toml-eslint-parser'
 import {
@@ -29,7 +36,15 @@ import {
   MCP_SOURCE_TOOLS,
 } from '@workflow-skill/workflow-model'
 
-export const VALID_MCP_TOOLS: readonly MCPSourceTool[] = ['claude-code', 'cursor', 'gemini', 'codex']
+export const VALID_MCP_TOOLS: readonly MCPSourceTool[] = [
+  'claude-code',
+  'cursor',
+  'gemini',
+  'codex',
+  'opencode',
+  'grok',
+  'antigravity',
+]
 export const VALID_MCP_SCOPES: readonly MCPScope[] = ['global', 'project']
 
 export function validateToolAndScope(tool: unknown, scope: unknown): { tool: MCPSourceTool; scope: MCPScope } {
@@ -112,6 +127,16 @@ export function resolveMCPConfigPath(
         return path.join(homeDir, '.gemini', 'settings.json')
       case 'codex':
         return path.join(homeDir, '.codex', 'config.toml')
+      case 'opencode': {
+        const jsoncPath = path.join(homeDir, '.config', 'opencode', 'opencode.jsonc')
+        const jsonPath = path.join(homeDir, '.config', 'opencode', 'opencode.json')
+        if (existsSync(jsoncPath) && !existsSync(jsonPath)) return jsoncPath
+        return jsonPath
+      }
+      case 'grok':
+        return path.join(homeDir, '.grok', 'config.toml')
+      case 'antigravity':
+        return path.join(homeDir, '.gemini', 'config', 'mcp_config.json')
     }
   } else if (scope === 'project') {
     const projectWorkspace = getEffectiveProjectWorkspace(options)
@@ -124,6 +149,16 @@ export function resolveMCPConfigPath(
         return path.join(projectWorkspace, '.gemini', 'settings.json')
       case 'codex':
         return path.join(projectWorkspace, '.codex', 'config.toml')
+      case 'opencode': {
+        const jsoncPath = path.join(projectWorkspace, 'opencode.jsonc')
+        const jsonPath = path.join(projectWorkspace, 'opencode.json')
+        if (existsSync(jsoncPath) && !existsSync(jsonPath)) return jsoncPath
+        return jsonPath
+      }
+      case 'grok':
+        return path.join(projectWorkspace, '.grok', 'config.toml')
+      case 'antigravity':
+        return path.join(projectWorkspace, '.agents', 'mcp_config.json')
     }
   } else {
     throw new Error(`Unsupported MCP scope: ${String(scope)}`)
@@ -160,8 +195,18 @@ export function validateServerName(name: string): void {
   }
 }
 
+function validateServerNameForTool(name: string, targetTool?: MCPSourceTool): void {
+  validateServerName(name)
+
+  // Grok's native loader only admits names that start with a letter or
+  // underscore and contain ASCII letters, digits, underscores, or dashes.
+  if (targetTool === 'grok' && !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(name)) {
+    throw new Error('Grok server names must start with a letter or underscore and contain only letters, numbers, dashes, or underscores.')
+  }
+}
+
 export function validateServerInput(input: MCPServerInput, targetTool?: MCPSourceTool): void {
-  validateServerName(input.name)
+  validateServerNameForTool(input.name, targetTool)
 
   if (targetTool) {
     if (!VALID_MCP_TOOLS.includes(targetTool)) {
@@ -188,6 +233,13 @@ export function validateServerInput(input: MCPServerInput, targetTool?: MCPSourc
   // Codex does not support SSE
   if (targetTool === 'codex' && input.transport === 'sse') {
     throw new Error('Codex does not support SSE transport. Use HTTP (streamable) or stdio.')
+  }
+
+  if (targetTool) {
+    const meta = MCP_SOURCE_TOOLS.find((m) => m.id === targetTool)
+    if (meta && !meta.supportedTransports.includes(input.transport)) {
+      throw new Error(`${meta.name} does not support ${input.transport} transport.`)
+    }
   }
 
   // Non-Codex tools do not support env_http_headers
@@ -520,6 +572,30 @@ export function buildServerDefinitionFromRaw(
     } else {
       transport = 'stdio'
     }
+  } else if (tool === 'antigravity') {
+    if (typeof entry.serverUrl === 'string' && entry.serverUrl.length > 0) {
+      transport = entry.transport === 'sse' || entry.type === 'sse' ? 'sse' : 'http'
+    } else if (typeof entry.url === 'string' && entry.url.length > 0) {
+      transport = entry.transport === 'sse' || entry.type === 'sse' ? 'sse' : 'http'
+    } else {
+      transport = 'stdio'
+    }
+  } else if (tool === 'opencode') {
+    if (entry.type === 'remote' || (typeof entry.url === 'string' && entry.url.length > 0)) {
+      transport = entry.transport === 'sse' ? 'sse' : 'http'
+    } else {
+      transport = 'stdio'
+    }
+  } else if (tool === 'grok') {
+    if (entry.transport === 'sse') {
+      transport = 'sse'
+    } else if (entry.transport === 'http') {
+      transport = 'http'
+    } else if (typeof entry.url === 'string' && entry.url.length > 0) {
+      transport = 'http'
+    } else {
+      transport = 'stdio'
+    }
   } else {
     // Cursor & Codex
     if (typeof entry.url === 'string' && entry.url.length > 0) {
@@ -530,17 +606,37 @@ export function buildServerDefinitionFromRaw(
   }
 
   // 2. Extract standard fields
-  const command = typeof entry.command === 'string' ? entry.command : undefined
-  const args = Array.isArray(entry.args) ? (entry.args.map((a) => String(a))) : undefined
-  const env =
-    entry.env && typeof entry.env === 'object' && !Array.isArray(entry.env)
-      ? (entry.env as Record<string, string>)
-      : undefined
+  let command: string | undefined
+  let args: string[] | undefined
+
+  if (tool === 'opencode' && Array.isArray(entry.command)) {
+    const cmdList = entry.command.map((c) => String(c))
+    command = cmdList[0] || ''
+    args = cmdList.slice(1)
+  } else {
+    command = typeof entry.command === 'string' ? entry.command : undefined
+    args = Array.isArray(entry.args) ? entry.args.map((a) => String(a)) : undefined
+  }
+
+  let env: Record<string, string> | undefined
+  if (
+    tool === 'opencode' &&
+    entry.environment &&
+    typeof entry.environment === 'object' &&
+    !Array.isArray(entry.environment)
+  ) {
+    env = entry.environment as Record<string, string>
+  } else if (entry.env && typeof entry.env === 'object' && !Array.isArray(entry.env)) {
+    env = entry.env as Record<string, string>
+  }
+
   const cwd = typeof entry.cwd === 'string' ? entry.cwd : undefined
 
   let url: string | undefined
   if (tool === 'gemini' && typeof entry.httpUrl === 'string') {
     url = entry.httpUrl
+  } else if (tool === 'antigravity' && typeof entry.serverUrl === 'string') {
+    url = entry.serverUrl
   } else if (typeof entry.url === 'string') {
     url = entry.url
   }
@@ -561,8 +657,14 @@ export function buildServerDefinitionFromRaw(
   let enabled = true
   if (typeof nativeEnabled === 'boolean') {
     enabled = nativeEnabled
-  } else if (tool === 'codex' && typeof entry.enabled === 'boolean') {
+  } else if ((tool === 'codex' || tool === 'grok') && typeof entry.enabled === 'boolean') {
     enabled = entry.enabled
+  } else if (tool === 'antigravity' || tool === 'opencode') {
+    if (entry.disabled === true || entry.enabled === false) {
+      enabled = false
+    } else {
+      enabled = true
+    }
   }
 
   return {
@@ -698,6 +800,130 @@ export function convertServerToToolConfig(
 
     if (typeof input.enabled === 'boolean') {
       result.enabled = input.enabled
+    }
+  } else if (tool === 'grok') {
+    delete result.type
+    if (input.transport === 'stdio') {
+      delete result.transport
+      result.command = input.command || ''
+      if (input.args && input.args.length > 0) result.args = input.args
+      else delete result.args
+      if (input.env && Object.keys(input.env).length > 0) result.env = input.env
+      else delete result.env
+      if (input.cwd) result.cwd = input.cwd
+      else delete result.cwd
+      delete result.url
+      delete result.headers
+    } else {
+      result.url = input.url || ''
+      if (input.transport === 'sse' || input.transport === 'http') {
+        result.transport = input.transport
+      }
+      if (input.headers && Object.keys(input.headers).length > 0) result.headers = input.headers
+      else delete result.headers
+      delete result.command
+      delete result.args
+      delete result.env
+      delete result.cwd
+    }
+
+    if (typeof input.enabled === 'boolean') {
+      result.enabled = input.enabled
+    }
+  } else if (tool === 'antigravity') {
+    delete result.type
+    if (input.transport === 'stdio') {
+      delete result.transport
+      result.command = input.command || ''
+      if (input.args && input.args.length > 0) result.args = input.args
+      else delete result.args
+      if (input.env && Object.keys(input.env).length > 0) result.env = input.env
+      else delete result.env
+      if (input.cwd) result.cwd = input.cwd
+      else delete result.cwd
+      delete result.serverUrl
+      delete result.url
+      delete result.httpUrl
+      delete result.headers
+    } else {
+      result.serverUrl = input.url || ''
+      // Antigravity negotiates remote SSE/Streamable HTTP from serverUrl;
+      // its native schema has no transport discriminator.
+      delete result.transport
+      delete result.url
+      delete result.httpUrl
+      if (input.headers && Object.keys(input.headers).length > 0) result.headers = input.headers
+      else delete result.headers
+      delete result.command
+      delete result.args
+      delete result.env
+      delete result.cwd
+    }
+
+    if (input.enabled === false) {
+      result.disabled = true
+      delete result.enabled
+    } else if (input.enabled === true) {
+      delete result.disabled
+      if (existingRaw && 'enabled' in existingRaw) {
+        result.enabled = true
+      }
+    }
+  } else if (tool === 'opencode') {
+    if (input.transport === 'stdio') {
+      result.type = 'local'
+      delete result.transport
+      const cmdList: string[] = []
+      if (input.command) cmdList.push(input.command)
+      if (input.args && input.args.length > 0) {
+        cmdList.push(...input.args)
+      }
+      result.command = cmdList
+      if (input.env && Object.keys(input.env).length > 0) {
+        result.environment = input.env
+      } else {
+        delete result.environment
+      }
+      delete result.env
+      if (input.cwd) result.cwd = input.cwd
+      else delete result.cwd
+      delete result.url
+      delete result.headers
+    } else {
+      result.type = 'remote'
+      result.url = input.url || ''
+      // OpenCode v2 remote servers are Streamable HTTP and are represented by
+      // type + url; do not emit a non-schema transport field.
+      delete result.transport
+      if (input.headers && Object.keys(input.headers).length > 0) {
+        result.headers = input.headers
+      } else {
+        delete result.headers
+      }
+      delete result.command
+      delete result.args
+      delete result.environment
+      delete result.env
+      delete result.cwd
+    }
+
+    const usedOldEnabledStyle =
+      existingRaw && typeof existingRaw.enabled === 'boolean' && existingRaw.disabled === undefined
+    if (input.enabled === false) {
+      if (usedOldEnabledStyle) {
+        result.enabled = false
+        delete result.disabled
+      } else {
+        result.disabled = true
+        delete result.enabled
+      }
+    } else if (input.enabled === true) {
+      if (usedOldEnabledStyle) {
+        result.enabled = true
+        delete result.disabled
+      } else {
+        delete result.disabled
+      }
     }
   }
 
@@ -1050,6 +1276,193 @@ export function writeTomlConfigLossless(
 }
 
 // =========================================================================
+// Lossless OpenCode JSONC Operations
+// =========================================================================
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isOpenCodeServerEntry(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) return false
+  return (
+    value.type === 'local' ||
+    value.type === 'remote' ||
+    typeof value.command === 'string' ||
+    Array.isArray(value.command) ||
+    typeof value.url === 'string'
+  )
+}
+
+export function readOpenCodeConfig(
+  filePath: string
+): { data: Record<string, unknown>; rawText: string } | null {
+  if (!existsSync(filePath)) return null
+  const rawText = readFileSync(filePath, 'utf8')
+  const errors: ParseError[] = []
+  const parsed = parseJsonc(rawText, errors, { allowTrailingComma: true })
+  if (errors.length > 0) {
+    throw new Error(
+      `Failed to parse JSON file "${filePath}": ${printParseErrorCode(errors[0].error)} at offset ${errors[0].offset}. File content preserved.`
+    )
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`OpenCode configuration "${filePath}" top-level is not an object. File content preserved.`)
+  }
+  return { data: parsed as Record<string, unknown>, rawText }
+}
+
+export function writeOpenCodeConfigLossless(
+  filePath: string,
+  serverName: string,
+  serverData: Record<string, unknown> | null,
+  tx?: TransactionManager
+): void {
+  const initialExisted = existsSync(filePath)
+  let initialContent: string | null = null
+  let initialMode = 0o600
+  if (initialExisted) {
+    try {
+      initialContent = readFileSync(filePath, 'utf8')
+      initialMode = statSync(filePath).mode & 0o777
+    } catch {}
+  }
+
+  const existingRaw = existsSync(filePath) ? readFileSync(filePath, 'utf8') : ''
+  let initialParsed: Record<string, unknown> = {}
+  if (existingRaw.trim()) {
+    const errors: ParseError[] = []
+    const parsed = parseJsonc(existingRaw, errors, { allowTrailingComma: true })
+    if (errors.length > 0) {
+      throw new Error(
+        `Cannot modify invalid JSON/JSONC file "${filePath}": ${printParseErrorCode(errors[0].error)} at offset ${errors[0].offset}. Original file unchanged.`
+      )
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error(`OpenCode configuration "${filePath}" top-level is not an object. Original file unchanged.`)
+    }
+    initialParsed = parsed as Record<string, unknown>
+  }
+
+  if (initialParsed.mcp !== undefined) {
+    if (!isRecord(initialParsed.mcp)) {
+      throw new Error(
+        `Safety violation: Existing mcp property in "${filePath}" is malformed. Refusing to overwrite.`
+      )
+    }
+  }
+
+  const mcpObj = isRecord(initialParsed.mcp) ? initialParsed.mcp : undefined
+  if (mcpObj?.servers !== undefined && !isRecord(mcpObj.servers)) {
+    throw new Error(
+      `Safety violation: Existing mcp.servers property in "${filePath}" is malformed. Refusing to overwrite.`
+    )
+  }
+
+  // Determine keyPath:
+  // Check if serverName already exists under mcp.servers or legacy mcp.<name>
+  let keyPath: string[]
+  const serversObj = isRecord(mcpObj?.servers) ? mcpObj.servers : undefined
+
+  if (serversObj && Object.prototype.hasOwnProperty.call(serversObj, serverName)) {
+    keyPath = ['mcp', 'servers', serverName]
+  } else if (
+    mcpObj &&
+    serverName !== 'servers' &&
+    Object.prototype.hasOwnProperty.call(mcpObj, serverName) &&
+    isOpenCodeServerEntry(mcpObj[serverName])
+  ) {
+    keyPath = ['mcp', serverName]
+  } else if (
+    serverData === null &&
+    mcpObj &&
+    Object.prototype.hasOwnProperty.call(mcpObj, serverName)
+  ) {
+    throw new Error(
+      `OpenCode MCP entry "${serverName}" is not a server definition; refusing to delete an unrelated mcp property.`
+    )
+  } else {
+    // New entry: default to current official mcp.servers.<name>
+    keyPath = ['mcp', 'servers', serverName]
+  }
+
+  const baseText = existingRaw.trim() ? existingRaw : '{\n}\n'
+  const edits = modify(baseText, keyPath, serverData === null ? undefined : serverData, {
+    formattingOptions: { insertSpaces: true, tabSize: 2 },
+  })
+  const newText = applyEdits(baseText, edits)
+
+  // Invariant & Outcome Verification:
+  if (newText.trim()) {
+    const verifyErrors: ParseError[] = []
+    const newParsed = parseJsonc(newText, verifyErrors, { allowTrailingComma: true }) as Record<string, unknown>
+    if (verifyErrors.length > 0) {
+      throw new Error(`Failed to verify OpenCode JSON edit on "${filePath}": output has syntax errors. Aborted.`)
+    }
+
+    // 1. Non-MCP root property invariant
+    const initialNonMcp = { ...initialParsed }
+    delete initialNonMcp.mcp
+    const newNonMcp = { ...newParsed }
+    delete newNonMcp.mcp
+    if (!deepEqual(initialNonMcp, newNonMcp)) {
+      throw new Error(`Safety violation: OpenCode edit on "${filePath}" would modify non-MCP keys. Aborted.`)
+    }
+
+    // 2. MCP outcome verification: verify other servers remain identical
+    const getServersMap = (root: Record<string, unknown>) => {
+      const map = new Map<string, unknown>()
+      const m = root.mcp as Record<string, unknown> | undefined
+      if (m && typeof m === 'object' && !Array.isArray(m)) {
+        if (m.servers && typeof m.servers === 'object' && !Array.isArray(m.servers)) {
+          for (const [k, v] of Object.entries(m.servers as Record<string, unknown>)) {
+            map.set(k, v)
+          }
+        }
+        for (const [k, v] of Object.entries(m)) {
+          if (k !== 'servers' && !map.has(k) && isOpenCodeServerEntry(v)) {
+            map.set(k, v)
+          }
+        }
+      }
+      return map
+    }
+
+    const initialMap = getServersMap(initialParsed)
+    const newMap = getServersMap(newParsed)
+
+    for (const [otherName, otherDef] of initialMap.entries()) {
+      if (otherName !== serverName) {
+        if (!deepEqual(newMap.get(otherName), otherDef)) {
+          throw new Error(
+            `Safety violation: OpenCode edit on "${filePath}" modified unrelated MCP server "${otherName}". Aborted.`
+          )
+        }
+      }
+    }
+
+    if (serverData !== null) {
+      if (!deepEqual(newMap.get(serverName), serverData)) {
+        throw new Error(
+          `Safety violation: Server "${serverName}" in "${filePath}" did not match target definition after write. Aborted.`
+        )
+      }
+    } else {
+      if (newMap.has(serverName)) {
+        throw new Error(
+          `Safety violation: Server "${serverName}" still exists in "${filePath}" after delete. Aborted.`
+        )
+      }
+    }
+  }
+
+  atomicWriteFile(filePath, newText, initialMode)
+  if (tx) {
+    tx.recordWrite(filePath, initialExisted, initialContent, initialMode, newText)
+  }
+}
+
+// =========================================================================
 // Public Read Services
 // =========================================================================
 
@@ -1067,11 +1480,11 @@ export function readMCPServersForTool(
   const results: MCPServerDefinition[] = []
   const activeNames = new Set<string>()
 
-  if (tool === 'codex') {
-    // Read Codex TOML
+  if (tool === 'codex' || tool === 'grok') {
+    // Read TOML (Codex, Grok)
     if (existsSync(configPath)) {
       const parsed = readTomlConfig(configPath)
-      if (parsed && parsed.data.mcp_servers && typeof parsed.data.mcp_servers === 'object') {
+      if (parsed && isRecord(parsed.data.mcp_servers)) {
         const serversObj = parsed.data.mcp_servers as Record<string, unknown>
         for (const [name, rawVal] of Object.entries(serversObj)) {
           if (rawVal && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
@@ -1085,6 +1498,92 @@ export function readMCPServersForTool(
                 rawVal as Record<string, unknown>,
                 configPath,
                 (rawVal as { enabled?: boolean }).enabled !== false,
+                revision
+              )
+            )
+          }
+        }
+      }
+    }
+  } else if (tool === 'opencode') {
+    // Read OpenCode JSON/JSONC
+    if (existsSync(configPath)) {
+      const parsedRes = readOpenCodeConfig(configPath)
+      if (parsedRes && isRecord(parsedRes.data.mcp)) {
+        const mcpObj = parsedRes.data.mcp as Record<string, unknown>
+        // 1. Current official structure: mcp.servers.<name>
+        if (isRecord(mcpObj.servers)) {
+          const serversObj = mcpObj.servers as Record<string, unknown>
+          for (const [name, rawVal] of Object.entries(serversObj)) {
+            if (rawVal && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
+              activeNames.add(name)
+              const raw = rawVal as Record<string, unknown>
+              const isEnabled = raw.disabled !== true && raw.enabled !== false
+              const revision = computeServerRevision(tool, scope, name, options)
+              results.push(
+                buildServerDefinitionFromRaw(
+                  tool,
+                  scope,
+                  name,
+                  raw,
+                  configPath,
+                  isEnabled,
+                  revision
+                )
+              )
+            }
+          }
+        }
+        // 2. Compatibility with legacy mcp.<name>
+        for (const [key, rawVal] of Object.entries(mcpObj)) {
+          if (key === 'servers' || activeNames.has(key)) continue
+          if (rawVal && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
+            const raw = rawVal as Record<string, unknown>
+            if (raw.type || raw.command || raw.url) {
+              activeNames.add(key)
+              const isEnabled = raw.disabled !== true && raw.enabled !== false
+              const revision = computeServerRevision(tool, scope, key, options)
+              results.push(
+                buildServerDefinitionFromRaw(
+                  tool,
+                  scope,
+                  key,
+                  raw,
+                  configPath,
+                  isEnabled,
+                  revision
+                )
+              )
+            }
+          }
+        }
+      }
+    }
+  } else if (tool === 'antigravity') {
+    // Read Google Antigravity JSON (mcpServers.<name>)
+    if (existsSync(configPath)) {
+      const parsed = readJsonConfig(configPath)
+      if (
+        parsed &&
+        parsed.data.mcpServers &&
+        typeof parsed.data.mcpServers === 'object' &&
+        !Array.isArray(parsed.data.mcpServers)
+      ) {
+        const serversObj = parsed.data.mcpServers as Record<string, unknown>
+        for (const [name, rawVal] of Object.entries(serversObj)) {
+          if (rawVal && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
+            activeNames.add(name)
+            const raw = rawVal as Record<string, unknown>
+            const isEnabled = raw.disabled !== true && raw.enabled !== false
+            const revision = computeServerRevision(tool, scope, name, options)
+            results.push(
+              buildServerDefinitionFromRaw(
+                tool,
+                scope,
+                name,
+                raw,
+                configPath,
+                isEnabled,
                 revision
               )
             )
@@ -1179,7 +1678,7 @@ export async function readAllMCPServers(options?: MCPOptions): Promise<{
   global: MCPServerDefinition[]
   project: MCPServerDefinition[]
 }> {
-  const tools: MCPSourceTool[] = ['claude-code', 'cursor', 'gemini', 'codex']
+  const tools = VALID_MCP_TOOLS
 
   const globalList: MCPServerDefinition[] = []
   const projectList: MCPServerDefinition[] = []
@@ -1263,7 +1762,7 @@ export function saveMCPServer(
 
     // Handle CASE A: Saving with enabled: false
     if (input.enabled === false) {
-      if (target.tool === 'codex') {
+      if (target.tool === 'codex' || target.tool === 'grok') {
         const existingToml = readTomlConfig(configPath)
         const mcpObj = (existingToml?.data.mcp_servers as Record<string, unknown>) || {}
         let existingRaw = mcpObj[input.name] as Record<string, unknown> | undefined
@@ -1283,6 +1782,57 @@ export function saveMCPServer(
           computeServerRevision(target.tool, target.scope, input.name, options)
         )
         return { success: true, server }
+      } else if (target.tool === 'opencode') {
+        const existingRes = readOpenCodeConfig(configPath)
+        let existingRaw: Record<string, unknown> | undefined
+        const mcpObj = existingRes?.data.mcp as Record<string, unknown> | undefined
+        if (isRecord(mcpObj?.servers)) {
+          existingRaw = mcpObj.servers[input.name] as Record<string, unknown> | undefined
+        }
+        if (!existingRaw && mcpObj && isOpenCodeServerEntry(mcpObj[input.name])) {
+          existingRaw = mcpObj[input.name] as Record<string, unknown>
+        }
+        if (!existingRaw && disabledEntry?.rawEntry) {
+          existingRaw = disabledEntry.rawEntry
+        }
+        const toolData = convertServerToToolConfig(target.tool, { ...input, enabled: false }, existingRaw)
+        writeOpenCodeConfigLossless(configPath, input.name, toolData, tx)
+
+        const server = buildServerDefinitionFromRaw(
+          target.tool,
+          target.scope,
+          input.name,
+          toolData,
+          configPath,
+          false,
+          computeServerRevision(target.tool, target.scope, input.name, options)
+        )
+        return { success: true, server }
+      } else if (target.tool === 'antigravity') {
+        const existingJson = readJsonConfig(configPath)
+        const existingRaw = (existingJson?.data.mcpServers as Record<string, unknown>)?.[input.name] as
+          | Record<string, unknown>
+          | undefined
+        const baseRaw = existingRaw || disabledEntry?.rawEntry || {}
+        const toolData = convertServerToToolConfig(target.tool, { ...input, enabled: false }, baseRaw)
+        writeJsonConfigPreserving(
+          configPath,
+          (mcpServers) => {
+            mcpServers[input.name] = toolData
+          },
+          tx
+        )
+
+        const serverDef = buildServerDefinitionFromRaw(
+          target.tool,
+          target.scope,
+          input.name,
+          toolData,
+          configPath,
+          false,
+          computeServerRevision(target.tool, target.scope, input.name, options)
+        )
+        return { success: true, server: serverDef }
       }
 
       // JSON tools (Claude, Cursor, Gemini):
@@ -1356,7 +1906,7 @@ export function saveMCPServer(
     // Handle CASE B: Saving with enabled: true (active)
     let existingRaw: Record<string, unknown> | undefined
 
-    if (target.tool === 'codex') {
+    if (target.tool === 'codex' || target.tool === 'grok') {
       const existingToml = readTomlConfig(configPath)
       if (existingToml?.data.mcp_servers && typeof existingToml.data.mcp_servers === 'object') {
         const mcpObj = existingToml.data.mcp_servers as Record<string, unknown>
@@ -1367,6 +1917,37 @@ export function saveMCPServer(
       }
       const tomlData = convertServerToToolConfig(target.tool, input, existingRaw)
       writeTomlConfigLossless(configPath, input.name, tomlData, tx)
+    } else if (target.tool === 'opencode') {
+      const existingRes = readOpenCodeConfig(configPath)
+      const mcpObj = existingRes?.data.mcp as Record<string, unknown> | undefined
+      if (isRecord(mcpObj?.servers)) {
+        existingRaw = mcpObj.servers[input.name] as Record<string, unknown> | undefined
+      }
+      if (!existingRaw && mcpObj && isOpenCodeServerEntry(mcpObj[input.name])) {
+        existingRaw = mcpObj[input.name] as Record<string, unknown>
+      }
+      if (!existingRaw && disabledEntry?.rawEntry) {
+        existingRaw = disabledEntry.rawEntry
+      }
+      const toolData = convertServerToToolConfig(target.tool, input, existingRaw)
+      writeOpenCodeConfigLossless(configPath, input.name, toolData, tx)
+    } else if (target.tool === 'antigravity') {
+      const existingJson = readJsonConfig(configPath)
+      if (existingJson?.data.mcpServers && typeof existingJson.data.mcpServers === 'object') {
+        const mcpObj = existingJson.data.mcpServers as Record<string, unknown>
+        existingRaw = mcpObj[input.name] as Record<string, unknown> | undefined
+      }
+      if (!existingRaw && disabledEntry?.rawEntry) {
+        existingRaw = disabledEntry.rawEntry
+      }
+      const jsonData = convertServerToToolConfig(target.tool, input, existingRaw)
+      writeJsonConfigPreserving(
+        configPath,
+        (mcpServers) => {
+          mcpServers[input.name] = jsonData
+        },
+        tx
+      )
     } else {
       const existingJson = readJsonConfig(configPath)
       if (existingJson?.data.mcpServers && typeof existingJson.data.mcpServers === 'object') {
@@ -1498,9 +2079,13 @@ export function deleteMCPServer(
     }
 
     // 1. Delete from tool file if present
-    if (target.tool === 'codex') {
+    if (target.tool === 'codex' || target.tool === 'grok') {
       if (existsSync(configPath)) {
         writeTomlConfigLossless(configPath, target.name, null, tx)
+      }
+    } else if (target.tool === 'opencode') {
+      if (existsSync(configPath)) {
+        writeOpenCodeConfigLossless(configPath, target.name, null, tx)
       }
     } else {
       if (existsSync(configPath)) {
@@ -1594,16 +2179,17 @@ export function toggleMCPServer(
       }
     }
 
-    // Codex native enabled = false
-    if (target.tool === 'codex') {
+    // Codex and Grok native enabled = false
+    if (target.tool === 'codex' || target.tool === 'grok') {
       const existing = readTomlConfig(configPath)
+      const toolTitle = target.tool === 'codex' ? 'Codex' : 'Grok'
       if (!existing || !existing.data.mcp_servers) {
-        throw new Error(`Codex MCP server "${target.name}" not found in config.toml`)
+        throw new Error(`${toolTitle} MCP server "${target.name}" not found in config.toml`)
       }
       const mcpObj = existing.data.mcp_servers as Record<string, unknown>
       const serverEntry = mcpObj[target.name] as Record<string, unknown> | undefined
       if (!serverEntry) {
-        throw new Error(`Codex MCP server "${target.name}" not found.`)
+        throw new Error(`${toolTitle} MCP server "${target.name}" not found.`)
       }
       const updated = { ...serverEntry, enabled }
       writeTomlConfigLossless(configPath, target.name, updated, tx)
@@ -1613,6 +2199,107 @@ export function toggleMCPServer(
       const reloaded = verifiedServers.find((s) => s.name === target.name)
       if (!reloaded || reloaded.enabled !== enabled) {
         throw new Error(`Policy error: Unable to toggle "${target.name}" to enabled=${enabled}.`)
+      }
+
+      const server = buildServerDefinitionFromRaw(
+        target.tool,
+        target.scope,
+        target.name,
+        updated,
+        configPath,
+        enabled,
+        computeServerRevision(target.tool, target.scope, target.name, options)
+      )
+      return { success: true, server }
+    }
+
+    // OpenCode native disabled / enabled toggle in JSONC
+    if (target.tool === 'opencode') {
+      const existing = readOpenCodeConfig(configPath)
+      const mcpObj = existing?.data.mcp as Record<string, unknown> | undefined
+      let serverEntry: Record<string, unknown> | undefined
+      if (mcpObj?.servers && typeof mcpObj.servers === 'object') {
+        serverEntry = (mcpObj.servers as Record<string, unknown>)[target.name] as Record<string, unknown> | undefined
+      }
+      if (!serverEntry && mcpObj && isOpenCodeServerEntry(mcpObj[target.name])) {
+        serverEntry = mcpObj[target.name] as Record<string, unknown>
+      }
+      if (!serverEntry) {
+        throw new Error(`OpenCode MCP server "${target.name}" not found in ${path.basename(configPath)}.`)
+      }
+
+      const updated = { ...serverEntry }
+      if (!enabled) {
+        if ('enabled' in updated) {
+          updated.enabled = false
+        } else {
+          updated.disabled = true
+        }
+      } else {
+        delete updated.disabled
+        if ('enabled' in updated) {
+          updated.enabled = true
+        }
+      }
+
+      writeOpenCodeConfigLossless(configPath, target.name, updated, tx)
+
+      // Verification
+      const verifiedServers = readMCPServersForTool(target.tool, target.scope, options)
+      const reloaded = verifiedServers.find((s) => s.name === target.name)
+      if (!reloaded || reloaded.enabled !== enabled) {
+        throw new Error(`Policy error: Server "${target.name}" failed to toggle to enabled=${enabled}.`)
+      }
+
+      const server = buildServerDefinitionFromRaw(
+        target.tool,
+        target.scope,
+        target.name,
+        updated,
+        configPath,
+        enabled,
+        computeServerRevision(target.tool, target.scope, target.name, options)
+      )
+      return { success: true, server }
+    }
+
+    // Antigravity native disabled: true toggle in JSON
+    if (target.tool === 'antigravity') {
+      const existingJson = readJsonConfig(configPath)
+      if (!existingJson || !existingJson.data.mcpServers) {
+        throw new Error(`Antigravity MCP server "${target.name}" not found in ${path.basename(configPath)}.`)
+      }
+      const mcpServers = existingJson.data.mcpServers as Record<string, unknown>
+      const serverEntry = mcpServers[target.name] as Record<string, unknown> | undefined
+      if (!serverEntry) {
+        throw new Error(`Antigravity MCP server "${target.name}" not found in ${path.basename(configPath)}.`)
+      }
+
+      const updated = { ...serverEntry }
+      if (!enabled) {
+        updated.disabled = true
+      } else {
+        delete updated.disabled
+        if ('enabled' in updated) {
+          updated.enabled = true
+        }
+      }
+
+      writeJsonConfigPreserving(
+        configPath,
+        (mcp) => {
+          mcp[target.name] = updated
+        },
+        tx
+      )
+
+      removeDisabledEntry(target.tool, target.scope, target.name, options, tx)
+
+      // Verification
+      const verifiedServers = readMCPServersForTool(target.tool, target.scope, options)
+      const reloaded = verifiedServers.find((s) => s.name === target.name)
+      if (!reloaded || reloaded.enabled !== enabled) {
+        throw new Error(`Policy error: Server "${target.name}" failed to toggle to enabled=${enabled}.`)
       }
 
       const server = buildServerDefinitionFromRaw(
@@ -1845,7 +2532,7 @@ export function preflightMCPDistribution(
     let currentRevision: string | undefined
 
     // 1. Validate tool and scope
-    const validTools: MCPSourceTool[] = ['claude-code', 'cursor', 'gemini', 'codex']
+    const validTools: readonly MCPSourceTool[] = VALID_MCP_TOOLS
     const validScopes: MCPScope[] = ['global', 'project']
     if (!validTools.includes(target.tool) || !validScopes.includes(target.scope)) {
       items.push({
@@ -1862,26 +2549,60 @@ export function preflightMCPDistribution(
 
     const targetOptions = target.projectWorkspace ? { ...options, projectWorkspace: target.projectWorkspace } : options
     try {
+      try {
+        validateServerNameForTool(server.name, target.tool)
+      } catch (err) {
+        compatible = false
+        reasons.push((err as Error).message)
+      }
+
       configPath = resolveMCPConfigPath(target.tool, target.scope, targetOptions)
       targetExists = existsSync(configPath)
 
       // 2. Validate target file validity if exists
       if (targetExists) {
-        if (target.tool === 'codex') {
+        if (target.tool === 'codex' || target.tool === 'grok') {
           const parsed = readTomlConfig(configPath)
           if (!parsed) {
             compatible = false
             reasons.push(`Target configuration file "${configPath}" cannot be read.`)
-          } else if (parsed.data.mcp_servers && typeof parsed.data.mcp_servers === 'object') {
-            willOverwrite = Boolean((parsed.data.mcp_servers as Record<string, unknown>)[server.name])
+          } else if (parsed.data.mcp_servers !== undefined && !isRecord(parsed.data.mcp_servers)) {
+            compatible = false
+            reasons.push(`Target configuration file "${configPath}" has a malformed mcp_servers property.`)
+          } else if (isRecord(parsed.data.mcp_servers)) {
+            willOverwrite = Boolean(parsed.data.mcp_servers[server.name])
+          }
+        } else if (target.tool === 'opencode') {
+          const parsed = readOpenCodeConfig(configPath)
+          if (!parsed) {
+            compatible = false
+            reasons.push(`Target configuration file "${configPath}" cannot be read.`)
+          } else if (parsed.data.mcp !== undefined && !isRecord(parsed.data.mcp)) {
+            compatible = false
+            reasons.push(`Target configuration file "${configPath}" has a malformed mcp property.`)
+          } else {
+            const mcpObj = isRecord(parsed.data.mcp) ? parsed.data.mcp : undefined
+            if (mcpObj?.servers !== undefined && !isRecord(mcpObj.servers)) {
+              compatible = false
+              reasons.push(`Target configuration file "${configPath}" has a malformed mcp.servers property.`)
+            } else {
+              const serversObj = isRecord(mcpObj?.servers) ? mcpObj.servers : undefined
+              const legacyEntry = mcpObj?.[server.name]
+              willOverwrite = Boolean(
+                serversObj && Object.prototype.hasOwnProperty.call(serversObj, server.name)
+              ) || isOpenCodeServerEntry(legacyEntry)
+            }
           }
         } else {
           const parsed = readJsonConfig(configPath)
           if (!parsed) {
             compatible = false
             reasons.push(`Target configuration file "${configPath}" cannot be read.`)
-          } else if (parsed.data.mcpServers && typeof parsed.data.mcpServers === 'object') {
-            willOverwrite = Boolean((parsed.data.mcpServers as Record<string, unknown>)[server.name])
+          } else if (parsed.data.mcpServers !== undefined && !isRecord(parsed.data.mcpServers)) {
+            compatible = false
+            reasons.push(`Target configuration file "${configPath}" has a malformed mcpServers property.`)
+          } else if (isRecord(parsed.data.mcpServers)) {
+            willOverwrite = Boolean(parsed.data.mcpServers[server.name])
           }
         }
       }
@@ -1895,9 +2616,16 @@ export function preflightMCPDistribution(
       }
 
       // 3. Transport compatibility
-      if (target.tool === 'codex' && server.transport === 'sse') {
+      const toolMeta = MCP_SOURCE_TOOLS.find((m) => m.id === target.tool)
+      if (toolMeta && !toolMeta.supportedTransports.includes(server.transport)) {
         compatible = false
-        reasons.push('Codex does not support SSE transport. Use HTTP (streamable) or stdio.')
+        if (target.tool === 'codex' && server.transport === 'sse') {
+          reasons.push('Codex does not support SSE transport. Use HTTP (streamable) or stdio.')
+        } else {
+          reasons.push(
+            `${toolMeta.name} does not support ${server.transport.toUpperCase()} transport. Supported transports: ${toolMeta.supportedTransports.join(', ')}.`
+          )
+        }
       }
 
       if (target.tool !== 'codex' && server.envHeaders && Object.keys(server.envHeaders).length > 0) {
@@ -2010,7 +2738,12 @@ export function distributeMCPServer(
 
   // 2. Pre-verify revisions of ALL targets before performing ANY writes!
   for (const target of targets) {
-    const pfItem = preflight.targets.find((pt) => pt.tool === target.tool && pt.scope === target.scope)
+    const pfItem = preflight.targets.find(
+      (pt) =>
+        pt.tool === target.tool &&
+        pt.scope === target.scope &&
+        (!pt.projectWorkspace || !target.projectWorkspace || path.resolve(pt.projectWorkspace) === path.resolve(target.projectWorkspace))
+    )
     if (pfItem && pfItem.targetExists) {
       if (!target.expectedRevision && pfItem.willOverwrite) {
         return {
@@ -2025,7 +2758,8 @@ export function distributeMCPServer(
         }
       }
       if (target.expectedRevision) {
-        const currentRev = computeServerRevision(target.tool, target.scope, server.name, options)
+        const targetOptions = target.projectWorkspace ? { ...options, projectWorkspace: target.projectWorkspace } : options
+        const currentRev = computeServerRevision(target.tool, target.scope, server.name, targetOptions)
         if (currentRev !== target.expectedRevision) {
           return {
             overallSuccess: false,
@@ -2111,7 +2845,7 @@ export async function exportMCPProfileSnapshot(
   global: Record<MCPSourceTool, MCPServerDefinition[]>
   project: Record<MCPSourceTool, MCPServerDefinition[]>
 }> {
-  const tools: MCPSourceTool[] = ['claude-code', 'cursor', 'gemini', 'codex']
+  const tools = VALID_MCP_TOOLS
   const globalRecord = {} as Record<MCPSourceTool, MCPServerDefinition[]>
   const projectRecord = {} as Record<MCPSourceTool, MCPServerDefinition[]>
 

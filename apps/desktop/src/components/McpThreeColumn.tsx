@@ -35,12 +35,23 @@ interface KeyValuePair {
 const TOOL_NAMES: Record<MCPSourceTool, string> = {
   'claude-code': 'Claude Code',
   cursor: 'Cursor',
-  gemini: 'Gemini',
+  gemini: 'Gemini CLI',
   codex: 'Codex',
+  opencode: 'OpenCode',
+  grok: 'Grok',
+  antigravity: 'Antigravity',
 }
 
-// Tools supporting project-scope configs
-const PROJECT_SUPPORTED_TOOLS: MCPSourceTool[] = ['claude-code', 'cursor', 'codex']
+// All 7 tools support project-scope configs with confirmed paths
+const PROJECT_SUPPORTED_TOOLS: MCPSourceTool[] = [
+  'claude-code',
+  'cursor',
+  'gemini',
+  'codex',
+  'opencode',
+  'grok',
+  'antigravity',
+]
 
 interface FormBaseline {
   serverId: string

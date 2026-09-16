@@ -738,7 +738,14 @@ tags: [tailwind, css, ui]
 // MCP (Model Context Protocol) Server Unified Architecture Models (OPC-47)
 // =========================================================================
 
-export type MCPSourceTool = 'claude-code' | 'cursor' | 'gemini' | 'codex'
+export type MCPSourceTool =
+  | 'claude-code'
+  | 'cursor'
+  | 'gemini'
+  | 'codex'
+  | 'opencode'
+  | 'grok'
+  | 'antigravity'
 export type MCPScope = 'global' | 'project'
 export type MCPTransportType = 'stdio' | 'sse' | 'http'
 
@@ -846,9 +853,9 @@ export const MCP_SOURCE_TOOLS: MCPSourceToolMetadata[] = [
   },
   {
     id: 'gemini',
-    name: 'Google Antigravity & Gemini',
+    name: 'Gemini CLI',
     logoId: 'gemini',
-    description: 'Google Antigravity 与 Gemini CLI 全局与项目配置 (~/.gemini/settings.json)',
+    description: 'Gemini CLI 全局与项目配置 (~/.gemini/settings.json)',
     globalConfigFileName: '.gemini/settings.json',
     projectConfigFileName: '.gemini/settings.json',
     supportedTransports: ['stdio', 'sse', 'http'],
@@ -861,6 +868,33 @@ export const MCP_SOURCE_TOOLS: MCPSourceToolMetadata[] = [
     globalConfigFileName: '.codex/config.toml',
     projectConfigFileName: '.codex/config.toml',
     supportedTransports: ['stdio', 'http'],
+  },
+  {
+    id: 'opencode',
+    name: 'OpenCode',
+    logoId: 'opencode',
+    description: 'OpenCode Agent CLI 配置 (~/.config/opencode/opencode.json / opencode.json)',
+    globalConfigFileName: '.config/opencode/opencode.json',
+    projectConfigFileName: 'opencode.json',
+    supportedTransports: ['stdio', 'http'],
+  },
+  {
+    id: 'grok',
+    name: 'Grok',
+    logoId: 'grok',
+    description: 'xAI Grok CLI 全局与项目配置 (~/.grok/config.toml / .grok/config.toml)',
+    globalConfigFileName: '.grok/config.toml',
+    projectConfigFileName: '.grok/config.toml',
+    supportedTransports: ['stdio', 'http', 'sse'],
+  },
+  {
+    id: 'antigravity',
+    name: 'Google Antigravity',
+    logoId: 'antigravity',
+    description: 'Google Antigravity 全局与项目配置 (~/.gemini/config/mcp_config.json / .agents/mcp_config.json)',
+    globalConfigFileName: '.gemini/config/mcp_config.json',
+    projectConfigFileName: '.agents/mcp_config.json',
+    supportedTransports: ['stdio', 'http', 'sse'],
   },
 ]
 
