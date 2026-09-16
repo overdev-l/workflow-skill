@@ -11,8 +11,8 @@
  * - Validates compressed blockmaps (.zip.blockmap, .exe.blockmap) by decompressing gzip/deflate JSON
  *
  * SECURITY & GOVERNANCE:
- * - Source repository is strictly PRIVATE; releases are published to a separate CI/release repo.
- * - Release notes are user-facing generic notes; no private commit logs or source metadata are leaked.
+ * - Releases and update manifests are published to a separate CI/release repo (overdev-l/trace-releases).
+ * - Release notes are user-facing generic notes; no raw commit logs or developer metadata are leaked.
  * - Code signing & signature enforcement is the responsibility of the supervisor CI pipeline before invoking this script.
  * - Stable publishing publishes full platform manifests and sets latest=true, requiring explicit caller authorization.
  * - Preview publishing creates unsigned pre-releases (prerelease=true, latest=false, preview-vX.Y.Z tag)
@@ -87,7 +87,7 @@ export function validateRepository(repo) {
 }
 
 /**
- * Generates user-facing generic release notes without private source commits or logs.
+ * Generates user-facing generic release notes without raw commit logs or developer metadata.
  */
 export function generateGenericReleaseNotes({ version, tag, preview }) {
   if (preview) {

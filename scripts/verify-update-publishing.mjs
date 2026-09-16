@@ -16,7 +16,7 @@
  * 10. Resumable draft: skips matching remote draft artifacts and uploads remaining
  * 11. Resumable draft collision: rejects differing content/size with zero uploads
  * 12. Auth and network fail closed: 401/403/network errors abort safely without leaks
- * 13. Generic release notes: user-facing notes contain no private source commits/logs
+ * 13. Generic release notes: user-facing notes contain no repository commit logs
  * 14. Path traversal and slash rejection without silent basename normalization
  * 15. Symlink rejection for release artifacts and blockmaps
  * 16. Missing sha512 and invalid/negative size rejection
@@ -606,7 +606,7 @@ await runTest('Auth and Network Fail-Closed: unexpected 401/403/network error fa
 })
 
 // 13. Generic Release Notes
-await runTest('Release Notes: generic user-facing text without private repository logs or commits', async () => {
+await runTest('Release Notes: generic user-facing text without repository logs or commits', async () => {
   const stableNotes = generateGenericReleaseNotes({ version: '1.0.0', tag: 'v1.0.0', preview: false })
   assert.ok(stableNotes.includes('Trace Desktop v1.0.0'))
   assert.ok(!stableNotes.includes('git commit'))

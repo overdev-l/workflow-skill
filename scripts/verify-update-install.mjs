@@ -44,8 +44,8 @@ assert.equal(installed, 2)
 let checks = 0, downloads = 0, events
 const service = new AppUpdateService({ currentVersion: '1.0.0', transport: {
   subscribe: e => { events = e; return () => {} },
-  checkForUpdates: () => { checks++; throw new Error('private source') },
-  downloadUpdate: () => { downloads++; throw new Error('private source') },
+  checkForUpdates: () => { checks++; throw new Error('synthetic transport failure') },
+  downloadUpdate: () => { downloads++; throw new Error('synthetic transport failure') },
   quitAndInstall: () => {},
 }})
 service.start({ automatic: false })
@@ -67,7 +67,7 @@ assert.equal(simulation.getActiveTimersCount(), 0)
 const updater = new EventEmitter()
 updater.checkForUpdates = async () => {}
 updater.downloadUpdate = async () => {}
-updater.quitAndInstall = () => { updater.emit('error', new Error('private installer path')) }
+updater.quitAndInstall = () => { updater.emit('error', new Error('synthetic installer path')) }
 const transport = createElectronUpdateTransport({ autoUpdater: updater })
 const production = new AppUpdateService({currentVersion: '1.0.0', transport})
 production.start({automatic: false})
@@ -75,7 +75,7 @@ assert.equal(updater.autoDownload, false)
 assert.equal(updater.autoInstallOnAppQuit, false)
 assert.equal(updater.disableDifferentialDownload, false)
 updater.emit('update-downloaded', { version: '1.0.1' })
-assert.throws(() => production.installUpdate(), error => !error.message.includes('private'))
+assert.throws(() => production.installUpdate(), error => !error.message.includes('synthetic installer path'))
 assert.equal(production.state().status, 'downloaded')
 updater.quitAndInstall = () => {}
 production.installUpdate()
