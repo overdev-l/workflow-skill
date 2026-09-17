@@ -1,6 +1,7 @@
 import { ProjectsThreeColumn } from './components/ProjectsThreeColumn'
 import { AppUpdate, useUpdateBlocker } from './components/AppUpdate'
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -54,6 +55,8 @@ import {
   Moon,
   MoveVertical,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pause,
   Pencil,
   Play,
@@ -135,6 +138,8 @@ function AppSidebar({
   onEnterSettings,
   onExitSettings,
   onBackToOverview,
+  masterCollapsed,
+  onToggleMasterCollapse,
 }: {
   view: View
   setView: (view: View) => void
@@ -144,6 +149,8 @@ function AppSidebar({
   onEnterSettings: () => void
   onExitSettings: () => void
   onBackToOverview: () => void
+  masterCollapsed?: boolean
+  onToggleMasterCollapse?: () => void
 }) {
   const { t } = useI18n()
 
@@ -293,9 +300,29 @@ function AppSidebar({
             </button>
           </nav>
 
-          {/* Clean Footer: Settings Entry */}
+          {/* Clean Footer: Settings Entry & Master Column Toggle */}
           <div className="sidebar-footer">
             <AppUpdate compact />
+            {!inSettings && view !== 'accounts' && onToggleMasterCollapse && (
+              <button
+                type="button"
+                className={`nav-pill-btn master-toggle-nav-btn ${masterCollapsed ? 'is-collapsed' : ''}`}
+                onClick={onToggleMasterCollapse}
+                title={masterCollapsed ? `${t.nav.expandMaster} (⌘B)` : `${t.nav.collapseMaster} (⌘B)`}
+                aria-label={masterCollapsed ? t.nav.expandMaster : t.nav.collapseMaster}
+                aria-expanded={!masterCollapsed}
+              >
+                <div className="nav-pill-btn__left">
+                  {masterCollapsed ? (
+                    <PanelLeftOpen size={15} className="nav-icon" />
+                  ) : (
+                    <PanelLeftClose size={15} className="nav-icon" />
+                  )}
+                  <span>{masterCollapsed ? t.nav.expandMaster : t.nav.collapseMaster}</span>
+                </div>
+                <kbd className="sidebar-shortcut-tag">⌘B</kbd>
+              </button>
+            )}
             <button
               type="button"
               className="nav-pill-btn settings-entry-btn"
@@ -3206,6 +3233,13 @@ const SHORTCUT_DEFINITIONS: ShortcutConfig[] = [
     defaultKey: '⌘K',
   },
   {
+    id: 'toggle_master_column',
+    groupId: 'global',
+    titleKey: 'shortcutToggleMasterTitle',
+    descKey: 'shortcutToggleMasterDesc',
+    defaultKey: '⌘B',
+  },
+  {
     id: 'escape_back',
     groupId: 'global',
     titleKey: 'shortcutEscTitle',
@@ -4228,10 +4262,30 @@ function transitionTheme(callback: () => void) {
   callback()
 }
 
-const MASTER_COLUMN_DEFAULT_WIDTH = 210
-const MASTER_COLUMN_MIN_WIDTH = 180
+const MASTER_COLUMN_DEFAULT_WIDTH = 280
+const MASTER_COLUMN_MIN_WIDTH = 240
 const MASTER_COLUMN_MAX_WIDTH = 360
 const MASTER_COLUMN_STORAGE_KEY = 'trace:master-column-width'
+const MASTER_COLUMN_COLLAPSED_STORAGE_KEY = 'trace:master-column-collapsed'
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  const element =
+    (target instanceof HTMLElement ? target : null) ||
+    (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null)
+  if (!element) return false
+  if (element.isContentEditable) return true
+  const tagName = element.tagName.toUpperCase()
+  if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
+    return true
+  }
+  return Boolean(
+    element.closest(
+      'input, textarea, select, [contenteditable="true"], [contenteditable=""], [contenteditable], [role="textbox"], .monaco-editor, .cm-editor, .skill-md-editor'
+    )
+  )
+}
 
 function clampMasterColumnWidth(width: number) {
   const viewportMax = typeof window === 'undefined'
@@ -4243,15 +4297,21 @@ function clampMasterColumnWidth(width: number) {
 function getInitialMasterColumnWidth() {
   if (typeof window === 'undefined') return MASTER_COLUMN_DEFAULT_WIDTH
   try {
-    const stored = Number(window.localStorage.getItem(MASTER_COLUMN_STORAGE_KEY))
+    const raw = window.localStorage.getItem(MASTER_COLUMN_STORAGE_KEY)
+    const stored = Number(raw)
     if (Number.isFinite(stored) && stored > 0) {
+      if (stored === 210) return MASTER_COLUMN_DEFAULT_WIDTH
       return Math.round(Math.min(Math.max(stored, MASTER_COLUMN_MIN_WIDTH), MASTER_COLUMN_MAX_WIDTH))
     }
   } catch {}
   return MASTER_COLUMN_DEFAULT_WIDTH
 }
 
-function MasterColumnResizeHandle() {
+function MasterColumnResizeHandle({
+  onToggleCollapse,
+}: {
+  onToggleCollapse?: () => void
+}) {
   const handleRef = useRef<HTMLDivElement>(null)
   const dragStartRef = useRef<{ pointerX: number; width: number } | null>(null)
   const preferredWidthRef = useRef(getInitialMasterColumnWidth())
@@ -4337,7 +4397,7 @@ function MasterColumnResizeHandle() {
       aria-valuenow={width}
       aria-valuetext={`${width} 像素`}
       tabIndex={0}
-      title="拖拽调整中间栏宽度，双击恢复默认"
+      title="拖拽调整中间栏宽度，双击恢复默认 (280px)"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerEnd}
@@ -4345,7 +4405,24 @@ function MasterColumnResizeHandle() {
       onLostPointerCapture={finishResize}
       onDoubleClick={() => applyWidth(MASTER_COLUMN_DEFAULT_WIDTH, true)}
       onKeyDown={handleKeyDown}
-    />
+    >
+      {onToggleCollapse && (
+        <button
+          type="button"
+          className="master-resizer-collapse-btn"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleCollapse()
+          }}
+          title="折叠中间栏 (⌘B)"
+          aria-label="折叠中间栏"
+          tabIndex={-1}
+        >
+          <PanelLeftClose size={12} />
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -4371,6 +4448,25 @@ export function App() {
     skillName: string
     workflow: Workflow | null
   }>({ open: false, skillName: '', workflow: null })
+
+  const [masterCollapsed, setMasterCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      return window.localStorage.getItem(MASTER_COLUMN_COLLAPSED_STORAGE_KEY) === 'true'
+    } catch {
+      return false
+    }
+  })
+  const isMasterCollapsed = !inSettings && view !== 'accounts' && masterCollapsed
+  const toggleMasterCollapse = useCallback(() => {
+    setMasterCollapsed((prev) => {
+      const next = !prev
+      try {
+        window.localStorage.setItem(MASTER_COLUMN_COLLAPSED_STORAGE_KEY, String(next))
+      } catch {}
+      return next
+    })
+  }, [])
 
   // Real Dynamic Skills & Discoveries in State (Zero Fake Data)
   const [skills, setSkills] = useState<Skill[]>([])
@@ -4665,6 +4761,13 @@ export function App() {
         setCommandOpen((v) => !v)
         return
       }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
+        if (!inSettings && view !== 'accounts' && !isEditableTarget(event.target)) {
+          event.preventDefault()
+          toggleMasterCollapse()
+          return
+        }
+      }
       if (event.key === 'Escape') {
         // Priority 1: Modals
         if (commandOpen) {
@@ -4697,7 +4800,7 @@ export function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [commandOpen, exportState.open, newSkillOpen, browserCaptureOpen, browserCaptureStarting, activeDetail, inSettings])
+  }, [commandOpen, exportState.open, newSkillOpen, browserCaptureOpen, browserCaptureStarting, activeDetail, inSettings, view, toggleMasterCollapse])
 
   useEffect(() => {
     if (!toast) return
@@ -4869,9 +4972,24 @@ export function App() {
   }
 
   return (
-    <div className={`app-shell ${inSettings ? 'is-settings' : view === 'accounts' ? 'is-accounts' : ''}`} data-theme={resolvedTheme}>
+    <div className={`app-shell ${inSettings ? 'is-settings' : view === 'accounts' ? 'is-accounts' : ''} ${isMasterCollapsed ? 'is-master-collapsed' : ''}`} data-theme={resolvedTheme}>
       {/* Global Top Window Drag Strip for macOS */}
       <div className="app-window-drag-strip" />
+
+      {/* Floating Expand Trigger when Master Column is Collapsed */}
+      {isMasterCollapsed ? (
+        <button
+          type="button"
+          className="master-expand-floating-trigger"
+          onClick={toggleMasterCollapse}
+          title={`${t.nav.expandMaster} (⌘B)`}
+          aria-label={t.nav.expandMaster}
+        >
+          <PanelLeftOpen size={13} />
+          <span>{t.nav.expandMaster}</span>
+          <kbd>⌘B</kbd>
+        </button>
+      ) : null}
 
       {/* Column 1: Sidebar Rail */}
       <AppSidebar
@@ -4893,9 +5011,11 @@ export function App() {
           setActiveDetail(null)
           setInSettings(false)
         }}
+        masterCollapsed={isMasterCollapsed}
+        onToggleMasterCollapse={!inSettings && view !== 'accounts' ? toggleMasterCollapse : undefined}
       />
 
-      {!inSettings && view !== 'accounts' ? <MasterColumnResizeHandle /> : null}
+      {!inSettings && view !== 'accounts' ? <MasterColumnResizeHandle onToggleCollapse={toggleMasterCollapse} /> : null}
 
       {/* Settings Mode: Clean 2-Pane Architecture (Sidebar + Full Width Settings Stage) */}
       {inSettings ? (

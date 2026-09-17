@@ -22,6 +22,8 @@ export const translations = {
       shortcuts: '快捷键',
       permissions: '隐私与权限',
       about: '关于 Trace',
+      expandMaster: '展开列表',
+      collapseMaster: '折叠列表',
     },
     mcp: {
       title: 'MCP Server',
@@ -397,6 +399,8 @@ export const translations = {
 
       shortcutCmdKTitle: '全局指令面板',
       shortcutCmdKDesc: '快速搜索操作、执行指令与跨界面跳转',
+      shortcutToggleMasterTitle: '折叠 / 展开中间列表',
+      shortcutToggleMasterDesc: '切换中间业务列表的折叠状态，为详情区腾出完整视图',
       shortcutNewSkillTitle: '新建 Skill 资产',
       shortcutNewSkillDesc: '创建自定义结构化工作流资产模板',
       shortcutSearchTitle: '聚焦搜索与筛选',
@@ -539,6 +543,8 @@ export const translations = {
       shortcuts: 'Shortcuts',
       permissions: 'Privacy & Permissions',
       about: 'About Trace',
+      expandMaster: 'Expand List',
+      collapseMaster: 'Collapse List',
     },
     mcp: {
       title: 'MCP Servers',
@@ -914,6 +920,8 @@ export const translations = {
 
       shortcutCmdKTitle: 'Command Palette',
       shortcutCmdKDesc: 'Quick search, run commands, and jump anywhere',
+      shortcutToggleMasterTitle: 'Toggle Master Column',
+      shortcutToggleMasterDesc: 'Collapse or expand the master list to give full width to details',
       shortcutNewSkillTitle: 'New Skill Asset',
       shortcutNewSkillDesc: 'Create a structured workflow skill template',
       shortcutSearchTitle: 'Focus Search & Filter',

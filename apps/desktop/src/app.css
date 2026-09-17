@@ -250,7 +250,7 @@ pre {
 .app-shell {
   position: relative;
   display: grid;
-  grid-template-columns: 160px var(--master-column-width, 210px) minmax(0, 1fr);
+  grid-template-columns: 160px var(--master-column-width, 280px) minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
   overflow: hidden;
@@ -272,7 +272,7 @@ pre {
   z-index: 40;
   top: 0;
   bottom: 0;
-  left: calc(160px + var(--master-column-width, 210px) - 4px);
+  left: calc(160px + var(--master-column-width, 280px) - 4px);
   width: 8px;
   cursor: col-resize;
   touch-action: none;
@@ -309,9 +309,112 @@ body.is-resizing-master-column * {
   user-select: none !important;
 }
 
+.master-resizer-collapse-btn {
+  position: absolute;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--control-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--control-border);
+  color: var(--color-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease, background-color 0.14s ease, transform 0.14s ease;
+  pointer-events: auto;
+  z-index: 45;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  -webkit-app-region: no-drag;
+}
+
+.master-column-resizer:hover .master-resizer-collapse-btn,
+.master-column-resizer:focus-within .master-resizer-collapse-btn {
+  opacity: 0.92;
+}
+
+.master-resizer-collapse-btn:hover {
+  opacity: 1 !important;
+  color: var(--color-ink);
+  background: var(--control-bg-hover);
+  border-color: var(--control-border-hover);
+  transform: translateX(-50%) scale(1.06);
+}
+
+.master-expand-floating-trigger {
+  position: absolute;
+  top: 7px;
+  left: 172px;
+  z-index: 55;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-surface-strong);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border-subtle);
+  color: var(--color-ink);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: all var(--motion-fast) var(--motion-smooth);
+  -webkit-app-region: no-drag;
+}
+
+.master-expand-floating-trigger:hover {
+  background: var(--glass-surface-hover);
+  border-color: var(--color-border);
+  transform: translateY(-0.5px);
+}
+
+.master-expand-floating-trigger:active {
+  transform: translateY(0);
+}
+
+.master-expand-floating-trigger kbd {
+  font-size: 0.625rem;
+  font-family: var(--font-mono);
+  color: var(--color-muted);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--glass-border-subtle);
+  line-height: 1.2;
+}
+
+.sidebar-shortcut-tag {
+  font-size: 0.5625rem;
+  font-family: var(--font-mono);
+  color: var(--color-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--control-border);
+  padding: 1px 4px;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+
 .app-shell.is-settings,
-.app-shell.is-accounts {
+.app-shell.is-accounts,
+.app-shell.is-master-collapsed {
   grid-template-columns: 160px minmax(0, 1fr);
+}
+
+.app-shell.is-master-collapsed .app-col-master {
+  display: none !important;
+}
+
+.app-shell.is-master-collapsed .master-column-resizer {
+  display: none !important;
 }
 
 .app-main-stage {
@@ -7012,10 +7115,10 @@ body.is-resizing-master-column * {
 .skill-scope-master .master-header { gap: 8px; }
 .skill-scope-master .master-header-top { gap: 8px; }
 .skill-scope-master .master-tab-segmented { flex: 1; min-width: 0; }
-.skill-scope-master .master-tab-btn { flex: 1 1 0; min-width: 0; padding-inline: 0; }
+.skill-scope-master .master-tab-btn { flex: 1 1 0; min-width: 0; padding-inline: 6px; }
 .skill-scope-master .master-header-top > .btn { flex: 0 0 24px; width: 24px; min-width: 24px; height: 24px; padding: 0; }
 .skill-scope-master .master-list-scroll > .master-item-row { width: 100%; min-height: 36px; color: var(--color-ink); }
-.skill-scope-master .master-item-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-scope-master .master-item-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-project-select { position: relative; min-width: 0; }
 .skill-project-select select { width: 100%; min-width: 0; appearance: none; -webkit-appearance: none; padding: 0 32px 0 12px; text-overflow: ellipsis; }
 .skill-project-select > svg { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--control-ink); pointer-events: none; }
@@ -7032,6 +7135,7 @@ body.is-resizing-master-column * {
   flex: 1;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
 }
 
