@@ -27,13 +27,24 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import {
   readAntigravityCurrentModel,
   isModelExhausted,
   isCandidateSuitable,
   AccountAutoSwitchService,
+  extractModelFromJson,
+  extractModelFromPbtxt,
+  extractModelFromBase64,
+  readFromVscdb,
 } from '../apps/desktop/electron/account-auto-switch.ts'
-import { createAccountAdapters } from '../apps/desktop/electron/account-adapters.ts'
+import {
+  createAccountAdapters,
+  resolveAntigravityDesktopStoragePath,
+  resolveAntigravityGlobalStorageDbPath,
+  resolveAntigravityGlobalStorageJsonPath,
+  resolveAntigravityPbtxtPath,
+} from '../apps/desktop/electron/account-adapters.ts'
 import { AccountManager } from '../apps/desktop/electron/account-manager.ts'
 import {
   SUPPORTED_ANTIGRAVITY_MODELS,
@@ -658,6 +669,246 @@ await test('14. Setting persistence across manager restarts', () => {
       assert.equal(await manager3.getAutoSwitch('antigravity'), false)
     } finally {
       env.cleanup()
+    }
+  })()
+})
+
+// 15. Synthetic vscdb (SQLite) model resolution & keys
+await test('15. Synthetic vscdb (SQLite) model resolution & keys', () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'auto-switch-vscdb-'))
+  try {
+    const dbPath = path.join(tmp, 'state.vscdb')
+
+    // Helper to create db with key/value
+    const createDbWithRow = (key, val) => {
+      rmSync(dbPath, { force: true })
+      const db = new DatabaseSync(dbPath)
+      db.exec('CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT);')
+      db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)').run(key, val)
+      db.close()
+    }
+
+    // 15a. currentModel in vscdb
+    createDbWithRow('currentModel', 'gemini-3.8-flash-tiered')
+    const m1 = readAntigravityCurrentModel({ vscdbPath: dbPath })
+    assert.equal(m1?.id, 'gemini-3.8-flash-high')
+
+    // 15b. antigravityUnifiedStateSync.modelPreferences with JSON
+    createDbWithRow('antigravityUnifiedStateSync.modelPreferences', JSON.stringify({
+      selectedModel: 'Claude Sonnet 4.6 (Thinking)'
+    }))
+    const m2 = readAntigravityCurrentModel({ vscdbPath: dbPath })
+    assert.equal(m2?.id, 'claude-sonnet-4.6-thinking')
+
+    // 15c. last_selected_model_name
+    createDbWithRow('last_selected_model_name', 'gpt-oss-120b')
+    const m3 = readAntigravityCurrentModel({ vscdbPath: dbPath })
+    assert.equal(m3?.id, 'gpt-oss-120b-medium')
+
+    // 15d. base64 payload containing model string
+    createDbWithRow('antigravityUnifiedStateSync.modelPreferences', Buffer.from('model: gemini-3.7-flash-medium').toString('base64'))
+    const m4 = readAntigravityCurrentModel({ vscdbPath: dbPath })
+    assert.equal(m4?.id, 'gemini-3.7-flash-medium')
+
+    // 15e. Empty or unrecognized row returns null
+    createDbWithRow('unknown_key', 'some_value')
+    assert.equal(readAntigravityCurrentModel({ vscdbPath: dbPath }), null)
+
+    createDbWithRow('currentModel', 'unrecognized-vendor-model')
+    assert.equal(readAntigravityCurrentModel({ vscdbPath: dbPath }), null)
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+// 16. Synthetic pbtxt resolution (valid names vs unresolvable placeholder enums)
+await test('16. Synthetic pbtxt resolution (valid names vs unresolvable placeholder enums)', () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'auto-switch-pbtxt-'))
+  try {
+    const pbtxtFile = path.join(tmp, 'antigravity_state.pbtxt')
+
+    // 16a. Recognizable model name
+    writeFileSync(pbtxtFile, `
+agent_onboarding_completed: AGENT_ONBOARDING_STATE_COMPLETED
+last_selected_agent_model: "gemini-3.8-flash-high"
+migrate_convos_into_projects: MIGRATION_STATUS_COMPLETED
+`)
+    const m1 = readAntigravityCurrentModel({ pbtxtPath: pbtxtFile })
+    assert.equal(m1?.id, 'gemini-3.8-flash-high')
+
+    // 16b. Recognizable model in last_selected_model_name
+    writeFileSync(pbtxtFile, `
+last_selected_model_name: "claude-sonnet-4.6-thinking"
+`)
+    const m2 = readAntigravityCurrentModel({ pbtxtPath: pbtxtFile })
+    assert.equal(m2?.id, 'claude-sonnet-4.6-thinking')
+
+    // 16c. Placeholder enum MODEL_PLACEHOLDER_M318 must return null (no guesswork!)
+    writeFileSync(pbtxtFile, `
+agent_onboarding_completed: AGENT_ONBOARDING_STATE_COMPLETED
+last_selected_agent_model: MODEL_PLACEHOLDER_M318
+migrate_convos_into_projects: MIGRATION_STATUS_COMPLETED
+`)
+    const m3 = readAntigravityCurrentModel({ pbtxtPath: pbtxtFile })
+    assert.equal(m3, null, 'MODEL_PLACEHOLDER_M318 must return null (no guessing)')
+
+    // 16d. Another placeholder enum MODEL_PLACEHOLDER_M0 must return null
+    writeFileSync(pbtxtFile, `
+last_selected_agent_model: MODEL_PLACEHOLDER_M0
+`)
+    const m4 = readAntigravityCurrentModel({ pbtxtPath: pbtxtFile })
+    assert.equal(m4, null, 'MODEL_PLACEHOLDER_M0 must return null (no guessing)')
+
+    // 16e. Malformed / corrupted pbtxt returns null without throwing
+    writeFileSync(pbtxtFile, '{{malformed pbtxt content ::: @@##$$')
+    assert.equal(readAntigravityCurrentModel({ pbtxtPath: pbtxtFile }), null)
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+// 17. Multi-source priority and corruption isolation
+await test('17. Multi-source priority and corruption isolation', () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'auto-switch-priority-'))
+  try {
+    const vscdbFile = path.join(tmp, 'state.vscdb')
+    const appStorageFile = path.join(tmp, 'app_storage.json')
+    const pbtxtFile = path.join(tmp, 'antigravity_state.pbtxt')
+
+    // Setup vscdb with gemini-3.8-flash
+    const db = new DatabaseSync(vscdbFile)
+    db.exec('CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT);')
+    db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)').run('currentModel', 'gemini-3.8-flash-tiered')
+    db.close()
+
+    // Setup app_storage with claude-sonnet
+    writeFileSync(appStorageFile, JSON.stringify({ currentModel: 'claude-sonnet-4.6-thinking' }))
+
+    // Setup pbtxt with gpt-oss
+    writeFileSync(pbtxtFile, 'last_selected_agent_model: "gpt-oss-120b"\n')
+
+    // 17a. Priority 1 (vscdb) wins over Priority 2 (app_storage) and Priority 4 (pbtxt)
+    const m1 = readAntigravityCurrentModel({
+      vscdbPath: vscdbFile,
+      storagePath: appStorageFile,
+      pbtxtPath: pbtxtFile,
+    })
+    assert.equal(m1?.id, 'gemini-3.8-flash-high')
+
+    // 17b. Corrupted vscdb (random binary / not valid sqlite) cleanly falls through to app_storage
+    writeFileSync(vscdbFile, Buffer.from([0x00, 0xff, 0xfe, 0x12, 0x34, 0x56, 0x78]))
+    const m2 = readAntigravityCurrentModel({
+      vscdbPath: vscdbFile,
+      storagePath: appStorageFile,
+      pbtxtPath: pbtxtFile,
+    })
+    assert.equal(m2?.id, 'claude-sonnet-4.6-thinking')
+
+    // 17c. Corrupted vscdb AND corrupted app_storage falls through to pbtxt
+    writeFileSync(appStorageFile, '{ corrupted json :::: ')
+    const m3 = readAntigravityCurrentModel({
+      vscdbPath: vscdbFile,
+      storagePath: appStorageFile,
+      pbtxtPath: pbtxtFile,
+    })
+    assert.equal(m3?.id, 'gpt-oss-120b-medium')
+
+    // 17d. All sources corrupted / invalid returns null
+    writeFileSync(pbtxtFile, 'last_selected_agent_model: MODEL_PLACEHOLDER_M318\n')
+    const m4 = readAntigravityCurrentModel({
+      vscdbPath: vscdbFile,
+      storagePath: appStorageFile,
+      pbtxtPath: pbtxtFile,
+    })
+    assert.equal(m4, null)
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+// 18. End-to-end integration: vscdb-driven auto switch and unresolvable placeholder abort
+await test('18. End-to-end integration: vscdb-driven auto switch and unresolvable placeholder abort', () => {
+  return (async () => {
+    // Part A: vscdb-driven auto switch
+    const env1 = setupManagerTestEnv()
+    try {
+      await env1.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      await env1.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+
+      await env1.manager.setAutoSwitch('antigravity', true)
+
+      // Set up vscdb inside env1.home pointing to claude-sonnet-4.6-thinking
+      const vscdbDir = path.join(env1.home, 'Library', 'Application Support', 'Antigravity', 'User', 'globalStorage')
+      mkdirSync(vscdbDir, { recursive: true })
+      const vscdbPath = path.join(vscdbDir, 'state.vscdb')
+
+      const db = new DatabaseSync(vscdbPath)
+      db.exec('CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT);')
+      db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)').run(
+        'antigravityUnifiedStateSync.modelPreferences',
+        JSON.stringify({ selectedModel: 'Claude Sonnet 4.6 (Thinking)' })
+      )
+      db.close()
+
+      // Active account has 0% on claude-sonnet; candidate has 80%
+      env1.quotas.set('acc1', {
+        models: { 'claude-sonnet-4.6-thinking': { remainingFraction: 0.0 } }
+      })
+      env1.quotas.set('acc2', {
+        models: { 'claude-sonnet-4.6-thinking': { remainingFraction: 0.8 } }
+      })
+
+      // Auto switch should identify claude-sonnet-4.6-thinking from vscdb and execute switch
+      const res = await env1.manager.checkAutoSwitch()
+      assert.equal(res?.success, true)
+
+      const overview1 = await env1.manager.getOverview()
+      const toolState1 = overview1.tools.find(t => t.tool === 'antigravity')
+      assert.match(toolState1?.autoSwitchStatus || '', /已自动切换至账号「Account 2」/)
+    } finally {
+      env1.cleanup()
+    }
+
+    // Part B: Placeholder enum abort without switching
+    const env2 = setupManagerTestEnv()
+    try {
+      await env2.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      await env2.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+
+      await env2.manager.setAutoSwitch('antigravity', true)
+
+      // Clear app_storage and create pbtxt with MODEL_PLACEHOLDER_M318
+      writeFileSync(env2.storageFile, JSON.stringify({}))
+
+      const pbtxtDir = path.join(env2.home, '.gemini', 'antigravity')
+      mkdirSync(pbtxtDir, { recursive: true })
+      writeFileSync(path.join(pbtxtDir, 'antigravity_state.pbtxt'), 'last_selected_agent_model: MODEL_PLACEHOLDER_M318\n')
+
+      // Auto switch should detect unresolvable model and abort without switching
+      const res2 = await env2.manager.checkAutoSwitch()
+      assert.equal(res2, null)
+
+      const overview2 = await env2.manager.getOverview()
+      const toolState2 = overview2.tools.find(t => t.tool === 'antigravity')
+      assert.match(toolState2?.autoSwitchStatus || '', /无法识别当前 Antigravity 选用模型/)
+    } finally {
+      env2.cleanup()
     }
   })()
 })

@@ -32,17 +32,23 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import {
   type AccountActionResult,
   type AccountMetadata,
   type AccountQuotaSnapshot,
   type AccountTool,
   type SupportedAntigravityModel,
+  SUPPORTED_ANTIGRAVITY_MODELS,
   matchSupportedAntigravityModel,
 } from '../../../packages/workflow-model/src/accounts.ts'
 import {
   resolveAntigravityDesktopStoragePath,
+  resolveAntigravityGlobalStorageDbPath,
+  resolveAntigravityGlobalStorageJsonPath,
+  resolveAntigravityPbtxtPath,
   type AccountFileManager,
 } from './account-adapters.ts'
 import type { AccountManager } from './account-manager.ts'
@@ -59,6 +65,11 @@ export const ANTIGRAVITY_MODEL_STORAGE_KEYS = [
   'antigravity.model',
   'lastSelectedCascadeModel',
   'jetski.model',
+  'last_selected_agent_model',
+  'last_selected_model',
+  'lastSelectedModel',
+  'last_selected_model_name',
+  'last_selected_cascade_model_or_alias',
 ] as const
 
 export const QUOTA_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
@@ -77,6 +88,9 @@ export interface AccountAutoSwitchConfigFile {
 
 export interface AccountAutoSwitchOptions {
   storagePath?: string
+  vscdbPath?: string
+  pbtxtPath?: string
+  globalStorageJsonPath?: string
   homeDir?: string
   traceHome?: string
   files?: AccountFileManager
@@ -84,19 +98,10 @@ export interface AccountAutoSwitchOptions {
 }
 
 /**
- * Reads the currently selected Antigravity model from desktop application storage.
- * If the field is missing, invalid, or unrecognized: returns null (no guesswork).
+ * Extracts a supported Antigravity model from raw JSON text content.
  */
-export function readAntigravityCurrentModel(
-  options?: Pick<AccountAutoSwitchOptions, 'storagePath' | 'homeDir' | 'files'>
-): SupportedAntigravityModel | null {
-  const targetPath = options?.storagePath || resolveAntigravityDesktopStoragePath(options?.homeDir)
+export function extractModelFromJson(content: string): SupportedAntigravityModel | null {
   try {
-    const content = options?.files
-      ? options.files.read(targetPath)
-      : (existsSync(targetPath) ? readFileSync(targetPath, 'utf8') : null)
-    if (!content) return null
-
     const parsed = JSON.parse(content)
     if (!parsed || typeof parsed !== 'object') return null
 
@@ -108,10 +113,238 @@ export function readAntigravityCurrentModel(
       }
     }
 
+    const modelPrefs =
+      (parsed as Record<string, unknown>)['antigravityUnifiedStateSync.modelPreferences'] ??
+      (parsed as Record<string, unknown>)['modelPreferences']
+    if (modelPrefs && typeof modelPrefs === 'object') {
+      for (const key of Object.keys(modelPrefs as Record<string, unknown>)) {
+        const val = (modelPrefs as Record<string, unknown>)[key]
+        if (typeof val === 'string' && val.trim().length > 0) {
+          const matched = matchSupportedAntigravityModel(val.trim())
+          if (matched) return matched
+        }
+      }
+    }
+
     return null
   } catch {
     return null
   }
+}
+
+/**
+ * Extracts a supported model from a base64 encoded string if it contains any recognizable model ID or alias.
+ */
+export function extractModelFromBase64(val: string): SupportedAntigravityModel | null {
+  const trimmed = val.trim()
+  if (!trimmed || trimmed.length < 4 || trimmed.length % 4 !== 0) return null
+  if (!/^[A-Za-z0-9+/=]+$/.test(trimmed)) return null
+
+  try {
+    const decoded = Buffer.from(trimmed, 'base64')
+    const text = decoded.toString('utf8')
+
+    for (const model of SUPPORTED_ANTIGRAVITY_MODELS) {
+      const targets = [model.id, model.label, ...model.aliases]
+      for (const target of targets) {
+        if (text.includes(target)) {
+          return model
+        }
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Extracts a supported Antigravity model from protobuf text format (pbtxt) content.
+ * If the value is a placeholder enum (e.g. MODEL_PLACEHOLDER_M*), returns null (no guesswork).
+ */
+export function extractModelFromPbtxt(content: string): SupportedAntigravityModel | null {
+  try {
+    const lines = content.split(/\r?\n/)
+    for (const line of lines) {
+      const match = /^\s*([a-zA-Z0-9_]+)\s*:\s*(?:"([^"]*)"|'([^']*)'|([a-zA-Z0-9_\-.]+))/i.exec(line)
+      if (match) {
+        const key = match[1]
+        const val = match[2] ?? match[3] ?? match[4]
+        if (
+          key === 'last_selected_agent_model' ||
+          key === 'last_selected_model_name' ||
+          key === 'last_selected_cascade_model_or_alias' ||
+          key === 'last_selected_cascade_model' ||
+          key === 'last_selected_model' ||
+          key === 'selected_model' ||
+          key === 'current_model' ||
+          key === 'active_model' ||
+          key === 'model'
+        ) {
+          if (val && !val.startsWith('MODEL_PLACEHOLDER_')) {
+            const matched = matchSupportedAntigravityModel(val.trim())
+            if (matched) return matched
+          }
+        }
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Reads a model selection from state.vscdb (SQLite ItemTable).
+ */
+export function readFromVscdb(
+  vscdbPath: string,
+  options?: Pick<AccountAutoSwitchOptions, 'files'>
+): SupportedAntigravityModel | null {
+  if (options?.files) {
+    try {
+      const mockContent = options.files.read(vscdbPath)
+      if (mockContent) {
+        const fromJson = extractModelFromJson(mockContent)
+        if (fromJson) return fromJson
+        const fromPbtxt = extractModelFromPbtxt(mockContent)
+        if (fromPbtxt) return fromPbtxt
+        const fromBase64 = extractModelFromBase64(mockContent)
+        if (fromBase64) return fromBase64
+      }
+    } catch {}
+  }
+
+  if (existsSync(vscdbPath)) {
+    let db: DatabaseSync | null = null
+    try {
+      db = new DatabaseSync(vscdbPath, { readOnly: true, open: true })
+      const keysToCheck = [
+        'antigravityUnifiedStateSync.modelPreferences',
+        ...ANTIGRAVITY_MODEL_STORAGE_KEYS,
+      ]
+
+      const placeholders = keysToCheck.map(() => '?').join(',')
+      const stmt = db.prepare(`SELECT key, value FROM ItemTable WHERE key IN (${placeholders})`)
+      const rows = stmt.all(...keysToCheck) as Array<{ key: string; value: unknown }>
+
+      for (const row of rows) {
+        const val = row.value
+        if (typeof val === 'string' && val.trim().length > 0) {
+          const directMatch = matchSupportedAntigravityModel(val.trim())
+          if (directMatch) return directMatch
+
+          const jsonMatch = extractModelFromJson(val)
+          if (jsonMatch) return jsonMatch
+
+          const base64Match = extractModelFromBase64(val)
+          if (base64Match) return base64Match
+        }
+      }
+    } catch {
+      return null
+    } finally {
+      try {
+        db?.close()
+      } catch {}
+    }
+  }
+
+  return null
+}
+
+/**
+ * Reads the currently selected Antigravity model using bounded, read-only multi-source resolution.
+ *
+ * Sources evaluated in strict priority order:
+ * 1. state.vscdb (SQLite globalStorage)
+ * 2. app_storage.json (Desktop Electron app storage)
+ * 3. storage.json (User globalStorage JSON)
+ * 4. antigravity_state.pbtxt (~/.gemini/antigravity/antigravity_state.pbtxt)
+ *
+ * Safety & Invariant Rules:
+ * - Corruption/absence of any source cleanly falls through to the next without failing.
+ * - If the model cannot be read or recognized (e.g. placeholder enums MODEL_PLACEHOLDER_M*):
+ *   strictly returns null without guessing.
+ */
+export function readAntigravityCurrentModel(
+  options?: Pick<
+    AccountAutoSwitchOptions,
+    | 'storagePath'
+    | 'vscdbPath'
+    | 'pbtxtPath'
+    | 'globalStorageJsonPath'
+    | 'homeDir'
+    | 'files'
+  >
+): SupportedAntigravityModel | null {
+  const hasExplicitPath = Boolean(
+    options?.storagePath ||
+      options?.vscdbPath ||
+      options?.pbtxtPath ||
+      options?.globalStorageJsonPath
+  )
+  const home = options?.homeDir || (hasExplicitPath ? undefined : os.homedir())
+
+  // Priority 1: state.vscdb (SQLite globalStorage)
+  const vscdbPath =
+    options?.vscdbPath || (home ? resolveAntigravityGlobalStorageDbPath(home) : undefined)
+  if (vscdbPath) {
+    try {
+      const model = readFromVscdb(vscdbPath, options)
+      if (model) return model
+    } catch {}
+  }
+
+  // Priority 2: app_storage.json (Desktop Electron storage)
+  const desktopStoragePath =
+    options?.storagePath || (home ? resolveAntigravityDesktopStoragePath(home) : undefined)
+  if (desktopStoragePath) {
+    try {
+      const content = options?.files
+        ? options.files.read(desktopStoragePath)
+        : (existsSync(desktopStoragePath) ? readFileSync(desktopStoragePath, 'utf8') : null)
+      if (content) {
+        const model = extractModelFromJson(content)
+        if (model) return model
+      }
+    } catch {}
+  }
+
+  // Priority 3: storage.json (User/globalStorage/storage.json)
+  const globalStorageJsonPath =
+    options?.globalStorageJsonPath ||
+    (home ? resolveAntigravityGlobalStorageJsonPath(home) : undefined)
+  if (globalStorageJsonPath) {
+    try {
+      const content = options?.files
+        ? options.files.read(globalStorageJsonPath)
+        : (existsSync(globalStorageJsonPath)
+            ? readFileSync(globalStorageJsonPath, 'utf8')
+            : null)
+      if (content) {
+        const model = extractModelFromJson(content)
+        if (model) return model
+      }
+    } catch {}
+  }
+
+  // Priority 4: antigravity_state.pbtxt (~/.gemini/antigravity/antigravity_state.pbtxt)
+  const pbtxtPath =
+    options?.pbtxtPath || (home ? resolveAntigravityPbtxtPath(home) : undefined)
+  if (pbtxtPath) {
+    try {
+      const content = options?.files
+        ? options.files.read(pbtxtPath)
+        : (existsSync(pbtxtPath) ? readFileSync(pbtxtPath, 'utf8') : null)
+      if (content) {
+        const model = extractModelFromPbtxt(content)
+        if (model) return model
+      }
+    } catch {}
+  }
+
+  return null
 }
 
 /**

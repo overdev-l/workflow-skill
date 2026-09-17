@@ -29,6 +29,21 @@ export function resolveAntigravityDesktopStoragePath(homeDir?: string): string {
   return path.join(base, 'Library', 'Application Support', 'Antigravity', 'app_storage.json')
 }
 
+export function resolveAntigravityGlobalStorageDbPath(homeDir?: string): string {
+  const base = homeDir || os.homedir()
+  return path.join(base, 'Library', 'Application Support', 'Antigravity', 'User', 'globalStorage', 'state.vscdb')
+}
+
+export function resolveAntigravityGlobalStorageJsonPath(homeDir?: string): string {
+  const base = homeDir || os.homedir()
+  return path.join(base, 'Library', 'Application Support', 'Antigravity', 'User', 'globalStorage', 'storage.json')
+}
+
+export function resolveAntigravityPbtxtPath(homeDir?: string): string {
+  const base = homeDir || os.homedir()
+  return path.join(base, '.gemini', 'antigravity', 'antigravity_state.pbtxt')
+}
+
 export function readAntigravityDesktopIdentity(
   storagePath?: string,
   files?: AccountFileManager
