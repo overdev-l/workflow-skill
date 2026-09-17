@@ -72,6 +72,59 @@ function periodOrder(window: AccountQuotaWindow): number {
   return 2
 }
 
+export function mergeQuotaWindows(current: AccountQuotaWindow, incoming: AccountQuotaWindow): AccountQuotaWindow {
+  let remainingPercent: number | undefined
+  let resetsAt: number | undefined
+
+  if (current.remainingPercent === undefined) {
+    remainingPercent = incoming.remainingPercent
+  } else if (incoming.remainingPercent === undefined) {
+    remainingPercent = current.remainingPercent
+  } else {
+    // Both defined:
+    // 1. A real 0% represents exhaustion and must never be replaced by a non-zero value.
+    // 2. If both are non-zero, conservative lower quota takes precedence (Math.min).
+    remainingPercent = Math.min(current.remainingPercent, incoming.remainingPercent)
+  }
+
+  if (remainingPercent === 0) {
+    // When exhausted, prefer reset time of the exhausted window (or later reset time if both exhausted)
+    if (incoming.remainingPercent === 0 && current.remainingPercent !== 0) {
+      resetsAt = incoming.resetsAt ?? current.resetsAt
+    } else if (current.remainingPercent === 0 && incoming.remainingPercent !== 0) {
+      resetsAt = current.resetsAt ?? incoming.resetsAt
+    } else {
+      resetsAt = (current.resetsAt && incoming.resetsAt)
+        ? Math.max(current.resetsAt, incoming.resetsAt)
+        : (incoming.resetsAt ?? current.resetsAt)
+    }
+  } else if (
+    remainingPercent !== undefined &&
+    incoming.remainingPercent !== undefined &&
+    incoming.remainingPercent < (current.remainingPercent ?? Infinity)
+  ) {
+    resetsAt = incoming.resetsAt ?? current.resetsAt
+  } else {
+    resetsAt = current.resetsAt ?? incoming.resetsAt
+  }
+
+  const merged: AccountQuotaWindow = {
+    ...current,
+  }
+  if (remainingPercent !== undefined) {
+    merged.remainingPercent = remainingPercent
+  } else {
+    delete merged.remainingPercent
+  }
+  if (resetsAt !== undefined) {
+    merged.resetsAt = resetsAt
+  } else {
+    delete merged.resetsAt
+  }
+
+  return merged
+}
+
 /** Groups only the visible Antigravity models so one model owns all of its periods. */
 export function groupAntigravityQuotaWindows(windows: AccountQuotaWindow[]): AccountQuotaModelGroup[] {
   if (!Array.isArray(windows)) return []
@@ -84,14 +137,15 @@ export function groupAntigravityQuotaWindows(windows: AccountQuotaWindow[]): Acc
     const order = SUPPORTED_ANTIGRAVITY_MODELS.indexOf(visibleModel)
     const existing = groups.get(visibleModel.id)
     if (existing) {
+      if (existing.group.id !== visibleModel.id && modelIdForWindow(window) === visibleModel.id) {
+        existing.group.id = visibleModel.id
+      }
       const samePeriod = window.period
         ? existing.group.windows.findIndex((item) => item.period === window.period)
         : -1
       if (samePeriod >= 0) {
         const current = existing.group.windows[samePeriod]
-        if (current.remainingPercent === undefined && window.remainingPercent !== undefined) {
-          existing.group.windows[samePeriod] = window
-        }
+        existing.group.windows[samePeriod] = mergeQuotaWindows(current, window)
       } else {
         existing.group.windows.push(window)
       }

@@ -539,10 +539,10 @@ export function AccountQuotaCard({
         {/* Quota Windows List */}
         {hasRenderableQuotaWindows ? (
           <div
-            className={`account-quota-windows ${account.tool === 'antigravity' ? 'account-quota-windows--antigravity' : ''}`}
+            className={`account-quota-windows ${account.tool === 'antigravity' ? 'account-quota-windows--antigravity' : ''} ${isStale ? 'account-quota-windows--stale' : ''}`}
             tabIndex={0}
             role="region"
-            aria-label={`${account.name} · ${locale.startsWith('zh') ? '模型配额' : 'Model quotas'}`}
+            aria-label={`${account.name} · ${locale.startsWith('zh') ? '模型配额' : 'Model quotas'}${isStale ? ` · ${loc.quotaStatusStale}` : ''}`}
           >
             {account.tool === 'antigravity'
               ? antigravityModelGroups.map((group, index) => {

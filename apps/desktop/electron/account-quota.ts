@@ -196,6 +196,53 @@ function parseAntigravityQuotaBucket(rawBucket: unknown): AntigravityQuotaBucket
   }
 }
 
+function mergeAntigravityBucket(
+  existing: AntigravityQuotaBucket,
+  incoming: AntigravityQuotaBucket
+): AntigravityQuotaBucket {
+  let remainingPercent: number | undefined
+  let resetsAt: number | undefined
+
+  if (existing.remainingPercent === undefined) {
+    remainingPercent = incoming.remainingPercent
+  } else if (incoming.remainingPercent === undefined) {
+    remainingPercent = existing.remainingPercent
+  } else {
+    // Both defined:
+    // Real 0 represents exhaustion and must never be replaced by non-zero.
+    // If both are non-zero, deterministic precedence takes the conservative lower quota.
+    remainingPercent = Math.min(existing.remainingPercent, incoming.remainingPercent)
+  }
+
+  if (remainingPercent === 0) {
+    if (incoming.remainingPercent === 0 && existing.remainingPercent !== 0) {
+      resetsAt = incoming.resetsAt ?? existing.resetsAt
+    } else if (existing.remainingPercent === 0 && incoming.remainingPercent !== 0) {
+      resetsAt = existing.resetsAt ?? incoming.resetsAt
+    } else {
+      resetsAt = (existing.resetsAt && incoming.resetsAt)
+        ? Math.max(existing.resetsAt, incoming.resetsAt)
+        : (incoming.resetsAt ?? existing.resetsAt)
+    }
+  } else if (
+    remainingPercent !== undefined &&
+    incoming.remainingPercent !== undefined &&
+    incoming.remainingPercent < (existing.remainingPercent ?? Infinity)
+  ) {
+    resetsAt = incoming.resetsAt ?? existing.resetsAt
+  } else {
+    resetsAt = existing.resetsAt ?? incoming.resetsAt
+  }
+
+  return {
+    period: existing.period,
+    ...(remainingPercent !== undefined ? { remainingPercent } : {}),
+    ...(resetsAt !== undefined ? { resetsAt } : {}),
+  }
+}
+
+export { mergeAntigravityBucket, parseAntigravityQuotaSummary }
+
 function parseAntigravityQuotaSummary(body: unknown): AntigravityQuotaSummary {
   const summary: AntigravityQuotaSummary = new Map()
   if (!body || typeof body !== 'object' || Array.isArray(body)) return summary
@@ -214,9 +261,10 @@ function parseAntigravityQuotaSummary(body: unknown): AntigravityQuotaSummary {
       if (!bucket) continue
       const familySummary = summary.get(family) ?? new Map<AccountQuotaPeriod, AntigravityQuotaBucket>()
       const existing = familySummary.get(bucket.period)
-      // Prefer a bucket with an actual percentage when duplicate aliases are returned.
-      if (!existing || (existing.remainingPercent === undefined && bucket.remainingPercent !== undefined)) {
+      if (!existing) {
         familySummary.set(bucket.period, bucket)
+      } else {
+        familySummary.set(bucket.period, mergeAntigravityBucket(existing, bucket))
       }
       summary.set(family, familySummary)
     }
@@ -653,12 +701,50 @@ async function queryAntigravityQuota(
     const label = safeDisplayName ?? modelKey
     const family = classifyAntigravityModelFamily(modelKey, m.displayName, m.apiProvider)
 
-    let remainingPercent: number | undefined
-    let resetsAt: number | undefined
+    const rawRemaining = safeRemainingPercent(m.quotaInfo?.remainingFraction, false)
+    const rawResetsAt = safeEpochMs(m.quotaInfo?.resetTime, false)
 
-    if (m.quotaInfo && typeof m.quotaInfo === 'object') {
-      remainingPercent = safeRemainingPercent(m.quotaInfo.remainingFraction, false)
-      resetsAt = safeEpochMs(m.quotaInfo.resetTime, false)
+    const familySummary = family ? quotaSummary?.get(family) : undefined
+    const familyFiveHour = familySummary?.get('five-hour')
+
+    let fiveHourRemaining: number | undefined
+    let fiveHourResetsAt: number | undefined
+
+    if (familyFiveHour) {
+      if (familyFiveHour.remainingPercent !== undefined) {
+        if (rawRemaining === 0 || familyFiveHour.remainingPercent === 0) {
+          fiveHourRemaining = 0
+        } else if (rawRemaining !== undefined) {
+          fiveHourRemaining = Math.min(familyFiveHour.remainingPercent, rawRemaining)
+        } else {
+          fiveHourRemaining = familyFiveHour.remainingPercent
+        }
+      } else {
+        fiveHourRemaining = rawRemaining
+      }
+
+      if (fiveHourRemaining === 0) {
+        if (familyFiveHour.remainingPercent === 0 && rawRemaining !== 0) {
+          fiveHourResetsAt = familyFiveHour.resetsAt ?? rawResetsAt
+        } else if (rawRemaining === 0 && familyFiveHour.remainingPercent !== 0) {
+          fiveHourResetsAt = rawResetsAt ?? familyFiveHour.resetsAt
+        } else {
+          fiveHourResetsAt = (familyFiveHour.resetsAt && rawResetsAt)
+            ? Math.max(familyFiveHour.resetsAt, rawResetsAt)
+            : (familyFiveHour.resetsAt ?? rawResetsAt)
+        }
+      } else if (
+        fiveHourRemaining !== undefined &&
+        familyFiveHour.remainingPercent !== undefined &&
+        familyFiveHour.remainingPercent < (rawRemaining ?? Infinity)
+      ) {
+        fiveHourResetsAt = familyFiveHour.resetsAt ?? rawResetsAt
+      } else {
+        fiveHourResetsAt = familyFiveHour.resetsAt ?? rawResetsAt
+      }
+    } else {
+      fiveHourRemaining = rawRemaining
+      fiveHourResetsAt = rawResetsAt
     }
 
     windows.push({
@@ -667,12 +753,12 @@ async function queryAntigravityQuota(
       modelLabel: label,
       period: 'five-hour',
       durationSeconds: 18000,
-      ...(remainingPercent !== undefined ? { remainingPercent } : {}),
-      ...(resetsAt !== undefined ? { resetsAt } : {}),
+      ...(fiveHourRemaining !== undefined ? { remainingPercent: fiveHourRemaining } : {}),
+      ...(fiveHourResetsAt !== undefined ? { resetsAt: fiveHourResetsAt } : {}),
     })
 
     if (family) {
-      const weekly = quotaSummary?.get(family)?.get('weekly')
+      const weekly = familySummary?.get('weekly')
       windows.push({
         id: `${modelKey}:weekly`,
         label,

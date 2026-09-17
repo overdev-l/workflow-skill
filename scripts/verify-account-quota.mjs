@@ -27,7 +27,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { groupAntigravityQuotaWindows } from '../apps/desktop/src/utils/quota-grouping.ts'
+import { groupAntigravityQuotaWindows, mergeQuotaWindows } from '../apps/desktop/src/utils/quota-grouping.ts'
 import { formatQuotaWindowLabel } from '../apps/desktop/src/utils/quota-label.ts'
 import { randomUUID } from 'node:crypto'
 import {
@@ -35,6 +35,8 @@ import {
   HTTP_TIMEOUT_MS,
   MAX_CONCURRENT_HTTP,
   MAX_RESPONSE_BYTES,
+  mergeAntigravityBucket,
+  parseAntigravityQuotaSummary,
 } from '../apps/desktop/electron/account-quota.ts'
 import {
   AccountError,
@@ -1115,6 +1117,339 @@ await test('Antigravity quota UI keeps the visible model set and groups two peri
   assert.equal(groups.length, 7)
   assert.ok(groups.every((group) => group.windows.length === 2))
   assert.deepEqual(groups[0].windows.map((window) => window.period), ['weekly', 'five-hour'])
+})
+
+await test('Antigravity authoritative five-hour exhaustion overrides non-zero model window', async () => {
+  const store = new MockStore()
+  const acc = makeAntigravityAccount()
+  store.set(acc.metadata.id, acc)
+
+  const mockFetch = async (url) => {
+    if (url.endsWith(':loadCodeAssist')) {
+      return jsonResponse({
+        cloudaicompanionProject: 'test-project-exhausted',
+        currentTier: { name: 'Gemini Advanced' },
+      })
+    }
+    if (url.endsWith(':fetchAvailableModels')) {
+      return jsonResponse({
+        models: {
+          'gemini-pro': {
+            displayName: 'Gemini Pro',
+            quotaInfo: {
+              remainingFraction: 0.75, // Model entry falsely claims 75%
+              resetTime: '2030-01-01T00:00:00Z',
+            },
+          },
+          'claude-sonnet': {
+            displayName: 'Claude Sonnet',
+            quotaInfo: {
+              remainingFraction: 0.5,
+              resetTime: '2030-01-01T00:00:00Z',
+            },
+          },
+        },
+      })
+    }
+    if (url.endsWith(':retrieveUserQuotaSummary')) {
+      return jsonResponse({
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              {
+                bucketId: 'gemini_5h',
+                window: '5h',
+                remainingFraction: 0, // Authoritative 5-hour exhausted!
+                resetTime: '2030-01-01T04:30:00Z',
+              },
+              {
+                bucketId: 'gemini_weekly',
+                window: 'weekly',
+                remainingFraction: 0.85,
+                resetTime: '2030-01-07T00:00:00Z',
+              },
+            ],
+          },
+          {
+            displayName: 'Claude and GPT models',
+            buckets: [
+              {
+                bucketId: 'claude_5h',
+                window: '5h',
+                remainingFraction: 0.25, // Authoritative 5-hour 25%
+                resetTime: '2030-01-01T03:00:00Z',
+              },
+              {
+                bucketId: 'claude_weekly',
+                window: 'weekly',
+                remainingFraction: 0.6,
+                resetTime: '2030-01-07T00:00:00Z',
+              },
+            ],
+          },
+        ],
+      })
+    }
+    throw new Error(`Unexpected URL: ${url}`)
+  }
+
+  const service = new AccountQuotaService({ store, fetch: mockFetch })
+  const snapshot = await service.refreshAccount(acc.metadata.id)
+
+  assert.equal(snapshot.status, 'ready')
+
+  // Gemini Pro 5-hour window MUST be 0 (exhausted from authoritative summary), not 75!
+  const gemini5h = snapshot.windows.find((w) => w.id === 'gemini-pro' && w.period === 'five-hour')
+  assert.ok(gemini5h)
+  assert.equal(gemini5h.remainingPercent, 0)
+  assert.equal(gemini5h.resetsAt, Date.parse('2030-01-01T04:30:00Z'))
+
+  // Gemini Pro weekly window maintains weekly semantics
+  const geminiWeekly = snapshot.windows.find((w) => w.id === 'gemini-pro:weekly' && w.period === 'weekly')
+  assert.ok(geminiWeekly)
+  assert.equal(geminiWeekly.remainingPercent, 85)
+  assert.equal(geminiWeekly.resetsAt, Date.parse('2030-01-07T00:00:00Z'))
+
+  // Claude Sonnet 5-hour window reflects authoritative summary (25% instead of 50%)
+  const claude5h = snapshot.windows.find((w) => w.id === 'claude-sonnet' && w.period === 'five-hour')
+  assert.ok(claude5h)
+  assert.equal(claude5h.remainingPercent, 25)
+  assert.equal(claude5h.resetsAt, Date.parse('2030-01-01T03:00:00Z'))
+
+  const claudeWeekly = snapshot.windows.find((w) => w.id === 'claude-sonnet:weekly' && w.period === 'weekly')
+  assert.ok(claudeWeekly)
+  assert.equal(claudeWeekly.remainingPercent, 60)
+})
+
+await test('Antigravity alias and group merging preserves real zero and enforces deterministic precedence', async () => {
+  // 1. groupAntigravityQuotaWindows: earlier non-zero (80%), later alias exhausted (0%)
+  const windowsWithLateZero = [
+    {
+      id: 'gemini-3.8-flash-high',
+      label: 'Gemini 3.8 Flash High',
+      modelLabel: 'Gemini 3.8 Flash High',
+      period: 'five-hour',
+      remainingPercent: 80,
+      resetsAt: 1000,
+    },
+    {
+      id: 'gemini-3.8-flash-tiered',
+      label: 'gemini-3.8-flash-tiered',
+      modelLabel: 'gemini-3.8-flash-tiered',
+      period: 'five-hour',
+      remainingPercent: 0,
+      resetsAt: 2000,
+    },
+  ]
+  const groupedLateZero = groupAntigravityQuotaWindows(windowsWithLateZero)
+  assert.equal(groupedLateZero.length, 1)
+  const g5h = groupedLateZero[0].windows.find((w) => w.period === 'five-hour')
+  assert.ok(g5h)
+  assert.equal(g5h.remainingPercent, 0, 'Late 0% alias must override earlier non-zero window')
+  assert.equal(g5h.resetsAt, 2000, 'Reset time from exhausted window must be preserved')
+
+  // 2. groupAntigravityQuotaWindows: earlier exhausted (0%), later alias non-zero (80%)
+  const windowsWithEarlyZero = [
+    {
+      id: 'gemini-3.8-flash-high',
+      label: 'Gemini 3.8 Flash High',
+      modelLabel: 'Gemini 3.8 Flash High',
+      period: 'five-hour',
+      remainingPercent: 0,
+      resetsAt: 2000,
+    },
+    {
+      id: 'gemini-3.8-flash-tiered',
+      label: 'gemini-3.8-flash-tiered',
+      modelLabel: 'gemini-3.8-flash-tiered',
+      period: 'five-hour',
+      remainingPercent: 80,
+      resetsAt: 1000,
+    },
+  ]
+  const groupedEarlyZero = groupAntigravityQuotaWindows(windowsWithEarlyZero)
+  const gEarly5h = groupedEarlyZero[0].windows.find((w) => w.period === 'five-hour')
+  assert.ok(gEarly5h)
+  assert.equal(gEarly5h.remainingPercent, 0, 'Early 0% must never be replaced by non-zero')
+
+  // 3. mergeQuotaWindows unit tests covering deterministic precedence
+  // Conflicting non-zero values -> conservative lower value
+  const mergedNonZero = mergeQuotaWindows(
+    { id: 'm', label: 'm', remainingPercent: 70, resetsAt: 1000 },
+    { id: 'm', label: 'm', remainingPercent: 30, resetsAt: 2000 }
+  )
+  assert.equal(mergedNonZero.remainingPercent, 30)
+  assert.equal(mergedNonZero.resetsAt, 2000)
+
+  // Undefined vs 0 -> 0 preserved
+  const mergedUnknownZero = mergeQuotaWindows(
+    { id: 'm', label: 'm' },
+    { id: 'm', label: 'm', remainingPercent: 0, resetsAt: 3000 }
+  )
+  assert.equal(mergedUnknownZero.remainingPercent, 0)
+  assert.equal(mergedUnknownZero.resetsAt, 3000)
+
+  // Undefined vs undefined -> undefined (never fabricated 0)
+  const mergedUnknown = mergeQuotaWindows(
+    { id: 'm', label: 'm' },
+    { id: 'm', label: 'm' }
+  )
+  assert.equal(mergedUnknown.remainingPercent, undefined)
+
+  // 4. parseAntigravityQuotaSummary duplicate bucket merge: duplicate bucket with 0% overrides earlier non-zero
+  const summary = parseAntigravityQuotaSummary({
+    groups: [
+      {
+        displayName: 'Gemini Models',
+        buckets: [
+          { bucketId: 'b1', window: '5h', remainingFraction: 0.6, resetTime: '2030-01-01T01:00:00Z' },
+          { bucketId: 'b2', window: '5h', remainingFraction: 0.0, resetTime: '2030-01-01T04:00:00Z' },
+        ],
+      },
+    ],
+  })
+  const gemini5hBucket = summary.get('gemini')?.get('five-hour')
+  assert.ok(gemini5hBucket)
+  assert.equal(gemini5hBucket.remainingPercent, 0, 'Duplicate bucket with 0% must override non-zero')
+  assert.equal(gemini5hBucket.resetsAt, Date.parse('2030-01-01T04:00:00Z'))
+})
+
+await test('Antigravity account isolation: exhausted account does not taint healthy account and caching is isolated', async () => {
+  const store = new MockStore()
+  const acc1 = makeAntigravityAccount({ id: '00000000-0000-4000-8000-000000000001' })
+  const acc2 = makeAntigravityAccount({ id: '00000000-0000-4000-8000-000000000002' })
+  store.set(acc1.metadata.id, acc1)
+  store.set(acc2.metadata.id, acc2)
+
+  let currentAccountQuery = acc1.metadata.id
+  const mockFetch = async (url) => {
+    if (url.endsWith(':loadCodeAssist')) {
+      return jsonResponse({ cloudaicompanionProject: 'p1' })
+    }
+    if (url.endsWith(':fetchAvailableModels')) {
+      return jsonResponse({
+        models: {
+          'gemini-3.8-flash-high': {
+            displayName: 'Gemini 3.8 Flash High',
+            quotaInfo: { remainingFraction: 0.5 },
+          },
+        },
+      })
+    }
+    if (url.endsWith(':retrieveUserQuotaSummary')) {
+      return jsonResponse({
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              {
+                bucketId: 'gemini_5h',
+                window: '5h',
+                remainingFraction: currentAccountQuery === acc1.metadata.id ? 0 : 0.85,
+              },
+            ],
+          },
+        ],
+      })
+    }
+    throw new Error(`Unexpected URL: ${url}`)
+  }
+
+  const service = new AccountQuotaService({ store, fetch: mockFetch })
+
+  // Refresh Account 1 (exhausted)
+  currentAccountQuery = acc1.metadata.id
+  const snap1 = await service.refreshAccount(acc1.metadata.id)
+  assert.equal(snap1.accountId, acc1.metadata.id)
+  assert.equal(snap1.windows[0].remainingPercent, 0)
+
+  // Refresh Account 2 (healthy)
+  currentAccountQuery = acc2.metadata.id
+  const snap2 = await service.refreshAccount(acc2.metadata.id)
+  assert.equal(snap2.accountId, acc2.metadata.id)
+  assert.equal(snap2.windows[0].remainingPercent, 50) // min(85%, 50%) = 50%
+
+  // Cache isolation via getCached
+  const cached = service.getCached([acc1.metadata, acc2.metadata])
+  assert.equal(cached.length, 2)
+  const cached1 = cached.find((s) => s.accountId === acc1.metadata.id)
+  const cached2 = cached.find((s) => s.accountId === acc2.metadata.id)
+  assert.equal(cached1.windows[0].remainingPercent, 0)
+  assert.equal(cached2.windows[0].remainingPercent, 50)
+
+  // Invalidate Account 1 only
+  service.invalidate(acc1.metadata.id)
+  const cachedAfter = service.getCached([acc1.metadata, acc2.metadata])
+  assert.equal(cachedAfter.length, 1)
+  assert.equal(cachedAfter[0].accountId, acc2.metadata.id)
+  assert.equal(cachedAfter[0].windows[0].remainingPercent, 50)
+})
+
+await test('Antigravity stale and error preservation distinguishes stale cache from unavailable/initial error', async () => {
+  const store = new MockStore()
+  const acc = makeAntigravityAccount()
+  store.set(acc.metadata.id, acc)
+
+  let simulateError = false
+  const mockFetch = async (url) => {
+    if (simulateError) {
+      return new Response('Google Gateway Error', { status: 502 })
+    }
+    if (url.endsWith(':loadCodeAssist')) {
+      return jsonResponse({ cloudaicompanionProject: 'p1' })
+    }
+    if (url.endsWith(':fetchAvailableModels')) {
+      return jsonResponse({
+        models: {
+          'gemini-3.8-flash-high': {
+            displayName: 'Gemini 3.8 Flash High',
+            quotaInfo: { remainingFraction: 0.65 },
+          },
+        },
+      })
+    }
+    if (url.endsWith(':retrieveUserQuotaSummary')) {
+      return jsonResponse({
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [{ bucketId: 'g5h', window: '5h', remainingFraction: 0.65 }],
+          },
+        ],
+      })
+    }
+    throw new Error(`Unexpected URL: ${url}`)
+  }
+
+  let time = 1000
+  const service = new AccountQuotaService({ store, fetch: mockFetch, now: () => time })
+
+  // 1. Initial success
+  const snap1 = await service.refreshAccount(acc.metadata.id)
+  assert.equal(snap1.status, 'ready')
+  assert.equal(snap1.stale, undefined)
+  assert.equal(snap1.fetchedAt, 1000)
+  assert.equal(snap1.windows[0].remainingPercent, 65)
+
+  // 2. Subsequent failure -> stale: true with preserved windows
+  simulateError = true
+  time = 5000
+  const snap2 = await service.refreshAccount(acc.metadata.id)
+  assert.equal(snap2.status, 'error')
+  assert.equal(snap2.stale, true)
+  assert.equal(snap2.fetchedAt, 1000) // Preserved
+  assert.equal(snap2.attemptedAt, 5000) // Updated
+  assert.equal(snap2.windows.length, snap1.windows.length)
+  assert.equal(snap2.windows[0].remainingPercent, 65)
+
+  // 3. New account with immediate failure -> status: 'error', windows: [], stale: undefined
+  const acc2 = makeAntigravityAccount()
+  store.set(acc2.metadata.id, acc2)
+  const snap3 = await service.refreshAccount(acc2.metadata.id)
+  assert.equal(snap3.status, 'error')
+  assert.equal(snap3.stale, undefined)
+  assert.deepEqual(snap3.windows, [])
 })
 
 console.log(`\n========================================`)
