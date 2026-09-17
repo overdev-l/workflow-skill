@@ -1,5 +1,6 @@
 import { ProjectsThreeColumn } from './components/ProjectsThreeColumn'
 import { AppUpdate, useUpdateBlocker } from './components/AppUpdate'
+import { SkillDistributionBoard } from './components/SkillDistributionBoard'
 import {
   useCallback,
   useEffect,
@@ -1804,42 +1805,28 @@ function SkillsThreeColumn({
                 <div className="skill-ownership-card__path font-mono" title={activeLocalSkill.externalSource?.fullPath || activeLocalSkill.skillPath}>
                   {activeLocalSkill.externalSource?.fullPath || activeLocalSkill.skillPath || '中心 Skill 目录'}
                 </div>
-                {activeLocalSkill.ownership !== 'external' && activeSkillBindings.length > 0 ? (
-                  <div className="skill-ownership-targets">
-                    {activeSkillBindings.filter(binding => binding.status !== 'unbound').map(binding => {
-                      const key = `${binding.scope}:${binding.toolId || ''}:${binding.projectPath || ''}:${binding.relPath || ''}`
-                      const canDisconnect = binding.status === 'linked'
-                      return (
-                        <div className="skill-ownership-target" key={key}>
-                          <span className={`skill-ownership-target__status is-${binding.status}`} />
-                          <span className="skill-ownership-target__label">{getSkillTargetLabel(binding)}</span>
-                          {canDisconnect ? (
-                            <button type="button" className="btn btn--capsule-ghost btn--sm" disabled={Boolean(disconnectingSkillTarget)} onClick={() => void handleDisconnectSkillTarget(binding)}>
-                              {disconnectingSkillTarget === key ? <RefreshCw size={10} className="spin" /> : <Unlink size={10} />}
-                              <span>断开</span>
-                            </button>
-                          ) : binding.status === 'external' ? (
-                            <button type="button" className="btn btn--capsule-ghost btn--sm" disabled={adoptingSkill} onClick={() => void handleAdoptBinding(binding)}>
-                              {adoptingSkill ? <RefreshCw size={10} className="spin" /> : <Download size={10} />}
-                              <span>接管并连接</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn btn--capsule-ghost btn--sm"
-                              disabled={skillConflictBusy}
-                              onClick={() => { setSkillConflictBinding(binding); setSkillConflictError('') }}
-                            >
-                              <AlertTriangle size={10} />
-                              <span>{binding.status === 'broken' ? '修复链接' : '解决冲突'}</span>
-                            </button>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : null}
               </div>
+
+              <SkillDistributionBoard
+                skill={activeLocalSkill}
+                aiTools={aiTools}
+                scope={skillTab}
+                onScopeChange={setSkillTab}
+                projects={projects}
+                selectedProjectId={projectId}
+                onSelectProjectId={setProjectId}
+                onReloadSkills={async () => {
+                  await onReloadSkills()
+                  projectDiscovery.refresh()
+                  await refreshSkillAdoptionPlan()
+                }}
+                onResolveConflict={(binding) => {
+                  setSkillConflictBinding(binding)
+                  setSkillConflictError('')
+                }}
+                onAdoptSkill={handleAdoptSkill}
+                notify={notify}
+              />
 
               {/* Pure Document View (Read-Only) */}
               <div className="skill-doc-wrap">
@@ -5052,7 +5039,13 @@ export function App() {
           onSelectSkillId={setSelectedSkillId}
           onToggleLinkTarget={handleToggleLinkTarget}
           onDeleteSkill={handleDeleteSkillCompletely}
-          onReloadSkills={async () => { if (window.workflowSkill?.loadLocalSkills) setSkills(await window.workflowSkill.loadLocalSkills()) }}
+          onReloadSkills={async () => {
+            if (window.workflowSkill?.loadLocalSkills) setSkills(await window.workflowSkill.loadLocalSkills())
+            if (window.workflowSkill?.getAITools) {
+              const detected = await window.workflowSkill.getAITools()
+              if (Array.isArray(detected) && detected.length > 0) setAiTools(detected)
+            }
+          }}
           onExportCode={(wf, name) => setExportState({ open: true, skillName: name, workflow: wf })}
           notify={setToast}
         />
