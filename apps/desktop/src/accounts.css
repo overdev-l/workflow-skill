@@ -1557,3 +1557,89 @@
     align-self: flex-start;
   }
 }
+
+/* =========================================================================
+   Auto Switch Toggle Component (OPC-80)
+   ========================================================================= */
+
+.account-auto-switch-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  margin: 2px 0 6px 0;
+}
+
+.account-auto-switch-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account-auto-switch-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-auto-switch-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-ink, #ffffff);
+}
+
+.account-auto-switch-desc {
+  font-size: 0.6875rem;
+  color: var(--color-muted, rgba(255, 255, 255, 0.6));
+  margin: 0;
+  line-height: 1.35;
+}
+
+.account-auto-switch-status {
+  font-size: 0.6875rem;
+  color: var(--color-accent, #60a5fa);
+  margin-top: 2px;
+}
+
+.account-toggle-btn {
+  width: 32px;
+  height: 18px;
+  border-radius: 10px;
+  background: var(--color-border, rgba(255, 255, 255, 0.2));
+  position: relative;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.account-toggle-btn--active {
+  background: var(--color-accent, #3b82f6);
+}
+
+.account-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.account-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s ease;
+}
+
+.account-toggle-btn--active .account-toggle-knob {
+  transform: translateX(14px);
+}

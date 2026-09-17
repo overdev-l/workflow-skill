@@ -57,6 +57,10 @@ import {
   type InspectedCredential,
   createAccountAdapters,
 } from './account-adapters.ts'
+import {
+  AccountAutoSwitchService,
+  type AccountAutoSwitchOptions,
+} from './account-auto-switch.ts'
 
 export const MAX_TRANSACTION_FILE_SIZE = 64 * 1024 * 1024 // 64 MiB
 
@@ -129,6 +133,8 @@ export interface AccountManagerOptions {
   codexHome?: string
   env?: NodeJS.ProcessEnv
   antigravityFileMode?: boolean
+  antigravityDesktopStoragePath?: string
+  autoSwitchOptions?: AccountAutoSwitchOptions
   adapters?: Record<AccountTool, AccountAdapter>
   onAccountsChanged?: () => void
   /** Override only for isolated quota verification; production uses the native fetch. */
@@ -144,6 +150,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
   public readonly transactionsDir: string
   public readonly store: AccountStore
   public readonly adapters: Record<AccountTool, AccountAdapter>
+  public readonly autoSwitchService: AccountAutoSwitchService
   private readonly quotas: AccountQuotaService
   private readonly refreshService: AccountRefreshService
   private readonly onAccountsChangedOption?: () => void
@@ -189,6 +196,20 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
       fetch: options?.refreshFetch,
       now: options?.now,
     })
+
+    this.autoSwitchService = new AccountAutoSwitchService(
+      this,
+      this.store,
+      this.quotas,
+      () => this.notifyChanged(),
+      {
+        storagePath: options?.antigravityDesktopStoragePath,
+        homeDir: this.homeDir,
+        traceHome: this.traceHome,
+        now: options?.now,
+        ...options?.autoSwitchOptions,
+      }
+    )
   }
 
   private assertSafePath(targetPath: string): void {
@@ -394,7 +415,24 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
   }
 
   async refreshDueAccounts(): Promise<void> {
-    return this.refreshService.refreshDueAccounts()
+    await this.refreshService.refreshDueAccounts()
+    try {
+      await this.autoSwitchService.checkAndSwitch('scheduled')
+    } catch {
+      // Auto-switch errors are safely recorded in service status
+    }
+  }
+
+  async setAutoSwitch(tool: AccountTool, enabled: boolean): Promise<boolean> {
+    return this.autoSwitchService.setEnabled(tool, enabled)
+  }
+
+  async getAutoSwitch(tool: AccountTool): Promise<boolean> {
+    return this.autoSwitchService.isEnabled(tool)
+  }
+
+  async checkAutoSwitch(): Promise<AccountActionResult | null> {
+    return this.autoSwitchService.checkAndSwitch('manual')
   }
 
   hasActiveRefreshes(): boolean { return this.refreshService.hasActiveRefreshes() }
@@ -541,6 +579,9 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         if (!error) error = sanitizeErrorMessage(err)
       }
 
+      const autoSwitchEnabled = tool === 'antigravity' ? this.autoSwitchService.isEnabled(tool) : undefined
+      const autoSwitchStatus = tool === 'antigravity' ? this.autoSwitchService.getStatus(tool) : undefined
+
       tools.push({
         tool,
         activeAccountId,
@@ -549,6 +590,8 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         recoveryNeeded,
         error,
         warning,
+        autoSwitchEnabled,
+        autoSwitchStatus,
       })
     }
 

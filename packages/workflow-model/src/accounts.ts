@@ -118,6 +118,59 @@ export interface AccountQuotaWindow {
 
 export type AccountQuotaStatus = 'ready' | 'unavailable' | 'expired' | 'forbidden' | 'rate-limited' | 'error'
 
+export interface SupportedAntigravityModel {
+  id: string
+  label: string
+  aliases: readonly string[]
+}
+
+export const SUPPORTED_ANTIGRAVITY_MODELS: readonly SupportedAntigravityModel[] = [
+  {
+    id: 'gemini-3.8-flash-high',
+    label: 'Gemini 3.8 Flash High',
+    aliases: ['gemini-3.8-flash-tiered', 'gemini-3.8-flash'],
+  },
+  {
+    id: 'gemini-3.7-flash-medium',
+    label: 'Gemini 3.7 Flash Medium',
+    aliases: ['gemini-3.7-flash-tiered', 'gemini-3.7-flash'],
+  },
+  { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash Medium', aliases: ['gemini-3.6-flash'] },
+  { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro Low', aliases: ['gemini-3.1-pro'] },
+  { id: 'claude-sonnet-4.6-thinking', label: 'Claude Sonnet 4.6 (Thinking)', aliases: ['claude-sonnet-4.6'] },
+  { id: 'claude-opus-4.6-thinking', label: 'Claude Opus 4.6 (Thinking)', aliases: ['claude-opus-4.6'] },
+  { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', aliases: ['gpt-oss-120b'] },
+]
+
+export function normalizeAntigravityModelName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[()[\]{}]/g, ' ')
+    .replace(/[‐‑–—_\-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function matchSupportedAntigravityModel(
+  candidate: string | undefined | null
+): SupportedAntigravityModel | undefined {
+  if (!candidate || typeof candidate !== 'string') return undefined
+  const cleaned = candidate.endsWith(':weekly') ? candidate.slice(0, -':weekly'.length) : candidate
+  const normalized = normalizeAntigravityModelName(cleaned)
+  if (!normalized) return undefined
+
+  return SUPPORTED_ANTIGRAVITY_MODELS.find((model) => {
+    const normalizedLabel = normalizeAntigravityModelName(model.label)
+    const normalizedId = normalizeAntigravityModelName(model.id)
+    const normalizedAliases = model.aliases.map(normalizeAntigravityModelName)
+    return (
+      normalized === normalizedLabel ||
+      normalized === normalizedId ||
+      normalizedAliases.includes(normalized)
+    )
+  })
+}
+
 /** Safe per-account quota snapshot; contains no authentication material. */
 export interface AccountQuotaSnapshot {
   accountId: string
@@ -179,6 +232,8 @@ export interface AccountToolState {
   recoveryNeeded: boolean
   error?: string
   warning?: string
+  autoSwitchEnabled?: boolean
+  autoSwitchStatus?: string
 }
 
 /**
@@ -255,6 +310,8 @@ export interface AccountManagementAPI extends AccountOAuthAPI {
   recoverAccount(tool: AccountTool): Promise<AccountActionResult>
   renameAccount(id: string, name: string): Promise<AccountMetadata>
   deleteAccount(id: string): Promise<void>
+  setAutoSwitch?(tool: AccountTool, enabled: boolean): Promise<boolean>
+  getAutoSwitch?(tool: AccountTool): Promise<boolean>
   onAccountsChanged?(listener: () => void): () => void
 }
 

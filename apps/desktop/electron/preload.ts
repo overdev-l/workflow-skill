@@ -58,6 +58,8 @@ const accounts: AccountManagementAPI = {
   recoverAccount: tool => ipcRenderer.invoke('accounts:recover', tool),
   renameAccount: (id, name) => ipcRenderer.invoke('accounts:rename', id, name),
   deleteAccount: id => ipcRenderer.invoke('accounts:delete', id),
+  setAutoSwitch: (tool, enabled) => ipcRenderer.invoke('accounts:set-auto-switch', tool, enabled),
+  getAutoSwitch: tool => ipcRenderer.invoke('accounts:get-auto-switch', tool),
   onAccountsChanged: listener => {
     const handler = () => listener()
     ipcRenderer.on('accounts:changed', handler)

@@ -1,4 +1,13 @@
-import type { AccountQuotaWindow } from '@workflow-skill/workflow-model/accounts'
+import {
+  type AccountQuotaWindow,
+  type SupportedAntigravityModel,
+  SUPPORTED_ANTIGRAVITY_MODELS,
+  matchSupportedAntigravityModel,
+  normalizeAntigravityModelName,
+} from '@workflow-skill/workflow-model/accounts'
+
+export type { SupportedAntigravityModel }
+export { SUPPORTED_ANTIGRAVITY_MODELS }
 
 export interface AccountQuotaModelGroup {
   id: string
@@ -8,56 +17,12 @@ export interface AccountQuotaModelGroup {
 
 const WEEKLY_WINDOW_SUFFIX = ':weekly'
 
-// The quota API also returns internal aliases and legacy variants. Keep the
-// account card aligned with the models users can actually select in Antigravity.
-type SupportedAntigravityModel = {
-  id: string
-  label: string
-  aliases: readonly string[]
-}
-
-const SUPPORTED_ANTIGRAVITY_MODELS: readonly SupportedAntigravityModel[] = [
-  {
-    id: 'gemini-3.8-flash-high',
-    label: 'Gemini 3.8 Flash High',
-    aliases: ['gemini-3.8-flash-tiered'],
-  },
-  {
-    id: 'gemini-3.7-flash-medium',
-    label: 'Gemini 3.7 Flash Medium',
-    aliases: ['gemini-3.7-flash-tiered'],
-  },
-  { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash Medium', aliases: [] },
-  { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro Low', aliases: [] },
-  { id: 'claude-sonnet-4.6-thinking', label: 'Claude Sonnet 4.6 (Thinking)', aliases: [] },
-  { id: 'claude-opus-4.6-thinking', label: 'Claude Opus 4.6 (Thinking)', aliases: [] },
-  { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', aliases: [] },
-]
-
-function normalizeModelName(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[()[\]{}]/g, ' ')
-    .replace(/[‐‑–—_\-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function visibleModelForWindow(window: AccountQuotaWindow): (typeof SUPPORTED_ANTIGRAVITY_MODELS)[number] | undefined {
-  const candidates = [window.modelLabel, window.label, window.id]
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .map(normalizeModelName)
-
-  return SUPPORTED_ANTIGRAVITY_MODELS.find((model) => {
-    const normalizedLabel = normalizeModelName(model.label)
-    const normalizedId = normalizeModelName(model.id)
-    const normalizedAliases = model.aliases.map(normalizeModelName)
-    return candidates.some((candidate) =>
-      candidate === normalizedLabel ||
-      candidate === normalizedId ||
-      normalizedAliases.includes(candidate)
-    )
-  })
+function visibleModelForWindow(window: AccountQuotaWindow): SupportedAntigravityModel | undefined {
+  return (
+    matchSupportedAntigravityModel(window.modelLabel) ||
+    matchSupportedAntigravityModel(window.label) ||
+    matchSupportedAntigravityModel(window.id)
+  )
 }
 
 function modelIdForWindow(window: AccountQuotaWindow): string {

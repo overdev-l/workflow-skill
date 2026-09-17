@@ -240,6 +240,8 @@ const DICTIONARY = {
     quotaLoading: '正在获取配额…',
     refreshQuotaBtn: '刷新配额',
     detailsLabel: '详情',
+    autoSwitchLabel: '自动切换',
+    autoSwitchDesc: '当前选用模型额度耗尽后自动切换至有额度的账号（可能重启客户端）',
   },
   'en-US': {
     headerTitle: 'AI Account Manager',
@@ -386,6 +388,9 @@ const DICTIONARY = {
     quotaLoading: 'Fetching quota…',
     refreshQuotaBtn: 'Refresh quota',
     detailsLabel: 'Details',
+    autoSwitchLabel: 'Auto Switch',
+    autoSwitchDesc:
+      'Automatically switch to an account with remaining quota when the active model is exhausted (may restart client).',
   },
 }
 
@@ -1262,6 +1267,55 @@ export function AccountSettings({
       </button>
     </div>
   ) : null
+
+  const [togglingAutoSwitch, setTogglingAutoSwitch] = useState<boolean>(false)
+
+  const handleToggleAutoSwitch = async (enabled: boolean) => {
+    if (!api?.setAutoSwitch || togglingAutoSwitch || isBusy || isOAuthPending) return
+    setTogglingAutoSwitch(true)
+    try {
+      await api.setAutoSwitch('antigravity', enabled)
+      setOverview((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          tools: prev.tools.map((t) =>
+            t.tool === 'antigravity' ? { ...t, autoSwitchEnabled: enabled } : t
+          ),
+        }
+      })
+    } catch (err: unknown) {
+      await handleFailure(err, '切换自动切换设置失败。')
+    } finally {
+      setTogglingAutoSwitch(false)
+    }
+  }
+
+  const autoSwitchNode =
+    selectedTool === 'antigravity' ? (
+      <div className="account-auto-switch-card" role="region" aria-label={loc.autoSwitchLabel}>
+        <div className="account-auto-switch-info">
+          <div className="account-auto-switch-title-row">
+            <span className="account-auto-switch-label">{loc.autoSwitchLabel}</span>
+          </div>
+          <p className="account-auto-switch-desc">{loc.autoSwitchDesc}</p>
+          {currentToolState?.autoSwitchStatus && (
+            <span className="account-auto-switch-status">{currentToolState.autoSwitchStatus}</span>
+          )}
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={Boolean(currentToolState?.autoSwitchEnabled)}
+          aria-label={loc.autoSwitchLabel}
+          className={`account-toggle-btn ${currentToolState?.autoSwitchEnabled ? 'account-toggle-btn--active' : ''}`}
+          onClick={() => void handleToggleAutoSwitch(!currentToolState?.autoSwitchEnabled)}
+          disabled={isBusy || isOAuthPending || togglingAutoSwitch}
+        >
+          <span className="account-toggle-knob" />
+        </button>
+      </div>
+    ) : null
 
   // Import Credential Submit
   const handleImportSubmit = async (e: React.FormEvent) => {
@@ -2166,6 +2220,7 @@ export function AccountSettings({
             {nativeAccessButton}
 
             {capabilityStripNode}
+            {autoSwitchNode}
             {activeIdentity && (
               <div className="account-tool-identity-chip-wrap">
                 <span className="account-desc">{loc.activeIdentityLabel}</span>
@@ -2266,6 +2321,7 @@ export function AccountSettings({
         {/* Selected Tool Stage */}
         <div className="account-tool-stage">
           {capabilityStripNode}
+          {autoSwitchNode}
 
           {/* Contextual Discovery Notice */}
           {contextualNoticeNode}

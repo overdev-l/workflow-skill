@@ -1913,6 +1913,8 @@ ${skill.description || ''}
   ipcMain.handle('accounts:recover', (_event, tool: AccountTool) => accountActionCall(manager => manager.recoverAccount(tool)))
   ipcMain.handle('accounts:rename', (_event, id: string, name: string) => accountCall(manager => manager.renameAccount(id, name), true))
   ipcMain.handle('accounts:delete', (_event, id: string) => accountCall(manager => manager.deleteAccount(id), true))
+  ipcMain.handle('accounts:set-auto-switch', (_event, tool: AccountTool, enabled: boolean) => accountCall(manager => manager.setAutoSwitch(tool, enabled)))
+  ipcMain.handle('accounts:get-auto-switch', (_event, tool: AccountTool) => accountCall(manager => manager.getAutoSwitch(tool)))
 
   const simulatedUpdates = !app.isPackaged && process.env.TRACE_SIMULATE_UPDATE === '1'
   let packagedUpdatesEnabled = false
