@@ -1,6 +1,7 @@
 import { ProjectsThreeColumn } from './components/ProjectsThreeColumn'
 import { AppUpdate, useUpdateBlocker } from './components/AppUpdate'
 import { SkillDistributionBoard } from './components/SkillDistributionBoard'
+import { SkillDiagnosticWorkbench } from './components/SkillDiagnosticWorkbench'
 import {
   useCallback,
   useEffect,
@@ -72,6 +73,7 @@ import {
   Sliders,
   Sparkles,
   Star,
+  Stethoscope,
   Sun,
   Terminal,
   Trash2,
@@ -1518,9 +1520,10 @@ function SkillsThreeColumn({
   const [skillAdoptionResult, setSkillAdoptionResult] = useState<BatchSkillAdoptionResult | null>(null)
   const [skillAdoptionOpen, setSkillAdoptionOpen] = useState(false)
   const [skillAdoptionBusy, setSkillAdoptionBusy] = useState(false)
+  const [isDiagnosticMode, setIsDiagnosticMode] = useState(false)
   useUpdateBlocker('skill-add', addOpen || createOpen)
   useUpdateBlocker('skill-conflict', Boolean(skillConflictBinding))
-  useUpdateBlocker('skill-adoption', skillAdoptionOpen && skillAdoptionBusy)
+  useUpdateBlocker('skill-adoption', (skillAdoptionOpen || isDiagnosticMode) && skillAdoptionBusy)
   useEffect(() => {
     if (isControlledProjects) return
     let active = true
@@ -1555,7 +1558,24 @@ function SkillsThreeColumn({
   const installedTools = useMemo(() => aiTools.filter(tool => tool.installed), [aiTools])
   const projectDiscovery = useProjectSkills(target?.scope === 'project' ? target.path : null)
   const visibleSkills = skillTab === 'project' ? projectDiscovery.skills : skillsInScope(skills, target)
-  const activeLocalSkill = visibleSkills.find(skill => skill.id === selectedSkillId) || visibleSkills[0] || null
+  const managedSkills = useMemo(() => {
+    return visibleSkills.filter(skill => skill.ownership === 'app' && skill.scopeStatus !== '待接管' && skill.scopeStatus !== '外部持有')
+  }, [visibleSkills])
+  const externalSkills = useMemo(() => {
+    return visibleSkills.filter(skill => skill.ownership !== 'app' || skill.scopeStatus === '待接管' || skill.scopeStatus === '外部持有')
+  }, [visibleSkills])
+  const activeLocalSkill = isDiagnosticMode
+    ? null
+    : (visibleSkills.find(skill => skill.id === selectedSkillId) || managedSkills[0] || externalSkills[0] || null)
+  const displaySkills = useMemo(() => {
+    if (managedSkills.length > 0) {
+      if (activeLocalSkill && activeLocalSkill.ownership !== 'app' && !managedSkills.some(s => s.id === activeLocalSkill.id)) {
+        return [...managedSkills, activeLocalSkill]
+      }
+      return managedSkills
+    }
+    return visibleSkills
+  }, [managedSkills, activeLocalSkill, visibleSkills])
   const activeLinkedTools = aiTools.filter(tool => activeLocalSkill?.targetTools?.includes(tool.id))
   const activeSkillBindings = (activeLocalSkill?.targetBindings || []).filter(binding => {
     if (binding.scope !== skillTab) return false
@@ -1758,6 +1778,17 @@ function SkillsThreeColumn({
                 className={`master-tab-btn ${skillTab === scope ? 'is-active' : ''}`}
                 aria-pressed={skillTab === scope} onClick={() => setSkillTab(scope)}>{scope === 'global' ? '全局' : '项目'}</button>)}
             </div>
+            <button
+              type="button"
+              className={`btn btn--capsule btn--secondary btn--sm ${isDiagnosticMode ? 'btn--active' : ''}`}
+              aria-label="Skill 诊断与批量接管"
+              title="打开 Skill 诊断与批量接管工作台"
+              onClick={() => {
+                setIsDiagnosticMode(prev => !prev)
+              }}
+            >
+              <Stethoscope size={13} />
+            </button>
             <button type="button" className="btn btn--capsule btn--secondary btn--sm" aria-label="添加 Skill"
               disabled={!target} onClick={() => { setAddTarget(target); setAddOpen(true) }}><Plus size={13} /></button>
           </div>
@@ -1774,19 +1805,34 @@ function SkillsThreeColumn({
           {(projectError || selectedProject?.status === 'missing') && <p role="alert" className="master-list-status">{projectError || '项目目录不可用，请在项目管理中修复。'}</p>}
           </>}
         </div>
-        {skillAdoptionPlan && skillAdoptionPlan.totalTargets > 0 ? (
-          <div className="skill-adoption-banner" role="status">
-            <div className="skill-adoption-banner__copy">
-              <Link2 size={12} />
-              <span>发现 {skillAdoptionPlan.totalSkills} 个现有 Skill</span>
+        {skillAdoptionPlan && (skillAdoptionPlan.totalTargets > 0 || skillAdoptionPlan.errors.length > 0 || externalSkills.length > 0) ? (
+          <div
+            className={`skill-diagnostic-entry-card ${isDiagnosticMode ? 'is-active' : ''}`}
+            onClick={() => setIsDiagnosticMode(true)}
+            role="button"
+            tabIndex={0}
+            aria-pressed={isDiagnosticMode}
+          >
+            <div className="skill-diagnostic-entry-card__row">
+              <div className="skill-diagnostic-entry-card__title">
+                <Stethoscope size={12} className="skill-diagnostic-entry-card__icon" />
+                <span>诊断与批量接管</span>
+              </div>
+              <span className="skill-diagnostic-entry-card__badge">
+                {skillAdoptionPlan.totalSkills || externalSkills.length || skillAdoptionPlan.errors.length}
+              </span>
             </div>
-            <button
-              type="button"
-              className="btn btn--capsule-ghost btn--sm"
-              onClick={() => { setSkillAdoptionResult(null); setSkillAdoptionOpen(true) }}
-            >
-              统一接管
-            </button>
+            <div className="skill-diagnostic-entry-card__summary">
+              {skillAdoptionPlan.adoptableTargets > 0 && (
+                <span className="is-adoptable">{skillAdoptionPlan.adoptableTargets} 个可接管</span>
+              )}
+              {skillAdoptionPlan.conflictTargets > 0 && (
+                <span className="is-conflict"> · {skillAdoptionPlan.conflictTargets} 个冲突</span>
+              )}
+              {skillAdoptionPlan.errors.length > 0 && (
+                <span className="is-error"> · {skillAdoptionPlan.errors.length} 项异常</span>
+              )}
+            </div>
           </div>
         ) : null}
         <div className="master-list-scroll">
@@ -1794,19 +1840,67 @@ function SkillsThreeColumn({
             <span>{projectDiscovery.errors.join('；')}</span>
             <button type="button" className="btn btn--capsule btn--secondary btn--sm" onClick={() => { projectDiscovery.refresh(); void onRefreshProjects?.() }}>重新扫描</button>
           </div>}
-          {visibleSkills.map(skill => <button type="button" key={skill.id}
-            className={`master-item-row ${activeLocalSkill?.id === skill.id ? 'is-selected' : ''}`}
-            aria-pressed={activeLocalSkill?.id === skill.id} onClick={() => onSelectSkillId(skill.id)}>
+          {displaySkills.map(skill => <button type="button" key={skill.id}
+            className={`master-item-row ${!isDiagnosticMode && activeLocalSkill?.id === skill.id ? 'is-selected' : ''}`}
+            aria-pressed={!isDiagnosticMode && activeLocalSkill?.id === skill.id} onClick={() => {
+              setIsDiagnosticMode(false)
+              onSelectSkillId(skill.id)
+            }}>
             <Folder size={15} />
             <span className="skill-master-item-copy">
               <span className="master-item-title">{skill.name}</span>
               <span className={`skill-ownership-badge ${getSkillOwnershipClass(skill)}`}>{getSkillOwnershipLabel(skill)}</span>
             </span>
           </button>)}
+          {externalSkills.length > 0 && !isDiagnosticMode && (
+            <div className="master-list-external-summary">
+              <span>{externalSkills.length} 个外部 Skill 待接管</span>
+              <button
+                type="button"
+                className="btn btn--capsule-ghost btn--sm"
+                onClick={() => setIsDiagnosticMode(true)}
+              >
+                前往诊断 →
+              </button>
+            </div>
+          )}
         </div>
       </aside>
       <section className="app-col-detail view-enter">
-        {activeLocalSkill ? (
+        {isDiagnosticMode ? (
+          <SkillDiagnosticWorkbench
+            plan={skillAdoptionPlan}
+            result={skillAdoptionResult}
+            busy={skillAdoptionBusy}
+            scope={skillTab}
+            selectedProject={selectedProject}
+            projects={projects}
+            skills={skills}
+            projectDiscoveryErrors={projectDiscovery.errors}
+            onAdoptAll={handleAdoptAllSkills}
+            onSelectSkill={(skillId) => {
+              setIsDiagnosticMode(false)
+              onSelectSkillId(skillId)
+            }}
+            onResolveConflict={(binding, skill) => {
+              setIsDiagnosticMode(false)
+              onSelectSkillId(skill.id)
+              setSkillConflictBinding(binding)
+            }}
+            onRefresh={async () => {
+              projectDiscovery.refresh()
+              await onReloadSkills()
+              await refreshSkillAdoptionPlan()
+              await onRefreshProjects?.()
+            }}
+            onClose={() => {
+              setIsDiagnosticMode(false)
+              if (displaySkills.length > 0 && !activeLocalSkill) {
+                onSelectSkillId(displaySkills[0].id)
+              }
+            }}
+          />
+        ) : activeLocalSkill ? (
             <div className="detail-stage-wrap">
               {/* Clean macOS Pro Document Header */}
               <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
@@ -1971,6 +2065,17 @@ function SkillsThreeColumn({
             <div className="clean-empty-state">
               <FolderTree size={30} className="empty-icon-glow" />
               <h3 className="empty-title">{skillTab === 'project' && projectDiscovery.loading ? '正在扫描项目 Skill…' : skillTab === 'project' && projectDiscovery.errors.length ? '项目 Skill 扫描未完成，请重试' : skillTab === 'project' && !target ? '请在项目管理中添加或修复项目' : '当前范围暂无 Skill，点击 + 添加'}</h3>
+              {skillAdoptionPlan && skillAdoptionPlan.totalTargets > 0 ? (
+                <button
+                  type="button"
+                  className="btn btn--primary btn--capsule btn--sm"
+                  style={{ marginTop: '12px' }}
+                  onClick={() => setIsDiagnosticMode(true)}
+                >
+                  <Stethoscope size={12} />
+                  <span>打开 Skill 诊断与批量接管工作台</span>
+                </button>
+              ) : null}
             </div>
           )
 }
