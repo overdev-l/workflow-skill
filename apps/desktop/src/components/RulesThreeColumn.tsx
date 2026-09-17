@@ -19,30 +19,51 @@ import {
 } from 'lucide-react'
 import type {
   ClaudeLinkStatus,
+  ManagedProjectRecord,
   ProjectRecord,
   ProjectRuleAssociation,
   PublicRule,
 } from '@workflow-skill/workflow-model'
 import { useI18n } from '../i18n'
 
+export interface RulesThreeColumnProps {
+  notify?: (msg: string) => void
+  scope?: 'global' | 'project'
+  onScopeChange?: (scope: 'global' | 'project') => void
+  projects?: ManagedProjectRecord[] | ProjectRecord[]
+  selectedProjectId?: string
+  onSelectProjectId?: (id: string) => void
+  selectedProject?: ManagedProjectRecord | ProjectRecord | null
+}
+
 export function RulesThreeColumn({
   notify,
-}: {
-  notify?: (msg: string) => void
-}) {
+  scope,
+  onScopeChange,
+  projects: propProjects,
+  selectedProjectId,
+  onSelectProjectId,
+  selectedProject,
+}: RulesThreeColumnProps) {
   const { t } = useI18n()
 
   const [activeTab, setActiveTab] = useState<'rules' | 'project'>('rules')
+  const currentTab = scope !== undefined ? (scope === 'global' ? 'rules' : 'project') : activeTab
   const [query, setQuery] = useState('')
   const [rules, setRules] = useState<PublicRule[]>([])
-  const [projects, setProjects] = useState<ProjectRecord[]>([])
+  const [localProjects, setLocalProjects] = useState<ProjectRecord[]>([])
+  const projects = propProjects !== undefined ? propProjects : localProjects
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null)
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null)
+  const currentProject = selectedProject !== undefined
+    ? selectedProject
+    : (projects.find((p) => p.path === selectedProjectPath || p.id === selectedProjectId) ?? null)
+  const currentProjectPath = currentProject ? currentProject.path : (selectedProject !== undefined ? '' : (selectedProjectPath || ''))
   const [isCreatingNew, setIsCreatingNew] = useState(false)
   const [projectsExpanded, setProjectsExpanded] = useState(false)
   const [previewExpanded, setPreviewExpanded] = useState(false)
-  const selectionRef = React.useRef({ selectedRuleId, selectedProjectPath, isCreatingNew })
-  selectionRef.current = { selectedRuleId, selectedProjectPath, isCreatingNew }
+  const selectionRef = React.useRef({ selectedRuleId, selectedProjectPath: currentProjectPath, isCreatingNew })
+  selectionRef.current = { selectedRuleId, selectedProjectPath: currentProjectPath, isCreatingNew }
 
   // Drafts state ref to preserve edits across switches or background rule syncs
   const draftsRef = React.useRef<Map<string, { name: string; desc: string; content: string }>>(new Map())
@@ -71,9 +92,9 @@ export function RulesThreeColumn({
           setSelectedRuleId(current => current && r.some(rule => rule.id === current) ? current : r[0]?.id || null)
         }
       }
-      if (window.workflowSkill.listProjects) {
+      if (propProjects === undefined && window.workflowSkill.listProjects) {
         const p = await window.workflowSkill.listProjects()
-        setProjects(p)
+        setLocalProjects(p)
         if (!selectionRef.current.selectedProjectPath && p.length > 0) {
           const active = window.workflowSkill.getActiveProject
             ? await window.workflowSkill.getActiveProject()
@@ -126,26 +147,45 @@ export function RulesThreeColumn({
   }, [selectedRuleId, rules, isCreatingNew])
 
   // Sync project configuration when selected project changes
+  const projectReqIdRef = React.useRef(0)
   const refreshProjectDetails = async (path: string) => {
-    if (!window.workflowSkill) return
+    const reqId = ++projectReqIdRef.current
+    if (!window.workflowSkill || !path || (currentProject && (currentProject as any).status === 'missing')) {
+      setProjectAssoc(null)
+      setSelectedRuleIdsForProject([])
+      setClaudeStatus(null)
+      return
+    }
     try {
-      if (window.workflowSkill.getProjectRuleConfig) {
-        const assoc = await window.workflowSkill.getProjectRuleConfig(path)
+      const [assoc, link] = await Promise.all([
+        window.workflowSkill.getProjectRuleConfig ? window.workflowSkill.getProjectRuleConfig(path) : null,
+        window.workflowSkill.checkClaudeLink ? window.workflowSkill.checkClaudeLink(path) : null,
+      ])
+      if (projectReqIdRef.current !== reqId) return
+      if (assoc) {
         setProjectAssoc(assoc)
         setSelectedRuleIdsForProject(assoc.ruleIds || [])
       }
-      if (window.workflowSkill.checkClaudeLink) {
-        const link = await window.workflowSkill.checkClaudeLink(path)
+      if (link) {
         setClaudeStatus(link)
       }
-    } catch {}
+    } catch {
+      if (projectReqIdRef.current === reqId) {
+        setProjectAssoc(null)
+        setSelectedRuleIdsForProject([])
+        setClaudeStatus(null)
+      }
+    }
   }
 
   useEffect(() => {
-    if (selectedProjectPath) {
-      refreshProjectDetails(selectedProjectPath)
+    setProjectAssoc(null)
+    setSelectedRuleIdsForProject([])
+    setClaudeStatus(null)
+    if (currentProjectPath && (!currentProject || (currentProject as any).status !== 'missing')) {
+      refreshProjectDetails(currentProjectPath)
     }
-  }, [selectedProjectPath])
+  }, [currentProjectPath, (currentProject as any)?.status])
 
   // Filtered lists
   const filteredRules = useMemo(() => {
@@ -286,6 +326,11 @@ export function RulesThreeColumn({
 
   const handleToggleProject = async (projectPath: string, ruleId: string): Promise<boolean> => {
     if (!window.workflowSkill?.getProjectRuleConfig || !window.workflowSkill?.setProjectRules) return false
+    const proj = projects.find((p) => p.path === projectPath)
+    if (proj && (proj as any).status === 'missing') {
+      notify?.('项目目录不可用，无法修改项目规则')
+      return false
+    }
     const config = await window.workflowSkill.getProjectRuleConfig(projectPath)
     const current = config.ruleIds || []
     const isInjected = current.includes(ruleId)
@@ -317,7 +362,12 @@ export function RulesThreeColumn({
       const res = await window.workflowSkill.addProject()
       if (res.success && res.project) {
         notify?.(`已添加项目: ${res.project.name}`)
-        setSelectedProjectPath(res.project.path)
+        if (onSelectProjectId) {
+          onSelectProjectId(res.project.id)
+        } else {
+          setSelectedProjectPath(res.project.path)
+        }
+        window.dispatchEvent(new CustomEvent('workflow-skill:workspace-changed'))
         refreshData()
       } else if (res.error && res.error !== '用户取消了选择') {
         notify?.(`添加项目失败: ${res.error}`)
@@ -338,6 +388,7 @@ export function RulesThreeColumn({
         if (selectedProjectPath === pathToRemove) {
           setSelectedProjectPath(null)
         }
+        window.dispatchEvent(new CustomEvent('workflow-skill:workspace-changed'))
         refreshData()
       }
     } catch (err: any) {
@@ -372,16 +423,16 @@ export function RulesThreeColumn({
   }
 
   const handleSaveProjectRules = async () => {
-    if (!selectedProjectPath || !window.workflowSkill?.setProjectRules) return
+    if (!currentProjectPath || (currentProject && (currentProject as any).status === 'missing') || !window.workflowSkill?.setProjectRules) return
     setProjectSaving(true)
     try {
       const res = await window.workflowSkill.setProjectRules(
-        selectedProjectPath,
+        currentProjectPath,
         selectedRuleIdsForProject
       )
       if (res.success) {
         notify?.(t.rules.syncedToast)
-        refreshProjectDetails(selectedProjectPath)
+        refreshProjectDetails(currentProjectPath)
       } else {
         notify?.(`同步失败: ${res.error || '未知错误'}`)
       }
@@ -393,10 +444,10 @@ export function RulesThreeColumn({
   }
 
   const handleCreateClaudeLink = async () => {
-    if (!selectedProjectPath || !window.workflowSkill?.createClaudeLink) return
+    if (!currentProjectPath || (currentProject && (currentProject as any).status === 'missing') || !window.workflowSkill?.createClaudeLink) return
     setClaudeOperating(true)
     try {
-      const res = await window.workflowSkill.createClaudeLink(selectedProjectPath)
+      const res = await window.workflowSkill.createClaudeLink(currentProjectPath)
       if (res.success) {
         if (res.action === 'skipped') {
           notify?.(t.rules.claudeSkippedToast)
@@ -406,7 +457,7 @@ export function RulesThreeColumn({
       } else {
         notify?.(t.rules.claudeConflictToast(res.reason || '创建失败'))
       }
-      refreshProjectDetails(selectedProjectPath)
+      refreshProjectDetails(currentProjectPath)
     } catch (err: any) {
       notify?.(`操作失败: ${err?.message || String(err)}`)
     } finally {
@@ -438,36 +489,38 @@ export function RulesThreeColumn({
     <>
       {/* Column 2: Master List (Width: 210px) */}
       <aside className="app-col-master view-enter">
-        {/* Top Header with Segmented Tabs */}
+        {/* Top Header with Segmented Tabs (Compatibility mode only) */}
         <div className="master-header">
-          <div className="master-tab-segmented">
-            <button
-              type="button"
-              className={`master-tab-btn ${activeTab === 'rules' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('rules')}
-            >
-              {t.rules.tabRules}
-            </button>
-            <button
-              type="button"
-              className={`master-tab-btn ${activeTab === 'project' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('project')}
-            >
-              {t.rules.tabProject}
-            </button>
-          </div>
+          {scope === undefined && (
+            <div className="master-tab-segmented">
+              <button
+                type="button"
+                className={`master-tab-btn ${currentTab === 'rules' ? 'is-active' : ''}`}
+                onClick={() => (onScopeChange ? onScopeChange('global') : setActiveTab('rules'))}
+              >
+                {t.rules.tabRules}
+              </button>
+              <button
+                type="button"
+                className={`master-tab-btn ${currentTab === 'project' ? 'is-active' : ''}`}
+                onClick={() => (onScopeChange ? onScopeChange('project') : setActiveTab('project'))}
+              >
+                {t.rules.tabProject}
+              </button>
+            </div>
+          )}
 
           <div className="master-search-row">
             <label className="master-search-input">
               <Search size={13} />
               <input
                 type="text"
-                placeholder={activeTab === 'rules' ? '搜索规则…' : '搜索项目…'}
+                placeholder={currentTab === 'rules' ? '搜索规则…' : '搜索项目…'}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
             </label>
-            {activeTab === 'rules' ? (
+            {currentTab === 'rules' ? (
               <button
                 type="button"
                 className="btn btn--capsule btn--primary"
@@ -493,7 +546,7 @@ export function RulesThreeColumn({
 
         {/* Master List Content */}
         <div className="master-list-scroll">
-          {activeTab === 'rules' ? (
+          {currentTab === 'rules' ? (
             filteredRules.length === 0 ? (
               <div className="master-empty-state">
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -561,13 +614,21 @@ export function RulesThreeColumn({
             </div>
           ) : (
             filteredProjects.map((p) => {
-              const isSelected = p.path === selectedProjectPath
+              const isSelected = currentProject
+                ? (p.id === currentProject.id || p.path === currentProject.path)
+                : (p.path === currentProjectPath)
               return (
                 <button
                   key={p.id}
                   type="button"
                   className={`master-item-row ${isSelected ? 'is-selected' : ''}`}
-                  onClick={() => setSelectedProjectPath(p.path)}
+                  onClick={() => {
+                    if (onSelectProjectId) {
+                      onSelectProjectId(p.id)
+                    } else {
+                      setSelectedProjectPath(p.path)
+                    }
+                  }}
                 >
                   <div className="master-item-logo">
                     <FolderPlus size={14} />
@@ -577,6 +638,9 @@ export function RulesThreeColumn({
                       <span className="master-item-title">{p.name}</span>
                     </div>
                     <span className="master-item-sub font-mono">{p.path}</span>
+                    {(p as any).status === 'missing' && (
+                      <span style={{ color: 'var(--color-danger)', fontSize: '0.625rem' }}>目录失效</span>
+                    )}
                   </div>
                 </button>
               )
@@ -587,7 +651,7 @@ export function RulesThreeColumn({
 
       {/* Column 3: Detail Stage (Width: minmax(0, 1fr)) */}
       <main className="app-col-detail view-enter">
-        {activeTab === 'rules' ? (
+        {currentTab === 'rules' ? (
           !selectedRuleId && !isCreatingNew ? (
             <div className="detail-stage-wrap rules-stage" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '300px' }}>
               <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -756,26 +820,26 @@ export function RulesThreeColumn({
             >
               <div>
                 <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>
-                  {projects.find((p) => p.path === selectedProjectPath)?.name || '未选择项目'}
+                  {currentProject?.name || '未选择项目'}
                 </h3>
                 <p className="font-mono" style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {selectedProjectPath || '请先在左侧选择或添加项目'}
+                  {currentProjectPath || '请先在侧边栏选择或添加项目'}
                 </p>
               </div>
 
-              {selectedProjectPath && (
+              {currentProjectPath && (
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     type="button"
                     className="btn btn--capsule btn--sm"
-                    onClick={() => window.workflowSkill?.openPathInFinder?.(selectedProjectPath)}
+                    onClick={() => window.workflowSkill?.openPathInFinder?.(currentProjectPath)}
                   >
                     <ExternalLink size={12} /> 在访达中打开
                   </button>
                   <button
                     type="button"
                     className="btn btn--capsule btn--danger btn--sm"
-                    onClick={() => handleRemoveProject(selectedProjectPath)}
+                    onClick={() => handleRemoveProject(currentProjectPath)}
                   >
                     <Trash2 size={12} /> {t.rules.removeProjectBtn}
                   </button>
@@ -783,7 +847,23 @@ export function RulesThreeColumn({
               )}
             </div>
 
-            {selectedProjectPath ? (
+            {(currentProject as any)?.status === 'missing' && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  background: 'rgba(255, 69, 58, 0.12)',
+                  border: '1px solid rgba(255, 69, 58, 0.28)',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  color: 'var(--color-danger)',
+                  marginBottom: '12px',
+                }}
+              >
+                项目目录不可用，请在项目管理中修复后再同步规则。
+              </div>
+            )}
+
+            {currentProjectPath ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Card 1: CLAUDE.md Helper */}
                 <div
@@ -826,7 +906,7 @@ export function RulesThreeColumn({
                         type="button"
                         className="btn btn--capsule btn--primary btn--sm"
                         onClick={handleCreateClaudeLink}
-                        disabled={claudeOperating}
+                        disabled={claudeOperating || Boolean(!currentProjectPath || (currentProject && (currentProject as any).status === 'missing'))}
                         style={{ flexShrink: 0 }}
                       >
                         {claudeOperating ? '处理中…' : t.rules.createClaudeLinkBtn}
@@ -881,7 +961,7 @@ export function RulesThreeColumn({
                         type="button"
                         className="btn btn--capsule btn--primary"
                         onClick={handleSaveProjectRules}
-                        disabled={projectSaving}
+                        disabled={projectSaving || Boolean(!currentProjectPath || (currentProject && (currentProject as any).status === 'missing'))}
                       >
                         <RefreshCw size={12} className={projectSaving ? 'spin' : ''} />
                         {projectSaving ? '同步中…' : t.rules.saveAndSyncBtn}

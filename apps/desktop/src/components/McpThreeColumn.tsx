@@ -24,6 +24,7 @@ import type {
   MCPSourceTool,
   MCPTargetAssociation,
   MCPTransportType,
+  ManagedProjectRecord,
   ProjectRecord,
 } from '@workflow-skill/workflow-model'
 import { MCP_SOURCE_TOOLS } from '@workflow-skill/workflow-model'
@@ -43,9 +44,8 @@ function getMcpBadgeClass(status?: MCPScopeStatus | string): string {
       return 'mcp-badge--conflict'
     case '未注入':
       return 'mcp-badge--unbound'
-    case '应用管理':
     default:
-      return 'mcp-badge--app'
+      return 'mcp-badge--unbound'
   }
 }
 
@@ -61,7 +61,8 @@ function getMcpServerBadge(
   if (activeScope) {
     const scopeAssocs = assocs.filter((a) => {
       if (a.scope !== activeScope) return false
-      if (activeScope === 'project' && projectPath) {
+      if (activeScope === 'project') {
+        if (!projectPath) return false
         return normalizePath(a.projectPath) === normalizePath(projectPath)
       }
       return true
@@ -147,19 +148,39 @@ function normalizePath(p?: string): string {
   return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 }
 
+export interface McpThreeColumnProps {
+  notify?: (msg: string) => void
+  scope?: 'global' | 'project'
+  onScopeChange?: (scope: 'global' | 'project') => void
+  projects?: ManagedProjectRecord[] | ProjectRecord[]
+  selectedProjectId?: string
+  onSelectProjectId?: (id: string) => void
+  selectedProject?: ManagedProjectRecord | ProjectRecord | null
+}
+
 export function McpThreeColumn({
   notify,
-}: {
-  notify?: (msg: string) => void
-}) {
+  scope,
+  onScopeChange,
+  projects: propProjects,
+  selectedProjectId,
+  onSelectProjectId,
+  selectedProject,
+}: McpThreeColumnProps) {
   const { t } = useI18n()
 
   const [activeScopeTab, setActiveScopeTab] = useState<'global' | 'project'>('global')
+  const currentScope = scope ?? activeScopeTab
   const [centralServers, setCentralServers] = useState<CentralMCPServer[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null)
-  const [projects, setProjects] = useState<ProjectRecord[]>([])
+  const [localProjects, setLocalProjects] = useState<ProjectRecord[]>([])
+  const projects = propProjects !== undefined ? propProjects : localProjects
   const [selectedProjectPath, setSelectedProjectPath] = useState<string>('')
+  const effectiveProject = selectedProject !== undefined
+    ? selectedProject
+    : (projects.find(p => p.path === selectedProjectPath || p.id === selectedProjectId) ?? null)
+  const effectiveProjectPath = effectiveProject ? effectiveProject.path : (propProjects !== undefined ? '' : selectedProjectPath)
 
   // Target operating states
   const [targetOperating, setTargetOperating] = useState<Record<string, boolean>>({})
@@ -231,10 +252,11 @@ export function McpThreeColumn({
   }
 
   const loadProjects = async () => {
+    if (propProjects !== undefined) return
     if (!window.workflowSkill?.listProjects) return
     try {
       const list = await window.workflowSkill.listProjects()
-      setProjects(list || [])
+      setLocalProjects(list || [])
       if (list && list.length > 0 && !selectedProjectPath) {
         if (window.workflowSkill.getActiveProject) {
           const active = await window.workflowSkill.getActiveProject()
@@ -253,7 +275,9 @@ export function McpThreeColumn({
       if (res.success && res.project) {
         await loadProjects()
         setSelectedProjectPath(res.project.path)
+        if (onSelectProjectId) onSelectProjectId(res.project.id)
         if (injectionOpen && injectionScope === 'project') setInjectionProjectPath(res.project.path)
+        window.dispatchEvent(new CustomEvent('workflow-skill:workspace-changed'))
         notify?.(`已添加项目: ${res.project.name}`)
       } else if (res.error) {
         notify?.(`添加项目失败: ${res.error}`)
@@ -322,6 +346,26 @@ export function McpThreeColumn({
     setInjectionStep('scope')
     setSelectedInjectionTools([])
   }
+
+  // Clear injection and conflict modals on project change or invalidation
+  useEffect(() => {
+    if (injectionOpen && injectionScope === 'project') {
+      if (!effectiveProject || (effectiveProject as any).status === 'missing') {
+        closeInjectionFlow()
+      } else if (injectionProjectPath !== effectiveProjectPath) {
+        setInjectionProjectPath(effectiveProjectPath)
+      }
+    }
+    if (mcpConflictAssociation && mcpConflictAssociation.scope === 'project') {
+      if (
+        !effectiveProject ||
+        (effectiveProject as any).status === 'missing' ||
+        normalizePath(mcpConflictAssociation.projectPath) !== normalizePath(effectiveProjectPath)
+      ) {
+        setMcpConflictAssociation(null)
+      }
+    }
+  }, [effectiveProject, effectiveProjectPath, injectionOpen, injectionScope, injectionProjectPath, mcpConflictAssociation])
 
   // Scope tabs describe the next injection target. Central MCP assets stay
   // visible in both tabs, including assets that have not been injected yet.
@@ -418,14 +462,18 @@ export function McpThreeColumn({
 
   // Navigation handlers with unsaved guard
   const handleSwitchScope = (newScope: 'global' | 'project') => {
-    if (isBusy || newScope === activeScopeTab) return
+    if (isBusy || newScope === currentScope) return
     if (isDirty) {
       setPendingAction({ type: 'switch_scope', scope: newScope })
       setUnsavedModalOpen(true)
       return
     }
     closeInjectionFlow()
-    setActiveScopeTab(newScope)
+    if (onScopeChange) {
+      onScopeChange(newScope)
+    } else {
+      setActiveScopeTab(newScope)
+    }
     lastLoadedIdRef.current = null
   }
 
@@ -465,7 +513,11 @@ export function McpThreeColumn({
 
     if (action.type === 'switch_scope') {
       closeInjectionFlow()
-      setActiveScopeTab(action.scope)
+      if (onScopeChange) {
+        onScopeChange(action.scope)
+      } else {
+        setActiveScopeTab(action.scope)
+      }
       lastLoadedIdRef.current = null
     } else if (action.type === 'switch_row') {
       closeInjectionFlow()
@@ -758,9 +810,13 @@ export function McpThreeColumn({
 
   const handleOpenInjection = () => {
     if (isBusy || !selectedServer) return
-    const nextScope = activeScopeTab
+    const nextScope = currentScope
+    if (nextScope === 'project' && (!effectiveProject || (effectiveProject as any).status === 'missing')) {
+      notify?.('项目目录不可用，请在项目管理中修复后再注入 MCP。')
+      return
+    }
     setInjectionScope(nextScope)
-    setInjectionProjectPath(selectedProjectPath || projects[0]?.path || '')
+    setInjectionProjectPath(effectiveProjectPath || (projects.find(p => (p as any).status === 'valid')?.path ?? projects[0]?.path ?? ''))
     setSelectedInjectionTools([])
     setInjectionStep('scope')
     setInjectionOpen(true)
@@ -773,7 +829,15 @@ export function McpThreeColumn({
       return
     }
 
-    if (injectionScope === 'project') setSelectedProjectPath(injectionProjectPath)
+    if (injectionScope === 'project') {
+      const matched = projects.find(p => p.path === injectionProjectPath)
+      if (!matched || (matched as any).status === 'missing') {
+        notify?.('所选项目目录不可用，请选择有效项目')
+        return
+      }
+      setSelectedProjectPath(injectionProjectPath)
+      if (onSelectProjectId) onSelectProjectId(matched.id)
+    }
     const projectPath = injectionScope === 'project' ? injectionProjectPath : undefined
     setSelectedInjectionTools(
       injectionToolOptions
@@ -785,6 +849,13 @@ export function McpThreeColumn({
 
   const handleApplyInjection = async () => {
     if (!selectedServer || injectionSaving) return
+    if (injectionScope === 'project') {
+      const targetProj = projects.find(p => p.path === injectionProjectPath)
+      if (!targetProj || (targetProj as any).status === 'missing') {
+        notify?.('所选项目目录不可用，无法写入配置')
+        return
+      }
+    }
     const projectPath = injectionScope === 'project' ? injectionProjectPath : undefined
     const selectedTools = new Set(selectedInjectionTools)
     const operations: Array<{
@@ -838,6 +909,8 @@ export function McpThreeColumn({
       } else {
         notify?.(`已完成 ${completed} 个 MCP 注入目标`)
       }
+    } catch (err) {
+      notify?.(err instanceof Error ? err.message : '更新 MCP 注入配置失败')
     } finally {
       setInjectionSaving(false)
     }
@@ -846,41 +919,82 @@ export function McpThreeColumn({
   return (
     <>
       {/* =========================================================================
-          Column 2: Master List (Width: 210px) - AGENTS.md §1.1
+          Column 2: Master List (MCP Servers)
+          Width: 210px (Standard Liquid Glass Pro Master)
           ========================================================================= */}
       <aside className="app-col-master view-enter">
         <div className="master-header">
-          {/* Scope Segmented Tabs: [ 全局 | 项目 ] - Height: 24px */}
-          <div className="master-header-top">
-            <div
-              role="tablist"
-              aria-label="MCP 注入目标范围"
-              className="master-tab-segmented mcp-scope-segmented"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeScopeTab === 'global'}
-                tabIndex={activeScopeTab === 'global' ? 0 : -1}
-                className={`master-tab-btn ${activeScopeTab === 'global' ? 'is-active' : ''}`}
-                onClick={() => handleSwitchScope('global')}
-                disabled={isBusy}
+          {/* Scope Segmented Tabs: [ 全局 | 项目 ] (Compatibility mode only) */}
+          {scope === undefined && (
+            <div className="master-header-top">
+              <div
+                role="tablist"
+                aria-label="MCP 注入目标范围"
+                className="master-tab-segmented mcp-scope-segmented"
               >
-                <span>全局</span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeScopeTab === 'project'}
-                tabIndex={activeScopeTab === 'project' ? 0 : -1}
-                className={`master-tab-btn ${activeScopeTab === 'project' ? 'is-active' : ''}`}
-                onClick={() => handleSwitchScope('project')}
-                disabled={isBusy}
-              >
-                <span>项目</span>
-              </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={currentScope === 'global'}
+                  tabIndex={currentScope === 'global' ? 0 : -1}
+                  className={`master-tab-btn ${currentScope === 'global' ? 'is-active' : ''}`}
+                  onClick={() => handleSwitchScope('global')}
+                  disabled={isBusy}
+                >
+                  <span>全局</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={currentScope === 'project'}
+                  tabIndex={currentScope === 'project' ? 0 : -1}
+                  className={`master-tab-btn ${currentScope === 'project' ? 'is-active' : ''}`}
+                  onClick={() => handleSwitchScope('project')}
+                  disabled={isBusy}
+                >
+                  <span>项目</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
+          {currentScope === 'project' && (
+            effectiveProject ? (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '2px 8px',
+                  fontSize: '0.6875rem',
+                  color: 'var(--color-muted)',
+                  background: 'var(--control-bg)',
+                  borderRadius: 'var(--radius-pill)',
+                  minWidth: 0,
+                  marginTop: '4px',
+                }}
+                title={effectiveProject.path}
+              >
+                <Folder size={11} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                  {effectiveProject.name}
+                </span>
+                {(effectiveProject as any).status === 'missing' && (
+                  <span style={{ color: 'var(--color-danger)', flexShrink: 0, fontSize: '0.625rem' }}>(失效)</span>
+                )}
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.6875rem',
+                  color: 'var(--color-muted)',
+                  marginTop: '4px',
+                }}
+              >
+                暂无项目
+              </div>
+            )
+          )}
         </div>
 
         {loadError && (
@@ -915,6 +1029,11 @@ export function McpThreeColumn({
 
         {/* Master List Scroll */}
         <div className="master-list-scroll">
+          {currentScope === 'project' && projects.length === 0 && (
+            <div className="master-list-status" role="alert">
+              <span>暂无管理的项目，请在侧边栏添加项目。</span>
+            </div>
+          )}
           {filteredServers.length === 0 ? (
             <div className="master-list-status">
               <Server size={18} style={{ opacity: 0.6 }} />
@@ -928,7 +1047,7 @@ export function McpThreeColumn({
           ) : (
             filteredServers.map((server) => {
               const isSelected = selectedServer?.id === server.id
-              const badgeText = getMcpServerBadge(server, activeScopeTab, selectedProjectPath)
+              const badgeText = getMcpServerBadge(server, currentScope, effectiveProjectPath)
               const badgeClass = getMcpBadgeClass(badgeText)
 
               return (

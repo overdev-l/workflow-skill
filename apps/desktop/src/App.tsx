@@ -141,6 +141,12 @@ function AppSidebar({
   onBackToOverview,
   masterCollapsed,
   onToggleMasterCollapse,
+  scope,
+  onScopeChange,
+  projects,
+  selectedProjectId,
+  onSelectProjectId,
+  selectedProject,
 }: {
   view: View
   setView: (view: View) => void
@@ -152,6 +158,12 @@ function AppSidebar({
   onBackToOverview: () => void
   masterCollapsed?: boolean
   onToggleMasterCollapse?: () => void
+  scope?: 'global' | 'project'
+  onScopeChange?: (scope: 'global' | 'project') => void
+  projects?: ManagedProjectRecord[]
+  selectedProjectId?: string
+  onSelectProjectId?: (id: string) => void
+  selectedProject?: ManagedProjectRecord | null
 }) {
   const { t } = useI18n()
 
@@ -224,6 +236,71 @@ function AppSidebar({
       ) : (
         /* Standard App Navigation Mode */
         <div className="app-sidebar-mode view-enter">
+          {view !== 'accounts' && scope && onScopeChange && (
+            <div className="sidebar-workspace-section">
+              <div className="master-tab-segmented sidebar-scope-segmented" role="tablist" aria-label={t.workspace.scopeLabel}>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`master-tab-btn ${scope === 'global' ? 'is-active' : ''}`}
+                  aria-selected={scope === 'global'}
+                  onClick={() => onScopeChange('global')}
+                >
+                  <Globe size={11} className="sidebar-scope-icon" />
+                  <span>{t.workspace.global}</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`master-tab-btn ${scope === 'project' ? 'is-active' : ''}`}
+                  aria-selected={scope === 'project'}
+                  onClick={() => onScopeChange('project')}
+                >
+                  <Folder size={11} className="sidebar-scope-icon" />
+                  <span>{t.workspace.project}</span>
+                </button>
+              </div>
+
+              {scope === 'project' && (
+                <div className="sidebar-project-picker">
+                  <div className="sidebar-project-select-wrap">
+                    <select
+                      className="sidebar-project-select"
+                      value={selectedProjectId || ''}
+                      onChange={(e) => onSelectProjectId?.(e.target.value)}
+                      aria-label={t.workspace.selectProject}
+                      disabled={!projects || projects.length === 0}
+                    >
+                      {!projects || projects.length === 0 ? (
+                        <option value="">{t.workspace.noProjects}</option>
+                      ) : (
+                        <>
+                          <option value="" disabled>
+                            {t.workspace.selectProject}
+                          </option>
+                          {selectedProjectId && !selectedProject && (
+                            <option value={selectedProjectId}>项目已移除</option>
+                          )}
+                          {projects.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}{p.status === 'missing' ? ` (${t.workspace.missingTag})` : ''}
+                            </option>
+                          ))}
+                        </>
+                      )}
+                    </select>
+                    <ChevronDown size={12} className="sidebar-project-select-arrow" />
+                  </div>
+                  {selectedProject?.status === 'missing' && (
+                    <span className="sidebar-project-status-warn" role="alert">
+                      {t.workspace.missingProject}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Main Navigation Capsule Views */}
           <nav className="sidebar-nav-list">
             <button type="button" className={`nav-pill-btn ${view === 'projects' ? 'is-active' : ''}`} onClick={() => { setView('projects'); onBackToOverview() }}>
@@ -1372,6 +1449,13 @@ function SkillsThreeColumn({
   onReloadSkills,
   onExportCode,
   notify,
+  scope: controlledScope,
+  onScopeChange: controlledOnScopeChange,
+  projects: controlledProjects,
+  selectedProjectId: controlledSelectedProjectId,
+  onSelectProjectId: controlledOnSelectProjectId,
+  selectedProject: controlledSelectedProject,
+  onRefreshProjects,
 }: {
   skills: Skill[]
   aiTools: AIToolTarget[]
@@ -1382,10 +1466,40 @@ function SkillsThreeColumn({
   onReloadSkills: () => Promise<void>
   onExportCode: (workflow: Workflow, name: string) => void
   notify?: (msg: string) => void
+  scope?: 'global' | 'project'
+  onScopeChange?: (scope: 'global' | 'project') => void
+  projects?: ManagedProjectRecord[]
+  selectedProjectId?: string
+  onSelectProjectId?: (id: string) => void
+  selectedProject?: ManagedProjectRecord | null
+  onRefreshProjects?: () => Promise<void> | void
 }) {
-  const [skillTab, setSkillTab] = useState<'global' | 'project'>('global')
-  const [projects, setProjects] = useState<ManagedProjectRecord[]>([])
-  const [projectId, setProjectId] = useState('')
+  const isControlledScope = controlledScope !== undefined
+  const [internalSkillTab, setInternalSkillTab] = useState<'global' | 'project'>('global')
+  const skillTab = isControlledScope ? controlledScope : internalSkillTab
+  const setSkillTab = (nextScope: 'global' | 'project') => {
+    if (isControlledScope) {
+      controlledOnScopeChange?.(nextScope)
+    } else {
+      setInternalSkillTab(nextScope)
+    }
+  }
+
+  const isControlledProjects = controlledProjects !== undefined
+  const [internalProjects, setInternalProjects] = useState<ManagedProjectRecord[]>([])
+  const projects = isControlledProjects ? controlledProjects : internalProjects
+
+  const isControlledProjectId = controlledSelectedProjectId !== undefined
+  const [internalProjectId, setInternalProjectId] = useState('')
+  const projectId = isControlledProjectId ? controlledSelectedProjectId : internalProjectId
+  const setProjectId = (nextId: string) => {
+    if (isControlledProjectId) {
+      controlledOnSelectProjectId?.(nextId)
+    } else {
+      setInternalProjectId(nextId)
+    }
+  }
+
   const [projectError, setProjectError] = useState('')
   const [skillMdContent, setSkillMdContent] = useState('')
   const [deleteModalSkill, setDeleteModalSkill] = useState<Skill | null>(null)
@@ -1408,6 +1522,7 @@ function SkillsThreeColumn({
   useUpdateBlocker('skill-conflict', Boolean(skillConflictBinding))
   useUpdateBlocker('skill-adoption', skillAdoptionOpen && skillAdoptionBusy)
   useEffect(() => {
+    if (isControlledProjects) return
     let active = true
     let generation = 0
     const refresh = async () => {
@@ -1416,12 +1531,12 @@ function SkillsThreeColumn({
         if (!window.workflowSkill?.listManagedProjects) throw new Error('项目管理暂不可用')
         const [result, activeProject] = await Promise.all([window.workflowSkill.listManagedProjects(), window.workflowSkill.getActiveProject?.()])
         if (!active || current !== generation) return
-        setProjects(result)
+        setInternalProjects(result)
         setProjectError('')
-        setProjectId(previous => previous || result.find(project => project.id === activeProject?.id && project.status === 'valid')?.id || result.find(project => project.status === 'valid')?.id || '')
+        setInternalProjectId(previous => previous || result.find(project => project.id === activeProject?.id && project.status === 'valid')?.id || result.find(project => project.status === 'valid')?.id || '')
       } catch (error) {
         if (active && current === generation) {
-          setProjects([])
+          setInternalProjects([])
           setProjectError(error instanceof Error ? error.message : '读取项目失败')
         }
       }
@@ -1431,8 +1546,10 @@ function SkillsThreeColumn({
     const onFocus = () => void refresh()
     window.addEventListener('focus', onFocus)
     return () => { active = false; unsubscribe?.(); window.removeEventListener('focus', onFocus) }
-  }, [])
-  const selectedProject = projects.find(project => project.id === projectId)
+  }, [isControlledProjects])
+  const selectedProject = controlledSelectedProject !== undefined
+    ? controlledSelectedProject
+    : (projects.find(project => project.id === projectId) || null)
   const target: SkillScopeTarget | null = skillTab === 'global' ? { scope: 'global' }
     : selectedProject?.status === 'valid' ? { scope: 'project', id: selectedProject.id, name: selectedProject.name, path: selectedProject.path } : null
   const installedTools = useMemo(() => aiTools.filter(tool => tool.installed), [aiTools])
@@ -1483,6 +1600,7 @@ function SkillsThreeColumn({
     } finally {
       projectDiscovery.refresh()
       await onReloadSkills().catch(() => notify?.('列表刷新失败，请重新打开 Skill 页面。'))
+      await onRefreshProjects?.()
     }
   }
   const handleAdoptSkill = async () => {
@@ -1506,6 +1624,7 @@ function SkillsThreeColumn({
       projectDiscovery.refresh()
       await onReloadSkills()
       await refreshSkillAdoptionPlan()
+      await onRefreshProjects?.()
       notify?.(`已成功纳入应用管理: ${result.skill.name}`)
     } catch (error) {
       notify?.(error instanceof Error ? error.message : '纳入应用管理失败')
@@ -1523,6 +1642,7 @@ function SkillsThreeColumn({
       projectDiscovery.refresh()
       await onReloadSkills()
       await refreshSkillAdoptionPlan()
+      await onRefreshProjects?.()
       if (result.linkedTargetCount > 0) {
         notify?.(`已接管 ${result.adoptedCount} 个 Skill，统一连接 ${result.linkedTargetCount} 个入口`)
       } else if (result.skippedCount > 0) {
@@ -1555,6 +1675,7 @@ function SkillsThreeColumn({
       projectDiscovery.refresh()
       await onReloadSkills()
       await refreshSkillAdoptionPlan()
+      await onRefreshProjects?.()
       notify?.(`已接管 ${result.skill.name}，并连接到 ${getSkillTargetLabel(binding)}`)
     } catch (error) {
       notify?.(error instanceof Error ? error.message : '接管 Skill 失败')
@@ -1576,6 +1697,7 @@ function SkillsThreeColumn({
       }
       projectDiscovery.refresh()
       await onReloadSkills()
+      await onRefreshProjects?.()
       notify?.(`已断开 ${getSkillTargetLabel(binding)}，中央 Skill 资产仍保留`)
     } catch (error) {
       notify?.(error instanceof Error ? error.message : '断开 Skill 失败')
@@ -1608,6 +1730,7 @@ function SkillsThreeColumn({
       projectDiscovery.refresh()
       await onReloadSkills()
       await refreshSkillAdoptionPlan()
+      await onRefreshProjects?.()
       notify?.(result.backupPath
         ? `Skill 冲突已解决，原版本已备份到 ${result.backupPath}`
         : strategy === 'keep_external' ? '已保留外部 Skill，并解除应用关联' : 'Skill 冲突已解决')
@@ -1669,7 +1792,7 @@ function SkillsThreeColumn({
         <div className="master-list-scroll">
           {skillTab === 'project' && projectDiscovery.errors.length > 0 && <div className="master-list-status" role="alert">
             <span>{projectDiscovery.errors.join('；')}</span>
-            <button type="button" className="btn btn--capsule btn--secondary btn--sm" onClick={projectDiscovery.refresh}>重新扫描</button>
+            <button type="button" className="btn btn--capsule btn--secondary btn--sm" onClick={() => { projectDiscovery.refresh(); void onRefreshProjects?.() }}>重新扫描</button>
           </div>}
           {visibleSkills.map(skill => <button type="button" key={skill.id}
             className={`master-item-row ${activeLocalSkill?.id === skill.id ? 'is-selected' : ''}`}
@@ -1819,6 +1942,7 @@ function SkillsThreeColumn({
                   await onReloadSkills()
                   projectDiscovery.refresh()
                   await refreshSkillAdoptionPlan()
+                  await onRefreshProjects?.()
                 }}
                 onResolveConflict={(binding) => {
                   setSkillConflictBinding(binding)
@@ -4419,6 +4543,7 @@ function MasterColumnResizeHandle({
 export function App() {
   const { t, resolvedLocale } = useI18n()
   const stageRef = useRef<HTMLDivElement>(null)
+  const [toast, setToast] = useState('')
   const [view, setView] = useState<View>('skills')
   const [inSettings, setInSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
@@ -4453,6 +4578,72 @@ export function App() {
       } catch {}
       return next
     })
+  }, [])
+
+  // Shared Workspace State across App (OPC-73)
+  const [workspaceScope, setWorkspaceScope] = useState<'global' | 'project'>('global')
+  const [workspaceProjects, setWorkspaceProjects] = useState<ManagedProjectRecord[]>([])
+  const [workspaceProjectId, setWorkspaceProjectId] = useState<string>('')
+
+  const refreshWorkspaceProjects = useCallback(async () => {
+    try {
+      if (!window.workflowSkill?.listManagedProjects) return
+      const [projects, activeProject] = await Promise.all([
+        window.workflowSkill.listManagedProjects(),
+        window.workflowSkill.getActiveProject ? window.workflowSkill.getActiveProject() : Promise.resolve(null),
+      ])
+      const allProjects = Array.isArray(projects) ? projects : []
+      setWorkspaceProjects(allProjects)
+      setWorkspaceProjectId((prev) => {
+        if (prev && allProjects.some((p) => p.id === prev)) {
+          return prev
+        }
+        const activeValid = allProjects.find((p) => p.id === activeProject?.id && p.status === 'valid')
+        if (activeValid) return activeValid.id
+        const firstValid = allProjects.find((p) => p.status === 'valid')
+        return firstValid ? firstValid.id : ''
+      })
+    } catch {
+      setWorkspaceProjects([])
+      setWorkspaceProjectId('')
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshWorkspaceProjects()
+    const unsubscribe = window.workflowSkill?.onProjectsChanged?.(() => {
+      void refreshWorkspaceProjects()
+    })
+    const onFocus = () => void refreshWorkspaceProjects()
+    const onWorkspaceChanged = () => void refreshWorkspaceProjects()
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('workflow-skill:workspace-changed', onWorkspaceChanged)
+    return () => {
+      unsubscribe?.()
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('workflow-skill:workspace-changed', onWorkspaceChanged)
+    }
+  }, [refreshWorkspaceProjects])
+
+  const workspaceSelectedProject = useMemo(() => {
+    return workspaceProjects.find((p) => p.id === workspaceProjectId) || null
+  }, [workspaceProjects, workspaceProjectId])
+
+  const handleSelectWorkspaceProjectId = useCallback(async (id: string) => {
+    if (window.workflowSkill?.setActiveProject) {
+      try {
+        const res = await window.workflowSkill.setActiveProject(id)
+        if (res && res.success === false) {
+          setToast(res.error || '切换项目失败')
+          return
+        }
+      } catch (err) {
+        setToast(err instanceof Error ? err.message : '切换项目失败')
+        return
+      }
+    }
+    setWorkspaceProjectId(id)
+    window.dispatchEvent(new CustomEvent('workflow-skill:workspace-changed'))
   }, [])
 
   // Real Dynamic Skills & Discoveries in State (Zero Fake Data)
@@ -4574,7 +4765,6 @@ export function App() {
   // Track saved workflow states
   const [savedWorkflowIds, setSavedWorkflowIds] = useState<Record<string, boolean>>({})
 
-  const [toast, setToast] = useState('')
   const [recorderStatus, setRecorderStatus] = useState<RecorderStatus>()
   const [browserCaptureStatus, setBrowserCaptureStatus] = useState<BrowserCaptureStatus>()
   const [recentEvents, setRecentEvents] = useState<CaptureEvent[]>([])
@@ -5000,6 +5190,12 @@ export function App() {
         }}
         masterCollapsed={isMasterCollapsed}
         onToggleMasterCollapse={!inSettings && view !== 'accounts' ? toggleMasterCollapse : undefined}
+        scope={workspaceScope}
+        onScopeChange={setWorkspaceScope}
+        projects={workspaceProjects}
+        selectedProjectId={workspaceProjectId}
+        onSelectProjectId={handleSelectWorkspaceProjectId}
+        selectedProject={workspaceSelectedProject}
       />
 
       {!inSettings && view !== 'accounts' ? <MasterColumnResizeHandle onToggleCollapse={toggleMasterCollapse} /> : null}
@@ -5026,9 +5222,25 @@ export function App() {
       ) : view === 'projects' ? (
         <ProjectsThreeColumn notify={setToast} />
       ) : view === 'mcp' ? (
-        <McpThreeColumn notify={setToast} />
+        <McpThreeColumn
+          notify={setToast}
+          scope={workspaceScope}
+          projects={workspaceProjects}
+          selectedProjectId={workspaceProjectId}
+          selectedProject={workspaceSelectedProject}
+          onScopeChange={setWorkspaceScope}
+          onSelectProjectId={handleSelectWorkspaceProjectId}
+        />
       ) : view === 'rules' ? (
-        <RulesThreeColumn notify={setToast} />
+        <RulesThreeColumn
+          notify={setToast}
+          scope={workspaceScope}
+          projects={workspaceProjects}
+          selectedProjectId={workspaceProjectId}
+          selectedProject={workspaceSelectedProject}
+          onScopeChange={setWorkspaceScope}
+          onSelectProjectId={handleSelectWorkspaceProjectId}
+        />
       ) : view === 'accounts' ? (
         <AccountSettings presentation="workspace" api={window.workflowSkill?.accounts} onNotify={setToast} />
       ) : view === 'skills' ? (
@@ -5048,6 +5260,13 @@ export function App() {
           }}
           onExportCode={(wf, name) => setExportState({ open: true, skillName: name, workflow: wf })}
           notify={setToast}
+          scope={workspaceScope}
+          onScopeChange={setWorkspaceScope}
+          projects={workspaceProjects}
+          selectedProjectId={workspaceProjectId}
+          onSelectProjectId={handleSelectWorkspaceProjectId}
+          selectedProject={workspaceSelectedProject}
+          onRefreshProjects={refreshWorkspaceProjects}
         />
       ) : (
         <WorkflowsThreeColumn
