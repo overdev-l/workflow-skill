@@ -10,6 +10,7 @@ const home = mkdtempSync(path.join(os.tmpdir(), 'trace-antigravity-native-'))
 const credential = n => JSON.stringify({ auth_method: 'consumer', token: { access_token: `synthetic-access-${n}`, refresh_token: `synthetic-refresh-${n}`, token_type: 'Bearer', expiry: new Date(Date.now() + 3600_000).toISOString() } })
 const wrap = raw => `go-keyring-base64:${Buffer.from(raw).toString('base64')}`
 let raw = wrap(credential('a')), writes = [], running = false, denied = false, profileCalls = 0
+let clientIdentity = 'a@example.invalid'
 const original = raw
 const keychain = { available: () => true, read() { if (denied) throw new AccountError('认证访问被拒绝。'); return raw }, write(value) { if (denied) throw new AccountError('认证访问被拒绝。'); writes.push(value); raw = value } }
 const adapters = createAccountAdapters({ homeDir: home, env: {}, antigravityKeychain: keychain,
@@ -25,6 +26,7 @@ const adapters = createAccountAdapters({ homeDir: home, env: {}, antigravityKeyc
 const manager = new AccountManager({ homeDir: home, adapters })
 try {
   const native = adapters.antigravity
+  native.getClientIdentity = () => clientIdentity
   assert.equal(native.capability().available, true)
   assert.equal(native.capability().detailsCode, 'antigravity-native-keychain')
   assert.equal(native.journalKey, 'antigravity-native')
@@ -49,13 +51,14 @@ try {
   assert.equal((await manager.getOverview()).tools.find(t => t.tool === 'antigravity').activeAccountId, first.accountId, 'same verified identity matches across different OAuth grants')
   assert.equal(raw, original)
   await manager.saveAuthenticatedAccount({tool:'antigravity',credential:await native.enrichCredential(native.readCurrentCredential())})
-  const b = await manager.importAccount({ tool: 'antigravity', name: 'B', credential: credential('b') })
+  const b = await manager.importAccount({ tool: 'antigravity', name: 'B', credential: JSON.stringify({ ...JSON.parse(credential('b')), account: { id: 'account-b', email: 'b@example.invalid' } }) })
   // Legacy journals remain untouched and cannot be replayed into the native item.
   mkdirSync(manager.transactionsDir, { recursive: true })
   const legacyPath = path.join(manager.transactionsDir, 'antigravity.json')
   const legacy = JSON.stringify({ version: 1, tool: 'antigravity', phase: 'complete', before: { oauth: null }, after: { oauth: fallbackBefore } })
   writeFileSync(legacyPath, legacy)
   assert.equal((await manager.rollbackAccount('antigravity')).success, false)
+  clientIdentity = 'b@example.invalid'
   running = true
   await assert.rejects(manager.switchAccount(b.id), /先退出/)
   assert.equal(writes.length, 0)

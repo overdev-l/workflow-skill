@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { createAntigravityKeychain, decodeAntigravityKeychainSecret, encodeAntigravityKeychainSecret, type AntigravityKeychain } from './antigravity-keychain.ts'
-import { assertAntigravityStopped, assertAntigravityStoppedStrict, withAntigravityAccountSwitch } from './antigravity-runtime.ts'
+import { assertAntigravityStopped, assertAntigravityStoppedStrict, withAntigravityAccountSwitch, type AntigravitySwitchContext } from './antigravity-runtime.ts'
 import { enrichAntigravityIdentity } from './account-oauth-providers.ts'
 import path from 'node:path'
 import { parse as parseToml } from 'smol-toml'
@@ -18,12 +18,46 @@ export interface InspectedCredential {
   expiresAt?: number
   identityKey: string
 }
+
+export interface AccountFileManager {
+  read(file: string): string | null
+  write(file: string, content: string | null): void
+}
+
+export function resolveAntigravityDesktopStoragePath(homeDir?: string): string {
+  const base = homeDir || os.homedir()
+  return path.join(base, 'Library', 'Application Support', 'Antigravity', 'app_storage.json')
+}
+
+export function readAntigravityDesktopIdentity(
+  storagePath?: string,
+  files?: AccountFileManager
+): string | null {
+  const targetPath = storagePath || resolveAntigravityDesktopStoragePath()
+  try {
+    const content = files ? files.read(targetPath) : (existsSync(targetPath) ? readFileSync(targetPath, 'utf8') : null)
+    if (!content) return null
+    const parsed = JSON.parse(content)
+    if (parsed && typeof parsed === 'object' && typeof parsed['jetski.onboarding.lastLoginUsername'] === 'string') {
+      const username = parsed['jetski.onboarding.lastLoginUsername'].trim()
+      return username.length > 0 ? username : null
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 export interface AccountAdapter {
   tool: AccountTool
   journalKey?: 'antigravity-native'
   assertCanWrite?(): void
   assertCanRefresh?(): void
-  withInteractiveSwitch?(operation: () => Promise<AccountActionResult>): Promise<AccountActionResult>
+  withInteractiveSwitch?(
+    operation: () => Promise<AccountActionResult>,
+    context?: AntigravitySwitchContext
+  ): Promise<AccountActionResult>
+  getClientIdentity?(): Promise<string | null> | string | null
   authorizeAccess?(): void
   enrichCredential?(credential: string): Promise<string>
   capability(): AccountToolCapability
@@ -47,6 +81,11 @@ export interface AccountAdapterOptions {
   antigravityAssertStopped?: () => void
   antigravityWithInteractiveSwitch?: AccountAdapter['withInteractiveSwitch']
   antigravityIdentityFetch?: typeof globalThis.fetch
+  antigravityDesktopStoragePath?: string
+  antigravityClientIdentity?: string | null
+  antigravityProbeIdentity?: (bundlePath?: string) => Promise<string | null> | string | null
+  antigravityWaitForReadiness?: (bundlePath?: string) => Promise<boolean> | boolean
+  antigravityCheckDesktopStore?: (bundlePath?: string) => Promise<boolean> | boolean
 }
 
 const LIMIT = 5 * 1024 * 1024
@@ -263,8 +302,27 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
   const keychain = options.antigravityKeychain ?? (native ? createAntigravityKeychain() : undefined)
   const conflict = !!(env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.JETSKI_APP_DATA_DIR)
   const assertStopped = options.antigravityAssertStopped ?? assertAntigravityStopped
+  const desktopStoragePath = options.antigravityDesktopStoragePath ?? resolveAntigravityDesktopStoragePath(home)
   const interactiveSwitch = options.antigravityWithInteractiveSwitch ??
-    (nativeHome && !options.antigravityKeychain && !options.antigravityAssertStopped ? withAntigravityAccountSwitch : undefined)
+    (nativeHome && !options.antigravityKeychain && !options.antigravityAssertStopped
+      ? (operation: () => Promise<AccountActionResult>, context?: AntigravitySwitchContext) => {
+          return withAntigravityAccountSwitch(
+            operation,
+            {
+              checkDesktopStore: options.antigravityCheckDesktopStore ?? (() => {
+                return existsSync(desktopStoragePath) || existsSync(path.dirname(desktopStoragePath))
+              }),
+              probeClientIdentity: options.antigravityProbeIdentity ?? (() => {
+                return readAntigravityDesktopIdentity(desktopStoragePath, files)
+              }),
+              waitForReadiness: options.antigravityWaitForReadiness,
+              expectedIdentity: context?.expectedIdentity,
+              rollback: context?.rollback,
+            },
+            context
+          )
+        }
+      : undefined)
   const available = () => !conflict && (native ? !!keychain?.available() : fileMode)
   const identityCache = new Map<string, string>()
   const antigravity: AccountAdapter = {
@@ -275,8 +333,16 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
       reasonCode: conflict ? 'antigravity-auth-conflict' : available() ? undefined : native ? 'antigravity-helper-unavailable' : 'antigravity-file-mode-required',
       detailsCode: native ? 'antigravity-native-keychain' : 'antigravity-ssh-file',
       reason: conflict ? 'Antigravity 存在其他认证来源，无法确认原生账号。' : available() ? undefined : native ? 'Antigravity 原生认证助手未安装，请重新构建应用。' : '当前环境不支持 Antigravity 原生账号切换。',
-      details: native ? 'Antigravity CLI 与客户端共享原生认证项。切换时会正常退出并重新打开正在运行的客户端；现有 CLI 会话保留，新 CLI 会话使用所选账号。仅访问 Antigravity 认证项，账号库保存在本地文件。' : '仅支持真实 SSH 环境中的 Antigravity CLI 后备文件；不影响原生客户端。',
+      details: native ? 'Antigravity CLI 与客户端分别管理认证目标。切换时会正常退出并重新打开正在运行的客户端；仅当客户端会话经探测确认一致后才激活账号。现有 CLI 会话保留，新 CLI 会话使用所选账号。仅访问 Antigravity 认证项，账号库保存在本地文件。' : '仅支持真实 SSH 环境中的 Antigravity CLI 后备文件；不影响原生客户端。',
     }),
+    ...(native || options.antigravityClientIdentity !== undefined ? {
+      getClientIdentity() {
+        if (options.antigravityClientIdentity !== undefined) {
+          return options.antigravityClientIdentity
+        }
+        return readAntigravityDesktopIdentity(desktopStoragePath, files)
+      },
+    } : {}),
     assertCanWrite() {
       if (!available()) fail('Antigravity 当前认证环境不可切换。')
       if (native) assertStopped()

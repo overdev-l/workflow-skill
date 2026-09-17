@@ -515,8 +515,38 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
           }
 
           if (matchedAccount) {
-            activeAccountId = matchedAccount.id
-            activeIdentity = matchedAccount.email || matchedAccount.name
+            let clientVerified = true
+            if (tool === 'antigravity' && typeof adapter.getClientIdentity === 'function') {
+              try {
+                const clientIdentity = await adapter.getClientIdentity()
+                const accountEmail = matchedAccount.email || inspected.email
+                if (typeof clientIdentity === 'string' && clientIdentity.trim().length > 0) {
+                  const normalizedClient = clientIdentity.trim()
+                  if (!accountEmail || normalizedClient.toLowerCase() !== accountEmail.toLowerCase()) {
+                    clientVerified = false
+                    activeAccountId = undefined
+                    activeIdentity = normalizedClient
+                    error ||= accountEmail
+                      ? `Antigravity 客户端当前会话（${normalizedClient}）与凭据（${accountEmail}）不一致。`
+                      : `Antigravity 客户端当前会话为 ${normalizedClient}，但凭据缺少邮箱信息，无法验证一致性。`
+                  }
+                } else {
+                  clientVerified = false
+                  activeAccountId = undefined
+                  activeIdentity = undefined
+                  error ||= 'Antigravity 客户端登录身份未验证。请启动客户端并登录，或重试切换。'
+                }
+              } catch {
+                clientVerified = false
+                activeAccountId = undefined
+                activeIdentity = undefined
+                error ||= 'Antigravity 客户端登录身份未验证。请启动客户端并登录，或重试切换。'
+              }
+            }
+            if (clientVerified) {
+              activeAccountId = matchedAccount.id
+              activeIdentity = matchedAccount.email || matchedAccount.name
+            }
           } else {
             activeAccountId = undefined
             activeIdentity = inspected.email || inspected.accountId
@@ -900,13 +930,24 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
   }
 
   async switchAccount(id: string): Promise<AccountActionResult> {
-    const record = await this.store.get(validateAccountId(id))
-    const adapter = this.adapters[record.metadata.tool]
+    const validId = validateAccountId(id)
+    const record = await this.store.get(validId)
+    const tool = record.metadata.tool
+    const adapter = this.adapters[tool]
     const capability = adapter?.capability()
     if (!capability?.available) throw new AccountError(capability?.reason || '当前工具不可切换。')
-    adapter.inspect(record.credential)
-    const operation = () => this.switchAccountTransaction(id)
-    return adapter.withInteractiveSwitch ? adapter.withInteractiveSwitch(operation) : operation()
+    const inspected = adapter.inspect(record.credential)
+    const expectedIdentity = inspected.email || record.metadata.email || undefined
+    const operation = () => this.switchAccountTransaction(validId)
+    const context = {
+      tool,
+      targetAccountId: validId,
+      expectedIdentity,
+      rollback: async () => {
+        await this.rollbackAccountTransaction(tool)
+      },
+    }
+    return adapter.withInteractiveSwitch ? adapter.withInteractiveSwitch(operation, context) : operation()
   }
 
   private async switchAccountTransaction(id: string): Promise<AccountActionResult> {

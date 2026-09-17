@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile, execFileSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import {
@@ -16,6 +18,18 @@ const DEFAULT_POLL_INTERVAL_MS = 50
 const DEFAULT_EXEC_TIMEOUT_MS = 3000
 const DEFAULT_MAX_BUFFER = 2 * 1024 * 1024
 
+export interface AntigravitySwitchResult extends AccountActionResult {
+  mismatch?: boolean
+  unavailable?: boolean
+}
+
+export interface AntigravitySwitchContext {
+  tool?: string
+  targetAccountId?: string
+  expectedIdentity?: string
+  rollback?: () => Promise<void | AccountActionResult>
+}
+
 export interface AntigravityRuntimeDeps {
   getPsOutput?(): string
   getPsOutputAsync?(): Promise<string>
@@ -26,6 +40,11 @@ export interface AntigravityRuntimeDeps {
   timeoutMs?: number
   pollIntervalMs?: number
   signal?: AbortSignal
+  checkDesktopStore?(bundlePath?: string): Promise<boolean> | boolean
+  waitForReadiness?(bundlePath?: string): Promise<boolean> | boolean
+  probeClientIdentity?(bundlePath?: string): Promise<string | null> | string | null
+  expectedIdentity?: string
+  rollback?(): Promise<void | AccountActionResult>
 }
 
 interface ResolvedDeps {
@@ -38,6 +57,11 @@ interface ResolvedDeps {
   timeoutMs: number
   pollIntervalMs: number
   signal?: AbortSignal
+  checkDesktopStore(bundlePath?: string): Promise<boolean> | boolean
+  waitForReadiness(bundlePath?: string): Promise<boolean> | boolean
+  probeClientIdentity(bundlePath?: string): Promise<string | null> | string | null
+  expectedIdentity?: string
+  rollback?(): Promise<void | AccountActionResult>
 }
 
 const defaultDeps: ResolvedDeps = {
@@ -91,21 +115,56 @@ const defaultDeps: ResolvedDeps = {
   timeoutMs: DEFAULT_TIMEOUT_MS,
   pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
   signal: undefined,
+  async checkDesktopStore(): Promise<boolean> {
+    if (process.platform !== 'darwin') return true
+    const storagePath = path.join(os.homedir(), 'Library', 'Application Support', 'Antigravity', 'app_storage.json')
+    try {
+      if (existsSync(storagePath)) return true
+      if (existsSync(path.dirname(storagePath))) return true
+      return false
+    } catch {
+      return false
+    }
+  },
+  async waitForReadiness(): Promise<boolean> {
+    return true
+  },
+  async probeClientIdentity(): Promise<string | null> {
+    if (process.platform !== 'darwin') return null
+    const storagePath = path.join(os.homedir(), 'Library', 'Application Support', 'Antigravity', 'app_storage.json')
+    try {
+      if (!existsSync(storagePath)) return null
+      const content = readFileSync(storagePath, 'utf8')
+      const parsed = JSON.parse(content)
+      if (parsed && typeof parsed === 'object' && typeof parsed['jetski.onboarding.lastLoginUsername'] === 'string') {
+        const u = parsed['jetski.onboarding.lastLoginUsername'].trim()
+        return u.length > 0 ? u : null
+      }
+      return null
+    } catch {
+      return null
+    }
+  },
 }
 
 function resolveDeps(custom?: AntigravityRuntimeDeps): ResolvedDeps {
-  if (!custom) return defaultDeps
-  const now = custom.now ?? defaultDeps.now
-  const sleep = custom.sleep ?? defaultDeps.sleep
-  const timeoutMs = custom.timeoutMs ?? defaultDeps.timeoutMs
-  const pollIntervalMs = custom.pollIntervalMs ?? defaultDeps.pollIntervalMs
-  const signal = custom.signal
+  const now = custom?.now ?? defaultDeps.now
+  const sleep = custom?.sleep ?? defaultDeps.sleep
+  const timeoutMs = custom?.timeoutMs ?? defaultDeps.timeoutMs
+  const pollIntervalMs = custom?.pollIntervalMs ?? defaultDeps.pollIntervalMs
+  const signal = custom?.signal
 
-  const getPsOutput = custom.getPsOutput ?? defaultDeps.getPsOutput
-  const getPsOutputAsync = custom.getPsOutputAsync ??
-    (custom.getPsOutput ? async () => custom.getPsOutput!() : defaultDeps.getPsOutputAsync)
-  const quitApp = custom.quitApp ?? defaultDeps.quitApp
-  const openApp = custom.openApp ?? defaultDeps.openApp
+  const getPsOutput = custom?.getPsOutput ?? defaultDeps.getPsOutput
+  const getPsOutputAsync = custom?.getPsOutputAsync ??
+    (custom?.getPsOutput ? async () => custom!.getPsOutput!() : defaultDeps.getPsOutputAsync)
+  const quitApp = custom?.quitApp ?? defaultDeps.quitApp
+  const openApp = custom?.openApp ?? defaultDeps.openApp
+
+  const checkDesktopStore = custom?.checkDesktopStore ?? (custom ? (() => true) : defaultDeps.checkDesktopStore)
+  const waitForReadiness = custom?.waitForReadiness ?? (() => true)
+  const probeClientIdentity = custom?.probeClientIdentity ?? (custom ? (() => null) : defaultDeps.probeClientIdentity)
+  const expectedIdentity = custom?.expectedIdentity
+  const rollback = custom?.rollback
 
   return {
     getPsOutput,
@@ -117,6 +176,11 @@ function resolveDeps(custom?: AntigravityRuntimeDeps): ResolvedDeps {
     timeoutMs,
     pollIntervalMs,
     signal,
+    checkDesktopStore,
+    waitForReadiness,
+    probeClientIdentity,
+    expectedIdentity,
+    rollback,
   }
 }
 
@@ -278,7 +342,8 @@ let switchMutex: Promise<void> = Promise.resolve()
 export async function withAntigravityAccountSwitch(
   operation: () => Promise<AccountActionResult>,
   customDeps?: AntigravityRuntimeDeps,
-): Promise<AccountActionResult> {
+  context?: AntigravitySwitchContext,
+): Promise<AntigravitySwitchResult> {
   const prev = switchMutex
   let releaseLock: () => void = () => {}
   switchMutex = new Promise<void>(resolve => { releaseLock = resolve })
@@ -290,7 +355,7 @@ export async function withAntigravityAccountSwitch(
   }
 
   try {
-    return await executeInteractiveSwitch(operation, customDeps)
+    return await executeInteractiveSwitch(operation, customDeps, context)
   } finally {
     releaseLock()
   }
@@ -315,14 +380,19 @@ async function restoreIfVerifiedGone(guiBundles: string[], deps: ResolvedDeps): 
     try { await deps.openApp(bundlePath) } catch { /* Preserve the original operation failure. */ }
   }
   return attempted
-
 }
 
 async function executeInteractiveSwitch(
   operation: () => Promise<AccountActionResult>,
   customDeps?: AntigravityRuntimeDeps,
-): Promise<AccountActionResult> {
-  const deps = resolveDeps(customDeps)
+  context?: AntigravitySwitchContext,
+): Promise<AntigravitySwitchResult> {
+  const combinedDeps: AntigravityRuntimeDeps = {
+    ...customDeps,
+    ...(context?.expectedIdentity ? { expectedIdentity: context.expectedIdentity } : {}),
+    ...(context?.rollback ? { rollback: context.rollback } : {}),
+  }
+  const deps = resolveDeps(combinedDeps)
 
   if (deps.signal?.aborted) {
     throw new AccountError('账号切换已取消，未修改账号。')
@@ -340,6 +410,20 @@ async function executeInteractiveSwitch(
   const guiBundles = Array.from(new Set(initialScan.guiProcesses.map(p => p.bundlePath)))
 
   if (guiBundles.length > 0) {
+    let storeOk = true
+    try {
+      storeOk = await deps.checkDesktopStore(guiBundles[0])
+    } catch {
+      storeOk = false
+    }
+    if (!storeOk) {
+      return {
+        success: false,
+        error: '无法安全识别 Antigravity 客户端会话存储路径，未修改账号。请在客户端手动登录目标账号。',
+        recoveryNeeded: false,
+      }
+    }
+
     for (const bundlePath of guiBundles) {
       try {
         await deps.quitApp(bundlePath)
@@ -404,25 +488,208 @@ async function executeInteractiveSwitch(
     lease.active = false
   }
 
-  let restartWarning: string | undefined
-  if (guiBundles.length > 0) {
-    for (const bundlePath of guiBundles) {
-      try {
-        await deps.openApp(bundlePath)
-      } catch {
-        restartWarning = 'Antigravity 账号已切换，但重新启动客户端失败，请手动打开。'
+  if (didThrow) {
+    if (guiBundles.length > 0) {
+      for (const bundlePath of guiBundles) {
+        try { await deps.openApp(bundlePath) } catch {}
       }
     }
-  }
-
-  if (didThrow) {
     if (thrownValue instanceof AccountError) throw thrownValue
     if (thrownValue instanceof Error) throw new AccountError(sanitizeErrorMessage(thrownValue))
     throw new AccountError('账号切换操作异常中止，未完成切换。')
   }
 
   if (!opResult || typeof opResult !== 'object' || typeof opResult.success !== 'boolean') {
+    if (guiBundles.length > 0) {
+      for (const bundlePath of guiBundles) {
+        try { await deps.openApp(bundlePath) } catch {}
+      }
+    }
     throw new AccountError('账号切换操作返回了无效的结果。')
+  }
+
+  if (!opResult.success) {
+    if (guiBundles.length > 0) {
+      for (const bundlePath of guiBundles) {
+        try { await deps.openApp(bundlePath) } catch {}
+      }
+    }
+    return opResult
+  }
+
+  const safeRollbackAfterReopen = async (): Promise<{ rolledBack: boolean }> => {
+    if (guiBundles.length > 0) {
+      for (const bundlePath of guiBundles) {
+        try {
+          await deps.quitApp(bundlePath)
+        } catch {
+          await restoreIfVerifiedGone(guiBundles, deps)
+          return { rolledBack: false }
+        }
+      }
+
+      const startTime = deps.now()
+      let confirmedGone = false
+      while (true) {
+        if (deps.signal?.aborted) {
+          await restoreIfVerifiedGone(guiBundles, deps)
+          return { rolledBack: false }
+        }
+
+        let pollOutput: string
+        try {
+          pollOutput = await deps.getPsOutputAsync()
+        } catch {
+          await restoreIfVerifiedGone(guiBundles, deps)
+          return { rolledBack: false }
+        }
+
+        const pollScan = scanAntigravityProcesses(pollOutput)
+        const hasGuiOrHelper = pollScan.guiProcesses.length > 0 || pollScan.helperProcesses.length > 0
+
+        if (!hasGuiOrHelper) {
+          confirmedGone = true
+          break
+        }
+
+        if (deps.now() - startTime >= deps.timeoutMs) {
+          await restoreIfVerifiedGone(guiBundles, deps)
+          return { rolledBack: false }
+        }
+
+        await deps.sleep(deps.pollIntervalMs)
+      }
+
+      if (!confirmedGone) {
+        return { rolledBack: false }
+      }
+    }
+
+    if (!deps.rollback) {
+      if (guiBundles.length > 0) {
+        for (const bundlePath of guiBundles) {
+          try { await deps.openApp(bundlePath) } catch {}
+        }
+      }
+      return { rolledBack: false }
+    }
+
+    const rollbackLease: SwitchLease = { active: true, deps: combinedDeps }
+    let rollbackOk = false
+    try {
+      const rollbackResult = await leaseStorage.run(rollbackLease, async () => {
+        return await deps.rollback!()
+      })
+      if (
+        rollbackResult &&
+        typeof rollbackResult === 'object' &&
+        'success' in rollbackResult &&
+        (rollbackResult as AccountActionResult).success === false
+      ) {
+        rollbackOk = false
+      } else {
+        rollbackOk = true
+      }
+    } catch {
+      rollbackOk = false
+    } finally {
+      rollbackLease.active = false
+    }
+
+    if (guiBundles.length > 0) {
+      for (const bundlePath of guiBundles) {
+        try {
+          await deps.openApp(bundlePath)
+        } catch {}
+      }
+    }
+
+    return { rolledBack: rollbackOk }
+  }
+
+  let restartWarning: string | undefined
+  let reopenFailed = false
+  if (guiBundles.length > 0) {
+    for (const bundlePath of guiBundles) {
+      try {
+        await deps.openApp(bundlePath)
+      } catch {
+        reopenFailed = true
+        restartWarning = 'Antigravity 账号已切换，但重新启动客户端失败，请手动打开。'
+      }
+    }
+  }
+
+  if (guiBundles.length > 0 && !reopenFailed) {
+    let ready = true
+    try {
+      ready = await deps.waitForReadiness(guiBundles[0])
+    } catch {
+      ready = false
+    }
+    if (!ready) {
+      const { rolledBack } = await safeRollbackAfterReopen()
+      if (!rolledBack) {
+        return {
+          success: false,
+          error: '等待 Antigravity 客户端启动就绪超时，且自动回滚失败。请检查账号状态并重试。',
+          recoveryNeeded: true,
+        }
+      }
+      return {
+        success: false,
+        error: '等待 Antigravity 客户端启动就绪超时，已自动回滚。请重试。',
+        recoveryNeeded: false,
+      }
+    }
+
+    const expected = deps.expectedIdentity?.trim().toLowerCase()
+    if (expected) {
+      let probedIdentity: string | null = null
+      let probeError = false
+      try {
+        probedIdentity = await deps.probeClientIdentity(guiBundles[0])
+      } catch {
+        probeError = true
+      }
+
+      if (probeError || !probedIdentity) {
+        const { rolledBack } = await safeRollbackAfterReopen()
+        if (!rolledBack) {
+          return {
+            success: false,
+            error: '无法验证 Antigravity 客户端登录身份，且自动回滚失败。请在客户端手动登录目标账号。',
+            mismatch: true,
+            recoveryNeeded: true,
+          }
+        }
+        return {
+          success: false,
+          error: '无法验证 Antigravity 客户端登录身份，已自动回滚。请在客户端手动登录目标账号。',
+          mismatch: true,
+          recoveryNeeded: false,
+        }
+      }
+
+      const normalizedProbed = probedIdentity.trim().toLowerCase()
+      if (normalizedProbed !== expected) {
+        const { rolledBack } = await safeRollbackAfterReopen()
+        if (!rolledBack) {
+          return {
+            success: false,
+            error: `Antigravity 客户端未切换至目标账号（当前仍为 ${probedIdentity}），且自动回滚失败。请在客户端手动登录目标账号。`,
+            mismatch: true,
+            recoveryNeeded: true,
+          }
+        }
+        return {
+          success: false,
+          error: `Antigravity 客户端未切换至目标账号（当前仍为 ${probedIdentity}），已自动回滚。请在客户端手动登录目标账号。`,
+          mismatch: true,
+          recoveryNeeded: false,
+        }
+      }
+    }
   }
 
   if (opResult.success && restartWarning) {

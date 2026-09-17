@@ -164,6 +164,14 @@ func main() {
         fail("malformed")
     }
 
+    let target = json["target"] as? String ?? "cli"
+    if target == "desktop" {
+        fail("unavailable")
+    }
+    if target != "cli" {
+        fail("malformed")
+    }
+
     guard let action = json["action"] as? String else {
         fail("malformed")
     }

@@ -27,15 +27,28 @@ export type KeychainRunner = (
   params: KeychainRunnerParams
 ) => KeychainRunnerResult | string | Record<string, unknown>
 
+export type AntigravityNativeTarget = 'cli' | 'desktop'
+
 export interface AntigravityKeychainOptions {
   helperPath?: string
   runner?: KeychainRunner
   interactive?: boolean
+  target?: AntigravityNativeTarget
+}
+
+export interface AntigravityKeychainReadOptions {
+  interactive?: boolean
+  target?: AntigravityNativeTarget
+}
+
+export interface AntigravityKeychainWriteOptions {
+  interactive?: boolean
+  target?: AntigravityNativeTarget
 }
 
 export interface AntigravityKeychain {
-  read(options?: { interactive?: boolean } | boolean): string | null
-  write(value: string | null, options?: { interactive?: boolean } | boolean): void
+  read(options?: AntigravityKeychainReadOptions | boolean): string | null
+  write(value: string | null, options?: AntigravityKeychainWriteOptions | boolean): void
   available(): boolean
 }
 
@@ -245,7 +258,7 @@ export function createAntigravityKeychain(options?: AntigravityKeychainOptions):
       return helperPath !== null
     },
 
-    read(optionsOrInteractive?: { interactive?: boolean } | boolean): string | null {
+    read(optionsOrInteractive?: AntigravityKeychainReadOptions | boolean): string | null {
       if (!keychain.available()) {
         throw new AccountError('Antigravity Keychain 辅助程序不可用。')
       }
@@ -258,9 +271,13 @@ export function createAntigravityKeychain(options?: AntigravityKeychainOptions):
           ? optionsOrInteractive.interactive
           : (options?.interactive ?? false)
 
+      const target = typeof optionsOrInteractive === 'object' && optionsOrInteractive !== null && optionsOrInteractive.target
+        ? optionsOrInteractive.target
+        : (options?.target ?? 'cli')
+
       const response = executeRequest(
         helperPath,
-        { action: 'read', interactive },
+        { action: 'read', interactive, target },
         options?.runner
       )
 
@@ -285,7 +302,7 @@ export function createAntigravityKeychain(options?: AntigravityKeychainOptions):
       return response.data
     },
 
-    write(value: string | null, optionsOrInteractive?: { interactive?: boolean } | boolean): void {
+    write(value: string | null, optionsOrInteractive?: AntigravityKeychainWriteOptions | boolean): void {
       if (!keychain.available()) {
         throw new AccountError('Antigravity Keychain 辅助程序不可用。')
       }
@@ -298,10 +315,14 @@ export function createAntigravityKeychain(options?: AntigravityKeychainOptions):
           ? optionsOrInteractive.interactive
           : (options?.interactive ?? false)
 
+      const target = typeof optionsOrInteractive === 'object' && optionsOrInteractive !== null && optionsOrInteractive.target
+        ? optionsOrInteractive.target
+        : (options?.target ?? 'cli')
+
       if (value === null) {
         executeRequest(
           helperPath,
-          { action: 'delete', interactive },
+          { action: 'delete', interactive, target },
           options?.runner
         )
         return
@@ -317,7 +338,7 @@ export function createAntigravityKeychain(options?: AntigravityKeychainOptions):
 
       executeRequest(
         helperPath,
-        { action: 'write', secret: value, interactive },
+        { action: 'write', secret: value, interactive, target },
         options?.runner
       )
     },

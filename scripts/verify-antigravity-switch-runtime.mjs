@@ -7,6 +7,11 @@ import {
   assertAntigravityStoppedStrict,
   withAntigravityAccountSwitch,
 } from '../apps/desktop/electron/antigravity-runtime.ts'
+import { createAntigravityKeychain } from '../apps/desktop/electron/antigravity-keychain.ts'
+import {
+  readAntigravityDesktopIdentity,
+  resolveAntigravityDesktopStoragePath,
+} from '../apps/desktop/electron/account-adapters.ts'
 import { AccountError } from '../packages/workflow-model/src/accounts.ts'
 
 // 1. Pure parser compatibility with existing tests
@@ -678,4 +683,458 @@ import { AccountError } from '../packages/workflow-model/src/accounts.ts'
   assert.equal(run2Finished, true)
 }
 
-console.log('Antigravity switch runtime verification passed: all 17 suites succeeded.')
+// 18. Exact native storage allowlist (target: 'cli' vs 'desktop' vs arbitrary)
+{
+  const calls = []
+  const runner = params => {
+    const payload = JSON.parse(params.input)
+    calls.push(payload)
+    if (payload.target === 'desktop') {
+      return { ok: false, error: 'unavailable' }
+    }
+    if (payload.target !== 'cli') {
+      return { ok: false, error: 'malformed' }
+    }
+    return { ok: true, data: 'go-keyring-base64:e30=' }
+  }
+
+  const keychain = createAntigravityKeychain({ runner })
+
+  // 18a: target: 'cli' or default succeeds
+  const resDefault = keychain.read()
+  assert.equal(resDefault, 'go-keyring-base64:e30=')
+  assert.equal(calls[0].target, 'cli')
+
+  const resCli = keychain.read({ target: 'cli' })
+  assert.equal(resCli, 'go-keyring-base64:e30=')
+  assert.equal(calls[1].target, 'cli')
+
+  // 18b: target: 'desktop' rejected as unavailable by native helper
+  assert.throws(
+    () => keychain.read({ target: 'desktop' }),
+    err => err instanceof AccountError && err.message.includes('不可用'),
+    'Desktop target on keychain must be rejected as unavailable',
+  )
+
+  // 18c: arbitrary target rejected as malformed
+  assert.throws(
+    () => keychain.read({ target: 'arbitrary_service' }),
+    err => err instanceof AccountError && err.message.includes('格式无效'),
+    'Arbitrary target on keychain must be rejected as malformed',
+  )
+}
+
+// 19. CLI and desktop target separation
+{
+  const memFiles = new Map()
+  const mockFiles = {
+    read: p => memFiles.get(p) ?? null,
+    write: (p, c) => { if (c === null) memFiles.delete(p); else memFiles.set(p, c) },
+  }
+
+  const storagePath = '/tmp/synthetic-test-home/Library/Application Support/Antigravity/app_storage.json'
+
+  // Initially empty
+  assert.equal(readAntigravityDesktopIdentity(storagePath, mockFiles), null)
+
+  // Directly seed synthetic client-produced desktop identity signal
+  mockFiles.write(storagePath, JSON.stringify({ 'jetski.onboarding.lastLoginUsername': 'user1@example.com' }, null, 2))
+  assert.equal(readAntigravityDesktopIdentity(storagePath, mockFiles), 'user1@example.com')
+
+  // Update synthetic client-produced signal
+  mockFiles.write(storagePath, JSON.stringify({ 'jetski.onboarding.lastLoginUsername': 'user2@example.com' }, null, 2))
+  assert.equal(readAntigravityDesktopIdentity(storagePath, mockFiles), 'user2@example.com')
+
+  // Clear signal
+  mockFiles.write(storagePath, JSON.stringify({}, null, 2))
+  assert.equal(readAntigravityDesktopIdentity(storagePath, mockFiles), null)
+}
+
+// 20. Strict execution ordering: preflight check -> quit -> wait -> switch -> open -> readiness -> probe (no desktop identity writer)
+{
+  let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+  const eventLog = []
+
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    checkDesktopStore: async () => {
+      eventLog.push('checkDesktopStore')
+      return true
+    },
+    quitApp: async () => {
+      eventLog.push('quitApp')
+      currentPs = ''
+    },
+    openApp: async () => {
+      eventLog.push('openApp')
+      currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+    },
+    waitForReadiness: async () => {
+      eventLog.push('waitForReadiness')
+      return true
+    },
+    probeClientIdentity: async () => {
+      eventLog.push('probeClientIdentity')
+      return 'target@example.com'
+    },
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const context = {
+    expectedIdentity: 'target@example.com',
+  }
+
+  const result = await withAntigravityAccountSwitch(async () => {
+    eventLog.push('operation')
+    return { success: true }
+  }, deps, context)
+
+  assert.equal(result.success, true)
+  assert.deepEqual(eventLog, [
+    'checkDesktopStore',
+    'quitApp',
+    'operation',
+    'openApp',
+    'waitForReadiness',
+    'probeClientIdentity',
+  ])
+  assert.ok(!('updateDesktopTarget' in deps), 'No desktop identity writer allowed in runtime deps')
+}
+
+// 21. Post-restart identity match success
+{
+  let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    quitApp: async () => { currentPs = '' },
+    openApp: async () => { currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity' },
+    checkDesktopStore: () => true,
+    waitForReadiness: () => true,
+    probeClientIdentity: () => 'user@domain.com',
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const result = await withAntigravityAccountSwitch(
+    async () => ({ success: true }),
+    deps,
+    { expectedIdentity: 'user@domain.com' },
+  )
+
+  assert.equal(result.success, true)
+}
+
+// 22. Post-restart identity mismatch (stale old session) triggers rollback and returns structured failure
+{
+  let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+  let rollbackCalled = false
+  let rollbackWhileStopped = false
+  let rollbackAssertPassed = false
+  const syntheticStore = { 'jetski.onboarding.lastLoginUsername': 'old@domain.com' }
+  const events = []
+
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    quitApp: async bundle => {
+      events.push(['quit', bundle])
+      currentPs = ''
+    },
+    openApp: async bundle => {
+      events.push(['open', bundle])
+      currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+    },
+    checkDesktopStore: () => true,
+    waitForReadiness: () => true,
+    probeClientIdentity: () => syntheticStore['jetski.onboarding.lastLoginUsername'], // stale session did not switch!
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const result = await withAntigravityAccountSwitch(
+    async () => {
+      events.push(['operation'])
+      return { success: true }
+    },
+    deps,
+    {
+      expectedIdentity: 'target@domain.com',
+      rollback: async () => {
+        rollbackCalled = true
+        rollbackWhileStopped = (currentPs === '')
+        assert.doesNotThrow(() => assertAntigravityStopped())
+        rollbackAssertPassed = true
+        events.push(['rollback'])
+      },
+    },
+  )
+
+  assert.equal(result.success, false, 'Mismatch must return success: false')
+  assert.equal(result.mismatch, true, 'Mismatch flag must be true')
+  assert.equal(result.recoveryNeeded, false, 'Successful rollback must report recoveryNeeded: false')
+  assert.equal(rollbackCalled, true, 'Rollback must be triggered on mismatch')
+  assert.equal(rollbackWhileStopped, true, 'Rollback must occur while client is stopped')
+  assert.equal(rollbackAssertPassed, true, 'assertAntigravityStopped must pass during rollback')
+  assert.equal(currentPs, '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity', 'Client must be reopened after rollback')
+  assert.deepEqual(events, [
+    ['quit', '/Applications/Antigravity.app'],
+    ['operation'],
+    ['open', '/Applications/Antigravity.app'],
+    ['quit', '/Applications/Antigravity.app'],
+    ['rollback'],
+    ['open', '/Applications/Antigravity.app'],
+  ], 'Mismatch rollback lifecycle must strictly execute: quit -> operation -> open -> quit -> rollback -> open')
+  // The switch must not write app_storage.json before probing or during rollback:
+  assert.equal(syntheticStore['jetski.onboarding.lastLoginUsername'], 'old@domain.com', 'Old signal remains old through the probe and after rollback')
+  assert.ok(!('updateDesktopTarget' in deps), 'No desktop identity writer is called during switch or rollback')
+  assert.match(result.error, /未切换至目标账号.*old@domain\.com/)
+}
+
+// 23. Post-restart probe unavailable / error triggers rollback
+{
+  let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+  let rollbackCalled = false
+
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    quitApp: async () => { currentPs = '' },
+    openApp: async () => { currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity' },
+    checkDesktopStore: () => true,
+    waitForReadiness: () => true,
+    probeClientIdentity: () => null, // probe unavailable
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const result = await withAntigravityAccountSwitch(
+    async () => ({ success: true }),
+    deps,
+    {
+      expectedIdentity: 'target@domain.com',
+      rollback: async () => { rollbackCalled = true },
+    },
+  )
+
+  assert.equal(result.success, false)
+  assert.equal(rollbackCalled, true)
+  assert.match(result.error, /无法验证 Antigravity 客户端登录身份/)
+}
+
+// 24. Post-restart readiness timeout triggers rollback
+{
+  let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+  let rollbackCalled = false
+
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    quitApp: async () => { currentPs = '' },
+    openApp: async () => { currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity' },
+    checkDesktopStore: () => true,
+    waitForReadiness: () => false, // readiness timed out
+    probeClientIdentity: () => 'target@domain.com',
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const result = await withAntigravityAccountSwitch(
+    async () => ({ success: true }),
+    deps,
+    {
+      expectedIdentity: 'target@domain.com',
+      rollback: async () => { rollbackCalled = true },
+    },
+  )
+
+  assert.equal(result.success, false)
+  assert.equal(rollbackCalled, true)
+  assert.match(result.error, /启动就绪超时/)
+}
+
+// 25. Desktop store unidentifiable preflight failure (Requirement 5)
+{
+  const currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+  let quitCalled = false
+  let opCalled = false
+
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    checkDesktopStore: () => false, // unidentifiable desktop store
+    quitApp: async () => { quitCalled = true },
+    openApp: async () => {},
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const result = await withAntigravityAccountSwitch(
+    async () => {
+      opCalled = true
+      return { success: true }
+    },
+    deps,
+    { expectedIdentity: 'target@domain.com' },
+  )
+
+  assert.equal(result.success, false)
+  assert.equal(quitCalled, false, 'Must NOT quit app if desktop store cannot be identified')
+  assert.equal(opCalled, false, 'Must NOT execute switch operation if desktop store cannot be identified')
+  assert.match(result.error, /无法安全识别 Antigravity 客户端会话存储路径/)
+}
+
+// 26. No secret leakage in errors, diffs, or diagnostics
+{
+  const SENSITIVE_TOKEN = 'secret-token-ya29.a0AfH6SMB_secret_content_never_leak'
+  let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    quitApp: async () => { currentPs = '' },
+    openApp: async () => { currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity' },
+    checkDesktopStore: () => true,
+    waitForReadiness: () => true,
+    probeClientIdentity: () => 'stale-email@example.com',
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const result = await withAntigravityAccountSwitch(
+    async () => ({ success: true }),
+    deps,
+    {
+      expectedIdentity: 'target@example.com',
+      rollback: async () => {},
+    },
+  )
+
+  const serialized = JSON.stringify(result)
+  assert.equal(serialized.includes(SENSITIVE_TOKEN), false, 'Errors must never contain sensitive tokens')
+  assert.equal(serialized.includes('Bearer'), false, 'Errors must never contain Bearer headers')
+}
+
+// 27. Post-restart rollback stopping failure reports truthful failure with recoveryNeeded: true
+{
+  let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+  let quitCount = 0
+  let rollbackCalled = false
+
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    quitApp: async () => {
+      quitCount++
+      if (quitCount > 1) {
+        throw new Error('Synthetic quitApp failure during rollback stopping')
+      }
+      currentPs = ''
+    },
+    openApp: async () => { currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity' },
+    checkDesktopStore: () => true,
+    waitForReadiness: () => true,
+    probeClientIdentity: () => 'old@domain.com',
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const result = await withAntigravityAccountSwitch(
+    async () => ({ success: true }),
+    deps,
+    {
+      expectedIdentity: 'target@domain.com',
+      rollback: async () => { rollbackCalled = true },
+    },
+  )
+
+  assert.equal(result.success, false)
+  assert.equal(result.mismatch, true)
+  assert.equal(result.recoveryNeeded, true, 'Stopping failure must report recoveryNeeded: true')
+  assert.equal(rollbackCalled, false, 'Rollback must not execute if stopping client failed')
+  assert.match(result.error, /未切换至目标账号.*old@domain\.com/)
+  assert.match(result.error, /回滚失败/)
+  assert.equal(result.error.includes('已自动回滚'), false, 'Must never say it was rolled back when stopping failed')
+}
+
+// 28. Post-restart rollback execution failure reports truthful failure with recoveryNeeded: true and reopens client
+{
+  let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+  let rollbackAttempts = 0
+  let rollbackWhileStopped = false
+
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    quitApp: async () => { currentPs = '' },
+    openApp: async () => { currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity' },
+    checkDesktopStore: () => true,
+    waitForReadiness: () => true,
+    probeClientIdentity: () => 'old@domain.com',
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const result = await withAntigravityAccountSwitch(
+    async () => ({ success: true }),
+    deps,
+    {
+      expectedIdentity: 'target@domain.com',
+      rollback: async () => {
+        rollbackAttempts++
+        rollbackWhileStopped = (currentPs === '')
+        throw new AccountError('Synthetic rollback execution failure')
+      },
+    },
+  )
+
+  assert.equal(result.success, false)
+  assert.equal(result.mismatch, true)
+  assert.equal(result.recoveryNeeded, true, 'Rollback execution failure must report recoveryNeeded: true')
+  assert.equal(rollbackAttempts, 1)
+  assert.equal(rollbackWhileStopped, true, 'Rollback attempt must occur while stopped')
+  assert.equal(currentPs, '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity', 'Client must be reopened afterward if possible')
+  assert.match(result.error, /未切换至目标账号.*old@domain\.com/)
+  assert.match(result.error, /回滚失败/)
+  assert.equal(result.error.includes('已自动回滚'), false, 'Must never say it was rolled back when rollback failed')
+}
+
+// 29. Post-restart readiness timeout with rollback failure reports recoveryNeeded: true
+{
+  let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
+  let rollbackAttempts = 0
+
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    quitApp: async () => { currentPs = '' },
+    openApp: async () => { currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity' },
+    checkDesktopStore: () => true,
+    waitForReadiness: () => false, // readiness timeout
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const result = await withAntigravityAccountSwitch(
+    async () => ({ success: true }),
+    deps,
+    {
+      expectedIdentity: 'target@domain.com',
+      rollback: async () => {
+        rollbackAttempts++
+        return { success: false, error: 'Cannot rollback' }
+      },
+    },
+  )
+
+  assert.equal(result.success, false)
+  assert.equal(result.recoveryNeeded, true, 'Rollback failure on readiness timeout must report recoveryNeeded: true')
+  assert.equal(rollbackAttempts, 1)
+  assert.match(result.error, /启动就绪超时/)
+  assert.match(result.error, /回滚失败/)
+  assert.equal(result.error.includes('已自动回滚'), false, 'Must never say it was rolled back when rollback returned success: false')
+}
+
+console.log('Antigravity switch runtime verification passed: all 29 suites succeeded.')
