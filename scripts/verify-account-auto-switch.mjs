@@ -290,7 +290,7 @@ function setupManagerTestEnv() {
       })
     }
     if (url.includes('retrieveUserQuotaSummary')) {
-      return new Response(JSON.stringify({}), {
+      return new Response(JSON.stringify(raw.summary || {}), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
@@ -475,6 +475,7 @@ await test('9. Unreadable current model -> does not switch, emits Chinese status
 
       // Make storage file invalid/unrecognized
       writeFileSync(env.storageFile, JSON.stringify({ currentModel: 'unknown-vendor-model' }))
+      env.quotas.set('acc1', { models: { 'unknown-vendor-model': { remainingFraction: 0.5 } } })
 
       const res = await env.manager.checkAutoSwitch()
       assert.equal(res, null)
@@ -899,6 +900,7 @@ await test('18. End-to-end integration: vscdb-driven auto switch and unresolvabl
       const pbtxtDir = path.join(env2.home, '.gemini', 'antigravity')
       mkdirSync(pbtxtDir, { recursive: true })
       writeFileSync(path.join(pbtxtDir, 'antigravity_state.pbtxt'), 'last_selected_agent_model: MODEL_PLACEHOLDER_M318\n')
+      env2.quotas.set('acc1', { models: {} })
 
       // Auto switch should detect unresolvable model and abort without switching
       const res2 = await env2.manager.checkAutoSwitch()
@@ -909,6 +911,513 @@ await test('18. End-to-end integration: vscdb-driven auto switch and unresolvabl
       assert.match(toolState2?.autoSwitchStatus || '', /无法识别当前 Antigravity 选用模型/)
     } finally {
       env2.cleanup()
+    }
+  })()
+})
+
+// 19. Local currentModel readable: only checks currentModel, ignores other exhausted models
+await test('19. Local currentModel readable: only checks currentModel, ignores other exhausted models', () => {
+  const env = setupManagerTestEnv()
+  return (async () => {
+    try {
+      const a1 = await env.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      await env.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+
+      await env.manager.setAutoSwitch('antigravity', true)
+
+      // Storage has claude-sonnet-4.6-thinking
+      writeFileSync(env.storageFile, JSON.stringify({ currentModel: 'claude-sonnet-4.6-thinking' }))
+
+      // Acc1 has gemini-3.8 exhausted (0.0), but claude-sonnet still has quota (0.8)
+      env.quotas.set('acc1', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.0 },
+          'claude-sonnet-4.6-thinking': { remainingFraction: 0.8 },
+        },
+      })
+      // Acc2 has gemini-3.8 quota
+      env.quotas.set('acc2', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.8 },
+        },
+      })
+
+      const res = await env.manager.checkAutoSwitch()
+      assert.equal(res, null, 'Must not switch because readable currentModel (claude-sonnet) is not exhausted')
+
+      const overview = await env.manager.getOverview()
+      const toolState = overview.tools.find(t => t.tool === 'antigravity')
+      assert.equal(toolState?.activeAccountId, a1.id)
+    } finally {
+      env.cleanup()
+    }
+  })()
+})
+
+// 20. Local unreadable + active visible model exhausted (5h or weekly) + candidate > 0: switches
+await test('20. Local unreadable + active visible model exhausted (5h or weekly) + candidate > 0: switches', () => {
+  return (async () => {
+    // 20a: 5h window exhausted
+    const env1 = setupManagerTestEnv()
+    try {
+      const a1 = await env1.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      const a2 = await env1.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+
+      await env1.manager.setAutoSwitch('antigravity', true)
+
+      // Storage empty -> unreadable current model
+      writeFileSync(env1.storageFile, JSON.stringify({}))
+
+      // Acc1 5h exhausted on gemini-3.8
+      env1.quotas.set('acc1', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.0 },
+        },
+      })
+      // Acc2 positive on gemini-3.8
+      env1.quotas.set('acc2', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.8 },
+        },
+      })
+
+      const res1 = await env1.manager.checkAutoSwitch()
+      assert.equal(res1?.success, true)
+
+      const overview1 = await env1.manager.getOverview()
+      const toolState1 = overview1.tools.find(t => t.tool === 'antigravity')
+      assert.equal(toolState1?.activeAccountId, a2.id)
+      // Status text must distinguish quota fallback switch from local currentModel switch
+      assert.equal(
+        toolState1?.autoSwitchStatus,
+        'Gemini 3.8 Flash High 额度已耗尽，已自动切换至账号「Account 2」。'
+      )
+    } finally {
+      env1.cleanup()
+    }
+
+    // 20b: weekly window exhausted (even if 5h has remaining quota)
+    const env2 = setupManagerTestEnv()
+    try {
+      const a1 = await env2.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      const a2 = await env2.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+
+      await env2.manager.setAutoSwitch('antigravity', true)
+      writeFileSync(env2.storageFile, JSON.stringify({}))
+
+      // Acc1: 5h has 80%, but weekly has 0%
+      env2.quotas.set('acc1', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.8 },
+        },
+        summary: {
+          groups: [
+            {
+              groupId: 'gemini',
+              displayName: 'Gemini',
+              buckets: [
+                {
+                  bucketId: 'weekly',
+                  displayName: 'Weekly',
+                  remainingFraction: 0.0,
+                },
+              ],
+            },
+          ],
+        },
+      })
+
+      // Acc2: both > 0
+      env2.quotas.set('acc2', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.8 },
+        },
+        summary: {
+          groups: [
+            {
+              groupId: 'gemini',
+              displayName: 'Gemini',
+              buckets: [
+                {
+                  bucketId: 'weekly',
+                  displayName: 'Weekly',
+                  remainingFraction: 0.8,
+                },
+              ],
+            },
+          ],
+        },
+      })
+
+      const res2 = await env2.manager.checkAutoSwitch()
+      assert.equal(res2?.success, true)
+
+      const overview2 = await env2.manager.getOverview()
+      const toolState2 = overview2.tools.find(t => t.tool === 'antigravity')
+      assert.equal(toolState2?.activeAccountId, a2.id)
+      assert.equal(
+        toolState2?.autoSwitchStatus,
+        'Gemini 3.8 Flash High 额度已耗尽，已自动切换至账号「Account 2」。'
+      )
+    } finally {
+      env2.cleanup()
+    }
+  })()
+})
+
+// 21. Local unreadable + all visible models unknown / stale: no switch, no candidate query
+await test('21. Local unreadable + all visible models unknown/stale: does not switch or query candidates', () => {
+  const env = setupManagerTestEnv()
+  return (async () => {
+    try {
+      const a1 = await env.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      await env.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+
+      await env.manager.setAutoSwitch('antigravity', true)
+      writeFileSync(env.storageFile, JSON.stringify({}))
+
+      // Acc1 quota: windows have missing remainingFraction (unknown, not 0)
+      env.quotas.set('acc1', {
+        models: {
+          'gemini-3.8-flash-tiered': {},
+        },
+      })
+
+      let candidateFetchCount = 0
+      const origRefresh = env.manager.autoSwitchService['quotaService'].refreshAccount.bind(
+        env.manager.autoSwitchService['quotaService']
+      )
+      env.manager.autoSwitchService['quotaService'].refreshAccount = async (id) => {
+        if (id !== a1.id) {
+          candidateFetchCount++
+        }
+        return origRefresh(id)
+      }
+
+      const res = await env.manager.checkAutoSwitch()
+      assert.equal(res, null)
+      assert.equal(candidateFetchCount, 0, 'Candidate must not be queried when active models are unknown/stale')
+
+      const overview = await env.manager.getOverview()
+      const toolState = overview.tools.find(t => t.tool === 'antigravity')
+      assert.equal(toolState?.activeAccountId, a1.id)
+      assert.match(toolState?.autoSwitchStatus || '', /无法识别当前 Antigravity 选用模型/)
+    } finally {
+      env.cleanup()
+    }
+  })()
+})
+
+// 22. Local unreadable + only unmapped window is 0: no switch, no candidate query
+await test('22. Local unreadable + only unmapped window is 0: does not switch or query candidates', () => {
+  const env = setupManagerTestEnv()
+  return (async () => {
+    try {
+      const a1 = await env.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      await env.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+
+      await env.manager.setAutoSwitch('antigravity', true)
+      writeFileSync(env.storageFile, JSON.stringify({}))
+
+      // Acc1 has only an unmapped unknown model at 0.0
+      env.quotas.set('acc1', {
+        models: {
+          'unmapped-internal-model-x': { remainingFraction: 0.0 },
+        },
+      })
+      env.quotas.set('acc2', {
+        models: {
+          'unmapped-internal-model-x': { remainingFraction: 0.8 },
+        },
+      })
+
+      let candidateFetchCount = 0
+      const origRefresh = env.manager.autoSwitchService['quotaService'].refreshAccount.bind(
+        env.manager.autoSwitchService['quotaService']
+      )
+      env.manager.autoSwitchService['quotaService'].refreshAccount = async (id) => {
+        if (id !== a1.id) {
+          candidateFetchCount++
+        }
+        return origRefresh(id)
+      }
+
+      const res = await env.manager.checkAutoSwitch()
+      assert.equal(res, null)
+      assert.equal(candidateFetchCount, 0, 'Candidate must not be queried when only unmapped window is 0')
+
+      const overview = await env.manager.getOverview()
+      const toolState = overview.tools.find(t => t.tool === 'antigravity')
+      assert.equal(toolState?.activeAccountId, a1.id)
+      assert.match(toolState?.autoSwitchStatus || '', /无法识别当前 Antigravity 选用模型/)
+    } finally {
+      env.cleanup()
+    }
+  })()
+})
+
+// 23. Two visible models exhausted: selects first model in 7-model order that has candidate
+await test('23. Two visible models exhausted: selects first in 7-model order with candidate', () => {
+  return (async () => {
+    // 23a: Candidate 1 has quota for first exhausted model (Gemini 3.8); Candidate 2 has quota for second (Claude Sonnet)
+    const env1 = setupManagerTestEnv()
+    try {
+      const a1 = await env1.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      const a2 = await env1.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+      const a3 = await env1.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 3',
+        credential: credential('acc3', 'acc3@gmail.com'),
+      })
+
+      await env1.manager.setAutoSwitch('antigravity', true)
+      writeFileSync(env1.storageFile, JSON.stringify({}))
+
+      // Acc1 exhausted on both Gemini 3.8 and Claude Sonnet
+      env1.quotas.set('acc1', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.0 },
+          'claude-sonnet-4.6-thinking': { remainingFraction: 0.0 },
+        },
+      })
+      // Acc2 has Gemini 3.8
+      env1.quotas.set('acc2', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.8 },
+          'claude-sonnet-4.6-thinking': { remainingFraction: 0.0 },
+        },
+      })
+      // Acc3 has Claude Sonnet
+      env1.quotas.set('acc3', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.0 },
+          'claude-sonnet-4.6-thinking': { remainingFraction: 0.8 },
+        },
+      })
+
+      const res1 = await env1.manager.checkAutoSwitch()
+      assert.equal(res1?.success, true)
+
+      // Gemini 3.8 Flash High comes before Claude Sonnet in 7-model list, so switches to Acc2!
+      const overview1 = await env1.manager.getOverview()
+      const toolState1 = overview1.tools.find(t => t.tool === 'antigravity')
+      assert.equal(toolState1?.activeAccountId, a2.id)
+      assert.equal(
+        toolState1?.autoSwitchStatus,
+        'Gemini 3.8 Flash High 额度已耗尽，已自动切换至账号「Account 2」。'
+      )
+    } finally {
+      env1.cleanup()
+    }
+
+    // 23b: First exhausted model (Gemini 3.8) has NO candidate; fallback selects second (Claude Sonnet)
+    const env2 = setupManagerTestEnv()
+    try {
+      const a1 = await env2.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      const a2 = await env2.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+      const a3 = await env2.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 3',
+        credential: credential('acc3', 'acc3@gmail.com'),
+      })
+
+      await env2.manager.setAutoSwitch('antigravity', true)
+      writeFileSync(env2.storageFile, JSON.stringify({}))
+
+      // Acc1 exhausted on both
+      env2.quotas.set('acc1', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.0 },
+          'claude-sonnet-4.6-thinking': { remainingFraction: 0.0 },
+        },
+      })
+      // Neither Acc2 nor Acc3 has Gemini 3.8. Acc3 has Claude Sonnet.
+      env2.quotas.set('acc2', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.0 },
+          'claude-sonnet-4.6-thinking': { remainingFraction: 0.0 },
+        },
+      })
+      env2.quotas.set('acc3', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.0 },
+          'claude-sonnet-4.6-thinking': { remainingFraction: 0.8 },
+        },
+      })
+
+      const res2 = await env2.manager.checkAutoSwitch()
+      assert.equal(res2?.success, true)
+
+      // Gemini 3.8 has no candidate, so Claude Sonnet is selected -> switches to Acc3!
+      const overview2 = await env2.manager.getOverview()
+      const toolState2 = overview2.tools.find(t => t.tool === 'antigravity')
+      assert.equal(toolState2?.activeAccountId, a3.id)
+      assert.equal(
+        toolState2?.autoSwitchStatus,
+        'Claude Sonnet 4.6 (Thinking) 额度已耗尽，已自动切换至账号「Account 3」。'
+      )
+    } finally {
+      env2.cleanup()
+    }
+  })()
+})
+
+// 24. Switch OFF: local unreadable + quota exhausted does NOT switch
+await test('24. Switch OFF: local unreadable + quota exhausted does not switch', () => {
+  const env = setupManagerTestEnv()
+  return (async () => {
+    try {
+      const a1 = await env.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      const a2 = await env.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+
+      // Default: disabled
+      assert.equal(await env.manager.getAutoSwitch('antigravity'), false)
+      writeFileSync(env.storageFile, JSON.stringify({}))
+
+      env.quotas.set('acc1', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.0 },
+        },
+      })
+      env.quotas.set('acc2', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.8 },
+        },
+      })
+
+      const res = await env.manager.checkAutoSwitch()
+      assert.equal(res, null)
+
+      const overview = await env.manager.getOverview()
+      const toolState = overview.tools.find(t => t.tool === 'antigravity')
+      assert.equal(toolState?.activeAccountId, a1.id)
+    } finally {
+      env.cleanup()
+    }
+  })()
+})
+
+// 25. Local unreadable + all visible models remainingPercent > 0: does not switch, does not query candidates, does not emit unresolvable status
+await test('25. Local unreadable + all visible models remainingPercent > 0: does not switch, does not query candidates, does not emit unresolvable status', () => {
+  const env = setupManagerTestEnv()
+  return (async () => {
+    try {
+      const a1 = await env.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 1',
+        credential: credential('acc1', 'acc1@gmail.com'),
+      })
+      const a2 = await env.manager.importAccount({
+        tool: 'antigravity',
+        name: 'Account 2',
+        credential: credential('acc2', 'acc2@gmail.com'),
+      })
+
+      await env.manager.setAutoSwitch('antigravity', true)
+      writeFileSync(env.storageFile, JSON.stringify({}))
+
+      // Acc1 has visible model with positive quota (not exhausted)
+      env.quotas.set('acc1', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.6 },
+        },
+      })
+      env.quotas.set('acc2', {
+        models: {
+          'gemini-3.8-flash-tiered': { remainingFraction: 0.8 },
+        },
+      })
+
+      let candidateFetchCount = 0
+      const origRefresh = env.manager.autoSwitchService['quotaService'].refreshAccount.bind(
+        env.manager.autoSwitchService['quotaService']
+      )
+      env.manager.autoSwitchService['quotaService'].refreshAccount = async (id) => {
+        if (id !== a1.id) {
+          candidateFetchCount++
+        }
+        return origRefresh(id)
+      }
+
+      const res = await env.manager.checkAutoSwitch()
+      assert.equal(res, null)
+      assert.equal(candidateFetchCount, 0, 'Candidates must not be queried when active account visible models have quota')
+
+      const overview = await env.manager.getOverview()
+      const toolState = overview.tools.find(t => t.tool === 'antigravity')
+      assert.equal(toolState?.activeAccountId, a1.id)
+      // Must NOT show "无法识别当前 Antigravity 选用模型" because quota fallback succeeded and model is not exhausted
+      assert.notEqual(
+        toolState?.autoSwitchStatus,
+        '无法识别当前 Antigravity 选用模型，已停止自动切换。'
+      )
+      assert.equal(toolState?.autoSwitchStatus, undefined)
+    } finally {
+      env.cleanup()
     }
   })()
 })

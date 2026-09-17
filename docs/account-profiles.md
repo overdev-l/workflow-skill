@@ -101,14 +101,13 @@ pnpm build
 
 在 Antigravity 工具下提供「自动切换」开关（默认关闭，按工具持久化于 `~/.trace/accounts/.auto-switch.json`）。开关开启且 Trace 运行期间，当检测到 Antigravity 当前正在选用的模型额度真实耗尽时，自动切换至同一模型仍有剩余额度的账号。
 
-1. **当前模型识别与多来源只读解析**：
-   按严格优先级只读解析 Antigravity 本地存储，各来源相互隔离，任一来源损坏或缺失不影响其他来源：
-   - **优先级 1（state.vscdb）**：`~/Library/Application Support/Antigravity/User/globalStorage/state.vscdb`（SQLite 只读访问 `ItemTable` 中的 `antigravityUnifiedStateSync.modelPreferences`、`currentModel`、`last_selected_agent_model`、`last_selected_model_name` 等键及 Base64 嵌入模型）。
-   - **优先级 2（app_storage.json）**：`~/Library/Application Support/Antigravity/app_storage.json`（桌面客户端 Electron 存储）。
-   - **优先级 3（storage.json）**：`~/Library/Application Support/Antigravity/User/globalStorage/storage.json`（全局扩展存储）。
-   - **优先级 4（antigravity_state.pbtxt）**：`~/.gemini/antigravity/antigravity_state.pbtxt`（Protobuf 文本格式，解析 `last_selected_agent_model`、`last_selected_model_name` 等字段）。
-
-   **「读不到则不切」铁律**：识别出的模型严格映射至 7 个可见模型（Gemini 3.8/3.7/3.6 Flash、Gemini 3.1 Pro Low、Claude Sonnet/Opus Thinking、GPT-OSS 120B）及其 tiered 别名。若所有本地来源均无法读取，或仅包含无法稳定反向映射的内部占位枚举（如 `MODEL_PLACEHOLDER_M*` 或混淆二进制 varint），坚决返回 `null`。**严禁猜测、严禁读取或采信 `cli.log`、严禁默认选择第一个或配额最少模型**；检测到模型不可读时直接停止自动切换，并向用户提示「无法识别当前 Antigravity 选用模型，已跳过自动切换。」。
+1. **当前模型识别与配额模型回退机制**：
+   - **本地多来源只读解析（优先）**：按严格优先级只读解析 Antigravity 本地存储（优先级 1：`state.vscdb`；优先级 2：`app_storage.json`；优先级 3：`storage.json`；优先级 4：`antigravity_state.pbtxt`）。各来源相互隔离，损坏或缺失自动跳过。当成功解析出模型并映射至 7 个可见模型（及其 tiered 别名）时，保持盯紧该当前模型，忽略其他配额模型的耗尽状态。
+   - **本地读不到时的配额模型回退**：本地 Antigravity 存储若无法读取或仅包含内部占位枚举（如 `MODEL_PLACEHOLDER_M*`），根据用户授权规则，回退使用**当前激活账号配额快照里、能映射到 7 个可见模型**的窗口作为耗尽判定对象。
+   - **无耗尽不切换**：若当前账号配额快照中已成功识别可见模型且没有任何可见模型真实耗尽（5 小时或周额度 verified 0%），静默保持当前状态，不设置「无法识别」状态，坚决不查询候选账号、不执行切换；仅当快照中完全无法解析出已映射可见模型时，才提示「无法识别当前 Antigravity 选用模型，已停止自动切换。」。
+   - **多模型耗尽按序择优**：若当前账号存在已耗尽的可见模型，按 7 模型固定数组顺序（Gemini 3.8 Flash High、Gemini 3.7 Flash Medium、Gemini 3.6 Flash Medium、Gemini 3.1 Pro Low、Claude Sonnet 4.6 Thinking、Claude Opus 4.6 Thinking、GPT-OSS 120B Medium），寻找第一个「当前账号该模型已耗尽、且另一候选账号该模型 remainingPercent > 0」的目标账号执行切换。
+   - **铁律与既有禁令**：仍严禁猜测 `MODEL_PLACEHOLDER_*` 含义、严禁读取或采信 `cli.log`、严禁无条件将模型列表首项当作「当前选用」、严禁在当前账号未耗尽时轮询候选账号、严禁切换 Codex/Claude。
+   - **状态文案区分**：识别到本地当前模型时展示「当前模型 {label} 额度已耗尽，已自动切换至账号「{name}」。」；因配额接口模型耗尽而切换时展示「{label} 额度已耗尽，已自动切换至账号「{name}」。」。
 2. **真实耗尽判定**：该模型的 5 小时窗口真实 `remainingPercent === 0` 或所属周额度真实 `0` 视作耗尽。未知、过期、失败、限流、stale 等状态均不计为 0。
 3. **目标候选筛选**：候选账号必须在**同一当前模型**上经校验 `remainingPercent > 0`（且该模型下无 0 额度窗口）。仅其它模型有额度的账号不视为候选。
 4. **无紧密轮询**：复用 5 分钟配额缓存 TTL 与 1 分钟失败冷却。在已有 60 秒定时器和窗口聚焦节拍上仅检查当前激活账号；只有确认当前账号耗尽后，才按需对其他候选账号发起配额查询。

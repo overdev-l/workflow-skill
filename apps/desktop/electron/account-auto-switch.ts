@@ -16,7 +16,9 @@
  *    Unknown, expired, rate-limited, error, or stale snapshots are NOT exhausted.
  * 7. Candidate accounts MUST have verified remainingPercent > 0 on the exact same model.
  *    Quota remaining on other models does NOT qualify an account.
- * 8. If current model cannot be read or recognized: no guesswork, no switching, Chinese user notice.
+ * 8. If current model cannot be read or recognized: evaluated against 7 supported models
+ *    in active account's quota snapshot (in priority order). If any mapped model is confirmed exhausted (0%),
+ *    switches to first suitable candidate account. If no mapped model is exhausted: no switch, no candidate queries, Chinese notice.
  * 9. Switching delegates to existing AccountManager.switchAccount transaction lifecycle
  *    (backup -> quit client -> write Keychain -> restart client). CLI sessions remain undisturbed.
  * 10. Concurrency mutex, 60s cooldown, mid-switch disable abort, recoveryNeeded abort, single account abort.
@@ -531,15 +533,7 @@ export class AccountAutoSwitchService {
       return null
     }
 
-    // 4. Read current model
-    const currentModel = readAntigravityCurrentModel(this.options)
-    if (!currentModel) {
-      // Rule 8: 读不到当前模型：不猜测、不切换、中文提示
-      this.lastStatus = '无法识别当前 Antigravity 选用模型，已停止自动切换。'
-      return null
-    }
-
-    // 5. Identify active account
+    // 4. Identify active account
     const activeAccountId = toolState?.activeAccountId
     if (!activeAccountId) {
       this.lastStatus = '未检测到当前 Antigravity 激活账号。'
@@ -550,6 +544,9 @@ export class AccountAutoSwitchService {
     if (!activeAccount) {
       return null
     }
+
+    // 5. Try reading local current model
+    const currentModel = readAntigravityCurrentModel(this.options)
 
     // 6. Check active account quota without querying any other account
     let activeSnapshot = this.quotaService.getCached([activeAccount])[0]
@@ -570,24 +567,72 @@ export class AccountAutoSwitchService {
           activeSnapshot = await this.quotaService.refreshAccount(activeAccountId)
         } catch {
           // Failure to refresh active account means quota is unknown, not exhausted
+          if (!currentModel) {
+            this.lastStatus = '无法识别当前 Antigravity 选用模型，已停止自动切换。'
+          }
           return null
         }
       }
     }
 
-    // Rule 6: Check exhaustion of currentModel on active account
-    if (!isModelExhausted(activeSnapshot, currentModel.id)) {
-      // Current account still has quota (or quota unknown/stale/error)!
-      // CRITICAL (Rule 4): DO NOT QUERY OTHER ACCOUNTS!
-      return null
+    // 7. Determine models to evaluate for exhaustion
+    let targetModels: SupportedAntigravityModel[] = []
+    let isLocalModel = false
+
+    if (currentModel) {
+      // Rule 1: readAntigravityCurrentModel 成功时：保持现有逻辑，只盯这一个模型。
+      if (!isModelExhausted(activeSnapshot, currentModel.id)) {
+        // Current account still has quota (or quota unknown/stale/error)!
+        // CRITICAL (Rule 4): DO NOT QUERY OTHER ACCOUNTS!
+        return null
+      }
+      targetModels = [currentModel]
+      isLocalModel = true
+    } else {
+      // Rule 2: 读不到（null / 占位枚举）时：
+      // 用当前账号配额快照里、能映射到 7 个可见模型的窗口，作为耗尽判定对象。
+      const hasAnyMappedVisibleModel =
+        activeSnapshot?.status === 'ready' &&
+        !activeSnapshot?.stale &&
+        Array.isArray(activeSnapshot?.windows) &&
+        activeSnapshot.windows.some((win) => {
+          const matched =
+            matchSupportedAntigravityModel(win.modelLabel) ||
+            matchSupportedAntigravityModel(win.label) ||
+            matchSupportedAntigravityModel(win.id)
+          return Boolean(matched)
+        })
+
+      if (!hasAnyMappedVisibleModel) {
+        // 快照中完全没有已映射可见模型时提示无法识别
+        this.lastStatus = '无法识别当前 Antigravity 选用模型，已停止自动切换。'
+        return null
+      }
+
+      targetModels = SUPPORTED_ANTIGRAVITY_MODELS.filter((m) =>
+        isModelExhausted(activeSnapshot, m.id)
+      )
+
+      if (targetModels.length === 0) {
+        // 配额回退成功且可见模型均未耗尽：静默 return null，不改 lastStatus
+        return null
+      }
     }
 
-    // 7. Active account is confirmed exhausted. Now evaluate candidates.
+    // 8. Active account is confirmed exhausted on target model(s).
+    // Evaluate candidates strictly on-demand.
     const candidateAccounts = antigravityAccounts.filter((a) => a.id !== activeAccountId)
-    let chosenCandidate: AccountMetadata | null = null
+    const candidateSnapshots = new Map<string, AccountQuotaSnapshot | undefined>()
 
-    for (const candidate of candidateAccounts) {
-      let candSnapshot = this.quotaService.getCached([candidate])[0]
+    const getCandidateSnapshot = async (
+      candidate: AccountMetadata
+    ): Promise<AccountQuotaSnapshot | undefined> => {
+      if (candidateSnapshots.has(candidate.id)) {
+        return candidateSnapshots.get(candidate.id)
+      }
+
+      let candSnapshot: AccountQuotaSnapshot | undefined =
+        this.quotaService.getCached([candidate])[0]
       const candFresh =
         candSnapshot?.fetchedAt &&
         this.now() - candSnapshot.fetchedAt < QUOTA_CACHE_TTL_MS &&
@@ -603,19 +648,34 @@ export class AccountAutoSwitchService {
           try {
             candSnapshot = await this.quotaService.refreshAccount(candidate.id)
           } catch {
-            continue
+            candSnapshot = undefined
           }
         }
       }
 
-      if (isCandidateSuitable(candSnapshot, currentModel.id)) {
-        chosenCandidate = candidate
+      candidateSnapshots.set(candidate.id, candSnapshot)
+      return candSnapshot
+    }
+
+    let chosenCandidate: AccountMetadata | null = null
+    let triggeringModel: SupportedAntigravityModel | null = null
+
+    for (const model of targetModels) {
+      for (const candidate of candidateAccounts) {
+        const candSnapshot = await getCandidateSnapshot(candidate)
+        if (isCandidateSuitable(candSnapshot, model.id)) {
+          chosenCandidate = candidate
+          triggeringModel = model
+          break
+        }
+      }
+      if (chosenCandidate && triggeringModel) {
         break
       }
     }
 
-    if (!chosenCandidate) {
-      this.lastStatus = `所有可用账号的 ${currentModel.label} 额度均已耗尽，未执行切换。`
+    if (!chosenCandidate || !triggeringModel) {
+      this.lastStatus = `所有可用账号的 ${targetModels[0].label} 额度均已耗尽，未执行切换。`
       this.notifyChanged()
       return null
     }
@@ -625,13 +685,17 @@ export class AccountAutoSwitchService {
       return null
     }
 
-    // 8. Execute switch via existing transaction lifecycle
+    // 9. Execute switch via existing transaction lifecycle
     this.isSwitching = true
     try {
       const res = await this.manager.switchAccount(chosenCandidate.id)
       this.cooldownUntil = this.now() + AUTO_SWITCH_COOLDOWN_MS
       if (res.success) {
-        this.lastStatus = `当前模型 ${currentModel.label} 额度已耗尽，已自动切换至账号「${chosenCandidate.name}」。`
+        if (isLocalModel) {
+          this.lastStatus = `当前模型 ${triggeringModel.label} 额度已耗尽，已自动切换至账号「${chosenCandidate.name}」。`
+        } else {
+          this.lastStatus = `${triggeringModel.label} 额度已耗尽，已自动切换至账号「${chosenCandidate.name}」。`
+        }
       } else {
         this.lastStatus = `自动切换至账号「${chosenCandidate.name}」失败：${res.error || '未知错误'}`
       }
