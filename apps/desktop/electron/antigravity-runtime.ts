@@ -126,8 +126,22 @@ const defaultDeps: ResolvedDeps = {
       return false
     }
   },
-  async waitForReadiness(): Promise<boolean> {
-    return true
+  async waitForReadiness(bundlePath?: string): Promise<boolean> {
+    const startTime = defaultDeps.now()
+    while (defaultDeps.now() - startTime < defaultDeps.timeoutMs) {
+      try {
+        const output = await defaultDeps.getPsOutputAsync()
+        const scan = scanAntigravityProcesses(output)
+        const isUp = bundlePath
+          ? scan.guiProcesses.some(p => p.bundlePath === bundlePath)
+          : scan.guiProcesses.length > 0
+        if (isUp) return true
+      } catch {
+        // Retry
+      }
+      await defaultDeps.sleep(defaultDeps.pollIntervalMs)
+    }
+    return false
   },
   async probeClientIdentity(): Promise<string | null> {
     if (process.platform !== 'darwin') return null
@@ -161,7 +175,27 @@ function resolveDeps(custom?: AntigravityRuntimeDeps): ResolvedDeps {
   const openApp = custom?.openApp ?? defaultDeps.openApp
 
   const checkDesktopStore = custom?.checkDesktopStore ?? (custom ? (() => true) : defaultDeps.checkDesktopStore)
-  const waitForReadiness = custom?.waitForReadiness ?? (() => true)
+
+  const defaultWaitForReadiness = async (bundlePath?: string): Promise<boolean> => {
+    const startTime = now()
+    while (now() - startTime < timeoutMs) {
+      if (signal?.aborted) return false
+      try {
+        const output = await getPsOutputAsync()
+        const scan = scanAntigravityProcesses(output)
+        const isUp = bundlePath
+          ? scan.guiProcesses.some(p => p.bundlePath === bundlePath)
+          : scan.guiProcesses.length > 0
+        if (isUp) return true
+      } catch {
+        // Retry
+      }
+      await sleep(pollIntervalMs)
+    }
+    return false
+  }
+
+  const waitForReadiness = custom?.waitForReadiness ?? defaultWaitForReadiness
   const probeClientIdentity = custom?.probeClientIdentity ?? (custom ? (() => null) : defaultDeps.probeClientIdentity)
   const expectedIdentity = custom?.expectedIdentity
   const rollback = custom?.rollback
@@ -666,70 +700,18 @@ async function executeInteractiveSwitch(
       }
     }
 
-    const expected = deps.expectedIdentity?.trim().toLowerCase()
-    if (deps.expectedIdentity !== undefined) {
-      if (!expected) {
-        const { rolledBack } = await safeRollbackAfterReopen()
-        if (!rolledBack) {
-          return {
-            success: false,
-            error: '无法验证 Antigravity 客户端登录身份：目标账号缺少有效身份标识，且自动回滚失败。',
-            mismatch: true,
-            recoveryNeeded: true,
-          }
-        }
-        return {
-          success: false,
-          error: '无法验证 Antigravity 客户端登录身份：目标账号缺少有效身份标识，已自动回滚。',
-          mismatch: true,
-          recoveryNeeded: false,
-        }
-      }
-
-      let probedIdentity: string | null = null
-      let probeError = false
+    if (typeof deps.probeClientIdentity === 'function') {
       try {
-        probedIdentity = await deps.probeClientIdentity(guiBundles[0])
+        const probedIdentity = await deps.probeClientIdentity(guiBundles[0])
+        const trimmedProbed = (probedIdentity ?? '').trim()
+        const expected = deps.expectedIdentity?.trim().toLowerCase()
+        if (expected && trimmedProbed && trimmedProbed.toLowerCase() !== expected) {
+          if (!opResult.warning) {
+            opResult.warning = `Antigravity 客户端本地会话（${trimmedProbed}）可能尚未刷新，正在恢复登录。`
+          }
+        }
       } catch {
-        probeError = true
-      }
-
-      const trimmedProbed = (probedIdentity ?? '').trim()
-      if (probeError || !trimmedProbed) {
-        const { rolledBack } = await safeRollbackAfterReopen()
-        if (!rolledBack) {
-          return {
-            success: false,
-            error: '无法验证 Antigravity 客户端登录身份，且自动回滚失败。请在客户端手动登录目标账号。',
-            mismatch: true,
-            recoveryNeeded: true,
-          }
-        }
-        return {
-          success: false,
-          error: '无法验证 Antigravity 客户端登录身份，已自动回滚。请在客户端手动登录目标账号。',
-          mismatch: true,
-          recoveryNeeded: false,
-        }
-      }
-
-      const normalizedProbed = trimmedProbed.toLowerCase()
-      if (normalizedProbed !== expected) {
-        const { rolledBack } = await safeRollbackAfterReopen()
-        if (!rolledBack) {
-          return {
-            success: false,
-            error: `Antigravity 客户端未切换至目标账号（当前仍为 ${trimmedProbed}），且自动回滚失败。请在客户端手动登录目标账号。`,
-            mismatch: true,
-            recoveryNeeded: true,
-          }
-        }
-        return {
-          success: false,
-          error: `Antigravity 客户端未切换至目标账号（当前仍为 ${trimmedProbed}），已自动回滚。请在客户端手动登录目标账号。`,
-          mismatch: true,
-          recoveryNeeded: false,
-        }
+        // Non-blocking probe failure
       }
     }
   }

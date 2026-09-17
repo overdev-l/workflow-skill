@@ -178,6 +178,7 @@ export interface AccountToolState {
   canRollback: boolean
   recoveryNeeded: boolean
   error?: string
+  warning?: string
 }
 
 /**

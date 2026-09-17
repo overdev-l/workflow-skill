@@ -253,6 +253,7 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
     },
     openApp: async bundlePath => {
       events.push(['open', bundlePath])
+      currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
     },
     sleep: async () => {},
     now: () => Date.now(),
@@ -894,12 +895,10 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
   assert.equal(result.success, true)
 }
 
-// 22. Post-restart identity mismatch (stale old session) triggers rollback and returns structured failure
+// 22. Post-restart identity mismatch (stale old session) must NOT trigger rollback and must return success: true with warning
 {
   let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
   let rollbackCalled = false
-  let rollbackWhileStopped = false
-  let rollbackAssertPassed = false
   const syntheticStore = { 'jetski.onboarding.lastLoginUsername': 'old@domain.com' }
   const events = []
 
@@ -916,7 +915,7 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
     },
     checkDesktopStore: () => true,
     waitForReadiness: () => true,
-    probeClientIdentity: () => syntheticStore['jetski.onboarding.lastLoginUsername'], // stale session did not switch!
+    probeClientIdentity: () => syntheticStore['jetski.onboarding.lastLoginUsername'], // stale session did not switch yet!
     sleep: async () => {},
     now: () => Date.now(),
   }
@@ -931,36 +930,27 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
       expectedIdentity: 'target@domain.com',
       rollback: async () => {
         rollbackCalled = true
-        rollbackWhileStopped = (currentPs === '')
-        assert.doesNotThrow(() => assertAntigravityStopped())
-        rollbackAssertPassed = true
         events.push(['rollback'])
       },
     },
   )
 
-  assert.equal(result.success, false, 'Mismatch must return success: false')
-  assert.equal(result.mismatch, true, 'Mismatch flag must be true')
-  assert.equal(result.recoveryNeeded, false, 'Successful rollback must report recoveryNeeded: false')
-  assert.equal(rollbackCalled, true, 'Rollback must be triggered on mismatch')
-  assert.equal(rollbackWhileStopped, true, 'Rollback must occur while client is stopped')
-  assert.equal(rollbackAssertPassed, true, 'assertAntigravityStopped must pass during rollback')
-  assert.equal(currentPs, '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity', 'Client must be reopened after rollback')
+  assert.equal(result.success, true, 'Switch must succeed even if lastLoginUsername is still old email')
+  assert.equal(rollbackCalled, false, 'Rollback must NOT be triggered on stale lastLoginUsername')
+  assert.equal(currentPs, '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity', 'Client must remain opened')
   assert.deepEqual(events, [
     ['quit', '/Applications/Antigravity.app'],
     ['operation'],
     ['open', '/Applications/Antigravity.app'],
-    ['quit', '/Applications/Antigravity.app'],
-    ['rollback'],
-    ['open', '/Applications/Antigravity.app'],
-  ], 'Mismatch rollback lifecycle must strictly execute: quit -> operation -> open -> quit -> rollback -> open')
-  // The switch must not write app_storage.json before probing or during rollback:
-  assert.equal(syntheticStore['jetski.onboarding.lastLoginUsername'], 'old@domain.com', 'Old signal remains old through the probe and after rollback')
-  assert.ok(!('updateDesktopTarget' in deps), 'No desktop identity writer is called during switch or rollback')
-  assert.match(result.error, /未切换至目标账号.*old@domain\.com/)
+  ], 'Lifecycle must strictly execute: quit -> operation -> open (no rollback)')
+  // The switch must not write app_storage.json:
+  assert.equal(syntheticStore['jetski.onboarding.lastLoginUsername'], 'old@domain.com', 'Old signal remains unchanged')
+  assert.ok(!('updateDesktopTarget' in deps), 'No desktop identity writer is called')
+  assert.ok(result.warning, 'Stale session should return non-blocking warning')
+  assert.match(result.warning, /可能尚未刷新/)
 }
 
-// 23. Post-restart probe unavailable / error triggers rollback
+// 23. Post-restart probe unavailable (null) does NOT trigger rollback and returns success: true
 {
   let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
   let rollbackCalled = false
@@ -986,9 +976,8 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
     },
   )
 
-  assert.equal(result.success, false)
-  assert.equal(rollbackCalled, true)
-  assert.match(result.error, /无法验证 Antigravity 客户端登录身份/)
+  assert.equal(result.success, true, 'Probe unavailable must not fail the switch')
+  assert.equal(rollbackCalled, false, 'Rollback must not be called when probe is unavailable')
 }
 
 // 24. Post-restart readiness timeout triggers rollback
@@ -1084,7 +1073,7 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
   assert.equal(serialized.includes('Bearer'), false, 'Errors must never contain Bearer headers')
 }
 
-// 27. Post-restart rollback stopping failure reports truthful failure with recoveryNeeded: true
+// 27. Post-restart readiness timeout with rollback stopping failure reports truthful failure with recoveryNeeded: true
 {
   let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
   let quitCount = 0
@@ -1102,8 +1091,7 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
     },
     openApp: async () => { currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity' },
     checkDesktopStore: () => true,
-    waitForReadiness: () => true,
-    probeClientIdentity: () => 'old@domain.com',
+    waitForReadiness: () => false, // readiness timeout triggers rollback
     sleep: async () => {},
     now: () => Date.now(),
   }
@@ -1118,15 +1106,14 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
   )
 
   assert.equal(result.success, false)
-  assert.equal(result.mismatch, true)
   assert.equal(result.recoveryNeeded, true, 'Stopping failure must report recoveryNeeded: true')
   assert.equal(rollbackCalled, false, 'Rollback must not execute if stopping client failed')
-  assert.match(result.error, /未切换至目标账号.*old@domain\.com/)
+  assert.match(result.error, /启动就绪超时/)
   assert.match(result.error, /回滚失败/)
   assert.equal(result.error.includes('已自动回滚'), false, 'Must never say it was rolled back when stopping failed')
 }
 
-// 28. Post-restart rollback execution failure reports truthful failure with recoveryNeeded: true and reopens client
+// 28. Post-restart readiness timeout with rollback execution failure reports truthful failure with recoveryNeeded: true and reopens client
 {
   let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
   let rollbackAttempts = 0
@@ -1138,8 +1125,7 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
     quitApp: async () => { currentPs = '' },
     openApp: async () => { currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity' },
     checkDesktopStore: () => true,
-    waitForReadiness: () => true,
-    probeClientIdentity: () => 'old@domain.com',
+    waitForReadiness: () => false, // readiness timeout triggers rollback
     sleep: async () => {},
     now: () => Date.now(),
   }
@@ -1158,12 +1144,11 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
   )
 
   assert.equal(result.success, false)
-  assert.equal(result.mismatch, true)
   assert.equal(result.recoveryNeeded, true, 'Rollback execution failure must report recoveryNeeded: true')
   assert.equal(rollbackAttempts, 1)
   assert.equal(rollbackWhileStopped, true, 'Rollback attempt must occur while stopped')
   assert.equal(currentPs, '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity', 'Client must be reopened afterward if possible')
-  assert.match(result.error, /未切换至目标账号.*old@domain\.com/)
+  assert.match(result.error, /启动就绪超时/)
   assert.match(result.error, /回滚失败/)
   assert.equal(result.error.includes('已自动回滚'), false, 'Must never say it was rolled back when rollback failed')
 }
@@ -1204,11 +1189,10 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
   assert.equal(result.error.includes('已自动回滚'), false, 'Must never say it was rolled back when rollback returned success: false')
 }
 
-// 30. Post-restart probed empty/whitespace identity triggers rollback and returns truthful failure
+// 30. Post-restart probed empty/whitespace identity does NOT trigger rollback and returns success: true
 {
   let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
   let rollbackCalled = false
-  let rollbackWhileStopped = false
 
   const deps = {
     getPsOutput: () => currentPs,
@@ -1227,26 +1211,18 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
     deps,
     {
       expectedIdentity: 'target@domain.com',
-      rollback: async () => {
-        rollbackCalled = true
-        rollbackWhileStopped = (currentPs === '')
-      },
+      rollback: async () => { rollbackCalled = true },
     },
   )
 
-  assert.equal(result.success, false, 'Empty probed identity must report success: false')
-  assert.equal(result.mismatch, true, 'Empty probed identity must report mismatch: true')
-  assert.equal(result.recoveryNeeded, false, 'Successful rollback must report recoveryNeeded: false')
-  assert.equal(rollbackCalled, true, 'Rollback must be invoked on empty probed identity')
-  assert.equal(rollbackWhileStopped, true, 'Rollback must execute while client is stopped')
-  assert.match(result.error, /无法验证 Antigravity 客户端登录身份/)
-  assert.match(result.error, /已自动回滚/)
+  assert.equal(result.success, true, 'Whitespace identity must not trigger rollback')
+  assert.equal(rollbackCalled, false)
 }
 
-// 31. Post-restart probed empty identity with rollback failure reports recoveryNeeded: true
+// 31. Post-restart probed empty identity does NOT trigger rollback and returns success: true
 {
   let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
-  let rollbackAttempts = 0
+  let rollbackCalled = false
 
   const deps = {
     getPsOutput: () => currentPs,
@@ -1265,22 +1241,15 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
     deps,
     {
       expectedIdentity: 'target@domain.com',
-      rollback: async () => {
-        rollbackAttempts++
-        throw new AccountError('Rollback failed')
-      },
+      rollback: async () => { rollbackCalled = true },
     },
   )
 
-  assert.equal(result.success, false)
-  assert.equal(result.mismatch, true)
-  assert.equal(result.recoveryNeeded, true, 'Rollback failure on empty identity must report recoveryNeeded: true')
-  assert.equal(rollbackAttempts, 1)
-  assert.match(result.error, /无法验证 Antigravity 客户端登录身份/)
-  assert.match(result.error, /回滚失败/)
+  assert.equal(result.success, true, 'Empty probed identity must not trigger rollback')
+  assert.equal(rollbackCalled, false)
 }
 
-// 32. Empty expectedIdentity when client was running triggers rollback and truthful failure
+// 32. Empty expectedIdentity when client was running does NOT trigger rollback and returns success: true
 {
   let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
   let rollbackCalled = false
@@ -1306,18 +1275,14 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
     },
   )
 
-  assert.equal(result.success, false)
-  assert.equal(result.mismatch, true)
-  assert.equal(result.recoveryNeeded, false)
-  assert.equal(rollbackCalled, true)
-  assert.match(result.error, /缺少有效身份标识/)
-  assert.match(result.error, /已自动回滚/)
+  assert.equal(result.success, true, 'Whitespace expectedIdentity must not trigger rollback')
+  assert.equal(rollbackCalled, false)
 }
 
-// 33. Post-restart probe unavailable / error with rollback failure reports recoveryNeeded: true
+// 33. Post-restart probe unavailable / error does NOT trigger rollback and returns success: true
 {
   let currentPs = '201 /Applications/Antigravity.app/Contents/MacOS/Antigravity'
-  let rollbackAttempts = 0
+  let rollbackCalled = false
 
   const deps = {
     getPsOutput: () => currentPs,
@@ -1336,19 +1301,12 @@ import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-mod
     deps,
     {
       expectedIdentity: 'target@domain.com',
-      rollback: async () => {
-        rollbackAttempts++
-        return { success: false, error: 'Cannot rollback' }
-      },
+      rollback: async () => { rollbackCalled = true },
     },
   )
 
-  assert.equal(result.success, false)
-  assert.equal(result.mismatch, true)
-  assert.equal(result.recoveryNeeded, true, 'Rollback failure on probe error must report recoveryNeeded: true')
-  assert.equal(rollbackAttempts, 1)
-  assert.match(result.error, /无法验证 Antigravity 客户端登录身份/)
-  assert.match(result.error, /回滚失败/)
+  assert.equal(result.success, true, 'Probe error must not trigger rollback')
+  assert.equal(rollbackCalled, false)
 }
 
 // 34. Strict event sequencing on startup failure: quit -> operation -> open (fails) -> rollback while stopped -> open

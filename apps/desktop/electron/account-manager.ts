@@ -450,6 +450,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         Object.keys(journalInfo.journal.before).length > 0
 
       let error = journalInfo.error
+      let warning: string | undefined
       let activeAccountId: string | undefined
       let activeIdentity: string | undefined
 
@@ -515,38 +516,22 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
           }
 
           if (matchedAccount) {
-            let clientVerified = true
             if (tool === 'antigravity' && typeof adapter.getClientIdentity === 'function') {
               try {
                 const clientIdentity = await adapter.getClientIdentity()
                 const accountEmail = matchedAccount.email || inspected.email
                 if (typeof clientIdentity === 'string' && clientIdentity.trim().length > 0) {
                   const normalizedClient = clientIdentity.trim()
-                  if (!accountEmail || normalizedClient.toLowerCase() !== accountEmail.toLowerCase()) {
-                    clientVerified = false
-                    activeAccountId = undefined
-                    activeIdentity = normalizedClient
-                    error ||= accountEmail
-                      ? `Antigravity 客户端当前会话（${normalizedClient}）与凭据（${accountEmail}）不一致。`
-                      : `Antigravity 客户端当前会话为 ${normalizedClient}，但凭据缺少邮箱信息，无法验证一致性。`
+                  if (accountEmail && normalizedClient.toLowerCase() !== accountEmail.toLowerCase()) {
+                    warning = `Antigravity 客户端本地会话（${normalizedClient}）可能尚未刷新，正在恢复登录。`
                   }
-                } else {
-                  clientVerified = false
-                  activeAccountId = undefined
-                  activeIdentity = undefined
-                  error ||= 'Antigravity 客户端登录身份未验证。请启动客户端并登录，或重试切换。'
                 }
               } catch {
-                clientVerified = false
-                activeAccountId = undefined
-                activeIdentity = undefined
-                error ||= 'Antigravity 客户端登录身份未验证。请启动客户端并登录，或重试切换。'
+                // Non-blocking hint
               }
             }
-            if (clientVerified) {
-              activeAccountId = matchedAccount.id
-              activeIdentity = matchedAccount.email || matchedAccount.name
-            }
+            activeAccountId = matchedAccount.id
+            activeIdentity = matchedAccount.email || matchedAccount.name
           } else {
             activeAccountId = undefined
             activeIdentity = inspected.email || inspected.accountId
@@ -563,6 +548,7 @@ export class AccountManager implements Omit<AccountManagementAPI, keyof AccountO
         canRollback,
         recoveryNeeded,
         error,
+        warning,
       })
     }
 

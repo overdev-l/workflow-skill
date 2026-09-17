@@ -93,13 +93,8 @@ try {
       if (!result.success) return result
       // Simulate client identity probe after restart
       if (context?.expectedIdentity && context.expectedIdentity !== clientSessionIdentity) {
-        // Post-restart mismatch: trigger rollback
-        if (context.rollback) await context.rollback()
-        return {
-          success: false,
-          mismatch: true,
-          error: `Antigravity 客户端未切换至目标账号（当前仍为 ${clientSessionIdentity}），已自动回滚。`,
-        }
+        // Lagging session gives non-blocking warning, does NOT rollback
+        result.warning = `Antigravity 客户端本地会话（${clientSessionIdentity}）可能尚未刷新，正在恢复登录。`
       }
       return result
     },
@@ -124,58 +119,53 @@ try {
     const agy1 = overview1.tools.find(t => t.tool === 'antigravity')
     assert.equal(agy1.activeAccountId, origAcc.id, 'Original account is active when both CLI and client match')
 
-    // Now test client session mismatch: clientSessionIdentity becomes mismatched
+    // Now test client session lag: clientSessionIdentity differs
     testAdapters.antigravity.getClientIdentity = () => 'completely-different@gmail.com'
     const overviewMismatch = await mgr2.getOverview()
     const agyMismatch = overviewMismatch.tools.find(t => t.tool === 'antigravity')
-    assert.equal(agyMismatch.activeAccountId, undefined, 'Must not claim target or original active when client identity is in conflict')
-    assert.equal(agyMismatch.activeIdentity, 'completely-different@gmail.com')
-    assert.match(agyMismatch.error, /不一致/)
+    assert.equal(agyMismatch.activeAccountId, origAcc.id, 'Credential match determines active account; client identity lag does not clear activeAccountId')
+    assert.equal(agyMismatch.activeIdentity, 'old-client-user@gmail.com')
+    assert.ok(agyMismatch.warning, 'Stale client identity should produce non-blocking warning')
+    assert.match(agyMismatch.warning, /可能尚未刷新/)
 
     // Restore client identity to match origAcc
     testAdapters.antigravity.getClientIdentity = () => 'old-client-user@gmail.com'
 
-    // Attempt to switch to target, but client restart fails to switch session (remains old-client-user@gmail.com)
+    // Switch to target, while client session identity is still old-client-user@gmail.com (lagging)
     const switchRes = await mgr2.switchAccount(targetAcc.id)
-    assert.equal(switchRes.success, false, 'Switch must report failure when client session fails to update')
-    assert.equal(switchRes.mismatch, true, 'Switch result must indicate mismatch')
-    assert.match(switchRes.error, /未切换至目标账号/)
+    assert.equal(switchRes.success, true, 'Switch must succeed even if client session identity is lagging')
+    assert.ok(switchRes.warning, 'Non-blocking warning should be returned for lagging session')
 
-    // Verify rollback left the original account intact and target was NOT made active
+    // Target account is now active based on credentials!
     const overviewAfter = await mgr2.getOverview()
     const agyAfter = overviewAfter.tools.find(t => t.tool === 'antigravity')
-    assert.equal(agyAfter.activeAccountId, origAcc.id, 'Rollback restored original active account')
-    assert.notEqual(agyAfter.activeAccountId, targetAcc.id, 'Target account must NEVER be marked active on mismatch')
+    assert.equal(agyAfter.activeAccountId, targetAcc.id, 'Target account must be marked active after switch even if client identity is lagging')
+    assert.equal(agyAfter.activeIdentity, 'target-user@gmail.com')
 
-    // Now simulate client successfully switching to target
+    // Client session successfully catches up
     clientSessionIdentity = 'target-user@gmail.com'
     testAdapters.antigravity.getClientIdentity = () => 'target-user@gmail.com'
-    const switchSuccess = await mgr2.switchAccount(targetAcc.id)
-    assert.equal(switchSuccess.success, true, 'Switch must succeed when client session assumes target identity')
-
     const overviewSuccess = await mgr2.getOverview()
     const agySuccess = overviewSuccess.tools.find(t => t.tool === 'antigravity')
-    assert.equal(agySuccess.activeAccountId, targetAcc.id, 'Target account is now active')
+    assert.equal(agySuccess.activeAccountId, targetAcc.id, 'Target account remains active')
     assert.equal(agySuccess.activeIdentity, 'target-user@gmail.com')
+    assert.equal(agySuccess.warning, undefined, 'No warning when client session is in sync')
 
     // Synthetic case: matched Antigravity credential has null/unknown client identity
     testAdapters.antigravity.getClientIdentity = () => null
     const overviewNullIdentity = await mgr2.getOverview()
     const agyNullIdentity = overviewNullIdentity.tools.find(t => t.tool === 'antigravity')
-    assert.equal(agyNullIdentity.activeAccountId, undefined, 'Must not claim active account when client identity is null/unknown')
-    assert.equal(agyNullIdentity.activeIdentity, undefined, 'Displayed identity must remain unset/clearly unverified')
-    assert.match(agyNullIdentity.error, /登录身份未验证/)
-    assert.match(agyNullIdentity.error, /请启动客户端并登录，或重试切换/)
+    assert.equal(agyNullIdentity.activeAccountId, targetAcc.id, 'Null client identity must not clear activeAccountId')
+    assert.equal(agyNullIdentity.activeIdentity, 'target-user@gmail.com')
 
     // Also test empty string client identity
     testAdapters.antigravity.getClientIdentity = () => '   '
     const overviewEmptyIdentity = await mgr2.getOverview()
     const agyEmptyIdentity = overviewEmptyIdentity.tools.find(t => t.tool === 'antigravity')
-    assert.equal(agyEmptyIdentity.activeAccountId, undefined, 'Must not claim active account when client identity is whitespace')
-    assert.equal(agyEmptyIdentity.activeIdentity, undefined, 'Displayed identity must remain unset when client identity is whitespace')
-    assert.match(agyEmptyIdentity.error, /登录身份未验证/)
+    assert.equal(agyEmptyIdentity.activeAccountId, targetAcc.id, 'Whitespace client identity must not clear activeAccountId')
+    assert.equal(agyEmptyIdentity.activeIdentity, 'target-user@gmail.com')
 
-    // Interactive switch: probe returns null / unavailable -> triggers rollback and reports failure
+    // Interactive switch: startup readiness timeout -> triggers rollback and reports failure
     let rollbackCount = 0
     let rollbackSucceeded = true
     testAdapters.antigravity.withInteractiveSwitch = async (operation, context) => {
@@ -195,21 +185,20 @@ try {
       }
       return {
         success: false,
-        mismatch: true,
         recoveryNeeded: !rollbackSucceeded,
         error: rollbackSucceeded
-          ? '无法验证 Antigravity 客户端登录身份，已自动回滚。'
-          : '无法验证 Antigravity 客户端登录身份，且自动回滚失败。',
+          ? '等待 Antigravity 客户端启动就绪超时，已自动回滚。请重试。'
+          : '等待 Antigravity 客户端启动就绪超时，且自动回滚失败。请检查账号状态并重试。',
       }
     }
 
-    const switchNullRes = await mgr2.switchAccount(origAcc.id)
-    assert.equal(switchNullRes.success, false)
-    assert.equal(switchNullRes.mismatch, true)
-    assert.equal(switchNullRes.recoveryNeeded, false)
+    const switchTimeoutRes = await mgr2.switchAccount(origAcc.id)
+    assert.equal(switchTimeoutRes.success, false)
+    assert.equal(switchTimeoutRes.recoveryNeeded, false)
     assert.equal(rollbackCount, 1)
+    assert.match(switchTimeoutRes.error, /启动就绪超时/)
 
-    // Interactive switch: rollback failure -> returns recoveryNeeded: true
+    // Interactive switch: rollback failure on readiness timeout -> returns recoveryNeeded: true
     rollbackSucceeded = false
     const switchRollbackFail = await mgr2.switchAccount(origAcc.id)
     assert.equal(switchRollbackFail.success, false)
@@ -217,7 +206,7 @@ try {
     assert.equal(rollbackCount, 2)
     assert.match(switchRollbackFail.error, /回滚失败/)
 
-    console.log('Client session probe, honest activeAccountId, rollback on mismatch, and match success passed')
+    console.log('Client session probe, honest activeAccountId based on credentials, and readiness timeout rollback passed')
   } finally {
     rmSync(home2, { recursive: true, force: true })
   }

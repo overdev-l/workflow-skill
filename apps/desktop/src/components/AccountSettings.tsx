@@ -1318,6 +1318,7 @@ export function AccountSettings({
           : loc.switchSuccess(account.name), 'success')
         if (res.warning) onNotify?.(res.warning, 'warning')
         await loadData()
+        enqueueVisibleQuotasRef.current?.(true)
       } else {
         await handleFailure(res?.error, loc.switchFailure)
       }
@@ -1341,6 +1342,7 @@ export function AccountSettings({
         onNotify?.(loc.rollbackSuccess, 'success')
         if (res.warning) onNotify?.(res.warning, 'warning')
         await loadData()
+        enqueueVisibleQuotasRef.current?.(true)
       } else {
         await handleFailure(res?.error, loc.rollbackFailure)
       }
@@ -2148,6 +2150,14 @@ export function AccountSettings({
                   <strong>{loc.toolErrorTitle}</strong>
                   <span>{currentToolState.error}</span>
                 </div>
+              </div>
+            )}
+
+            {/* Tool State Warning Callout */}
+            {currentToolState?.warning && !currentToolState?.error && !isRecoveryNeeded && (
+              <div className="account-sessions-hint" style={{ margin: '4px 0' }} role="status">
+                <Info size={12} style={{ display: 'inline', marginRight: 4, verticalAlign: -1 }} />
+                <span>{currentToolState.warning}</span>
               </div>
             )}
 
