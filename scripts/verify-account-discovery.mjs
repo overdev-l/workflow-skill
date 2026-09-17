@@ -172,8 +172,13 @@ async function runTest(name, fn) {
   mkdirSync(testHome, { recursive: true })
   const env = { ...process.env, HOME: testHome }
   delete env.CLAUDE_CODE_OAUTH_TOKEN
+  delete env.CLAUDE_CODE_OAUTH_REFRESH_TOKEN
   delete env.ANTHROPIC_API_KEY
   delete env.ANTHROPIC_AUTH_TOKEN
+  delete env.ANTHROPIC_BASE_URL
+  delete env.CLAUDE_CODE_USE_BEDROCK
+  delete env.CLAUDE_CODE_USE_VERTEX
+  delete env.CLAUDE_CODE_USE_FOUNDRY
   delete env.CLAUDE_CONFIG_DIR
   delete env.GEMINI_API_KEY
   delete env.GOOGLE_API_KEY

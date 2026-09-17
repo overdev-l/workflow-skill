@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createAccountAdapters } from '../apps/desktop/electron/account-adapters.ts'
 import { AccountManager } from '../apps/desktop/electron/account-manager.ts'
-import { AccountError } from '../packages/workflow-model/src/accounts.ts'
+import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-model/src/accounts.ts'
 
 const home = mkdtempSync(path.join(os.tmpdir(), 'trace-switch-lifecycle-'))
 const credential = (id, email) => JSON.stringify({
@@ -220,5 +220,123 @@ try {
     console.log('Client session probe, honest activeAccountId, rollback on mismatch, and match success passed')
   } finally {
     rmSync(home2, { recursive: true, force: true })
+  }
+}
+
+// Both client and CLI exited: switch and rollback in AccountManager
+{
+  const home3 = mkdtempSync(path.join(os.tmpdir(), 'trace-switch-both-stopped-'))
+  let activeToken = wrap(credential('initial', 'both-stopped@gmail.com'))
+  let switchCalls = 0
+
+  const adapters3 = createAccountAdapters({
+    homeDir: home3,
+    env: {},
+    antigravityKeychain: {
+      available: () => true,
+      read: () => activeToken,
+      write: val => { activeToken = val },
+    },
+    antigravityAssertStopped: () => {},
+    antigravityClientIdentity: 'target-both-stopped@gmail.com',
+    async antigravityWithInteractiveSwitch(operation) {
+      switchCalls++
+      return await operation()
+    },
+  })
+
+  const mgr3 = new AccountManager({ homeDir: home3, adapters: adapters3 })
+
+  try {
+    const acc1 = await mgr3.importAccount({
+      tool: 'antigravity',
+      name: 'Initial',
+      credential: credential('initial', 'both-stopped@gmail.com'),
+    })
+    const acc2 = await mgr3.importAccount({
+      tool: 'antigravity',
+      name: 'Target',
+      credential: credential('target', 'target-both-stopped@gmail.com'),
+    })
+
+    const switchRes = await mgr3.switchAccount(acc2.id)
+    assert.equal(switchRes.success, true, 'Switch must succeed when both client and CLI are exited')
+    assert.equal(switchCalls, 1)
+
+    const rollbackRes = await mgr3.rollbackAccount('antigravity')
+    assert.equal(rollbackRes.success, true, 'Rollback must succeed when both client and CLI are exited')
+    assert.equal(switchCalls, 2)
+
+    console.log('Both client and CLI exited: switch and rollback succeed cleanly')
+  } finally {
+    rmSync(home3, { recursive: true, force: true })
+  }
+}
+
+// IPC error mapping: action call envelopes and remote method wrapper stripping
+{
+  const home4 = mkdtempSync(path.join(os.tmpdir(), 'trace-switch-ipc-error-'))
+  let activeToken = wrap(credential('ipc-initial', 'ipc-user@gmail.com'))
+
+  const adapters4 = createAccountAdapters({
+    homeDir: home4,
+    env: {},
+    antigravityKeychain: {
+      available: () => true,
+      read: () => activeToken,
+      write: val => { activeToken = val },
+    },
+    antigravityAssertStopped: () => {
+      throw new AccountError('Antigravity 客户端仍在运行，请先完全退出客户端后再重试切换账号；现有 agy CLI 会话无需退出。')
+    },
+    antigravityClientIdentity: 'ipc-user@gmail.com',
+  })
+
+  const mgr4 = new AccountManager({ homeDir: home4, adapters: adapters4 })
+
+  // Electron IPC action envelope simulation (as implemented in main.ts)
+  async function accountActionCall(operation) {
+    try {
+      return await operation()
+    } catch (error) {
+      return { success: false, error: cleanAccountErrorMessage(error) }
+    }
+  }
+
+  try {
+    const acc = await mgr4.importAccount({
+      tool: 'antigravity',
+      name: 'IPC Test',
+      credential: credential('ipc-test', 'ipc-test@gmail.com'),
+    })
+
+    // Simulated accounts:switch IPC handler call
+    const switchActionResult = await accountActionCall(async () => {
+      return await mgr4.switchAccount(acc.id)
+    })
+
+    // Result must be a structured failure object, NOT a thrown IPC exception:
+    assert.equal(switchActionResult.success, false)
+    assert.equal(typeof switchActionResult.error, 'string')
+    assert.equal(
+      switchActionResult.error,
+      'Antigravity 客户端仍在运行，请先完全退出客户端后再重试切换账号；现有 agy CLI 会话无需退出。'
+    )
+    assert.equal(switchActionResult.error.includes('Error invoking remote method'), false)
+    assert.equal(switchActionResult.error.includes('accounts:switch'), false)
+
+    // Electron-level remote method wrapping string sanitation:
+    const wrappedIpcError =
+      "Error invoking remote method 'accounts:switch': Error: Antigravity 客户端仍在运行，请先完全退出客户端后再重试切换账号；现有 agy CLI 会话无需退出。"
+    const stripped = cleanAccountErrorMessage(wrappedIpcError)
+    assert.equal(
+      stripped,
+      'Antigravity 客户端仍在运行，请先完全退出客户端后再重试切换账号；现有 agy CLI 会话无需退出。'
+    )
+    assert.equal(stripped.includes('Error invoking remote method'), false)
+
+    console.log('IPC error mapping: structured error envelopes and wrapper stripping passed')
+  } finally {
+    rmSync(home4, { recursive: true, force: true })
   }
 }

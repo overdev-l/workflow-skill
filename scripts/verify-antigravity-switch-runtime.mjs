@@ -13,7 +13,7 @@ import {
   readAntigravityDesktopIdentity,
   resolveAntigravityDesktopStoragePath,
 } from '../apps/desktop/electron/account-adapters.ts'
-import { AccountError } from '../packages/workflow-model/src/accounts.ts'
+import { AccountError, cleanAccountErrorMessage } from '../packages/workflow-model/src/accounts.ts'
 
 // 1. Pure parser compatibility with existing tests
 {
@@ -1404,4 +1404,86 @@ import { AccountError } from '../packages/workflow-model/src/accounts.ts'
   ], 'Startup failure lifecycle must execute: check -> quit -> operation -> open (fails) -> rollback -> reopen attempt')
 }
 
-console.log('Antigravity switch runtime verification passed: all 34 suites succeeded.')
+// 35. Both client and CLI exited: switch succeeds immediately without quit, open, readiness or probe calls
+{
+  const currentPs = '' // neither client nor CLI running
+  const eventLog = []
+
+  const deps = {
+    getPsOutput: () => currentPs,
+    getPsOutputAsync: async () => currentPs,
+    checkDesktopStore: async () => {
+      eventLog.push('checkDesktopStore')
+      return true
+    },
+    quitApp: async () => {
+      eventLog.push('quitApp')
+    },
+    openApp: async () => {
+      eventLog.push('openApp')
+    },
+    waitForReadiness: async () => {
+      eventLog.push('waitForReadiness')
+      return true
+    },
+    probeClientIdentity: async () => {
+      eventLog.push('probeClientIdentity')
+      return 'target@domain.com'
+    },
+    sleep: async () => {},
+    now: () => Date.now(),
+  }
+
+  const result = await withAntigravityAccountSwitch(
+    async () => {
+      eventLog.push('operation')
+      return { success: true }
+    },
+    deps,
+    { expectedIdentity: 'target@domain.com' }
+  )
+
+  assert.equal(result.success, true)
+  assert.deepEqual(eventLog, ['operation'], 'When both client and CLI are stopped, only operation is executed')
+}
+
+// 36. IPC error mapping: remote method rejection wrapper is stripped, structured Chinese error is extracted
+{
+  // 36a: Error invoking remote method wrapper is stripped
+  const rawIpcError = "Error invoking remote method 'accounts:switch': Error: 请先退出 Antigravity 客户端并结束所有 agy CLI 会话，再切换或回滚账号；新会话将使用所选账号。"
+  const cleaned = cleanAccountErrorMessage(rawIpcError)
+  assert.equal(cleaned, '请先退出 Antigravity 客户端并结束所有 agy CLI 会话，再切换或回滚账号；新会话将使用所选账号。')
+  assert.equal(cleaned.includes('Error invoking remote method'), false)
+  assert.equal(cleaned.includes('accounts:switch'), false)
+
+  // 36b: Nested Error prefixes are stripped
+  const nestedError = new Error("Error invoking remote method 'accounts:rollback': Error: Error: Antigravity 客户端仍在运行，请先完全退出客户端后再重试切换账号；现有 agy CLI 会话无需退出。")
+  const cleanedNested = cleanAccountErrorMessage(nestedError)
+  assert.equal(cleanedNested, 'Antigravity 客户端仍在运行，请先完全退出客户端后再重试切换账号；现有 agy CLI 会话无需退出。')
+
+  // 36c: Fallback provided when message is empty or generic
+  const fallback = '切换账号失败，请重试。'
+  assert.equal(cleanAccountErrorMessage(null, fallback), fallback)
+  assert.equal(cleanAccountErrorMessage(undefined, fallback), fallback)
+  assert.equal(cleanAccountErrorMessage('', fallback), fallback)
+  assert.equal(cleanAccountErrorMessage('   ', fallback), fallback)
+  assert.equal(cleanAccountErrorMessage(new Error('Error: error'), fallback), fallback)
+  assert.equal(cleanAccountErrorMessage('[object Object]', fallback), fallback)
+
+  // 36d: accountActionCall envelope pattern returns structured failure without throwing across IPC
+  const simulatedAccountActionCall = async (fn) => {
+    try {
+      return await fn()
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : cleanAccountErrorMessage(err) }
+    }
+  }
+
+  const resFailure = await simulatedAccountActionCall(async () => {
+    throw new AccountError('Antigravity 客户端仍在运行，请先完全退出客户端后再重试切换账号；现有 agy CLI 会话无需退出。')
+  })
+  assert.equal(resFailure.success, false)
+  assert.equal(resFailure.error, 'Antigravity 客户端仍在运行，请先完全退出客户端后再重试切换账号；现有 agy CLI 会话无需退出。')
+}
+
+console.log('Antigravity switch runtime verification passed: all 36 suites succeeded.')

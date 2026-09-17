@@ -31,18 +31,19 @@ import {
   User,
   X,
 } from 'lucide-react'
-import type {
-  AccountActionResult,
-  AccountDiscoveryResult,
-  AccountDiscoveryStatus,
-  AccountManagementAPI,
-  AccountOAuthSession,
-  AccountMetadata,
-  AccountQuotaSnapshot,
-  AccountsOverview,
-  AccountTool,
-  AccountToolCapability,
-  AccountToolState,
+import {
+  type AccountActionResult,
+  type AccountDiscoveryResult,
+  type AccountDiscoveryStatus,
+  type AccountManagementAPI,
+  type AccountOAuthSession,
+  type AccountMetadata,
+  type AccountQuotaSnapshot,
+  type AccountsOverview,
+  type AccountTool,
+  type AccountToolCapability,
+  type AccountToolState,
+  cleanAccountErrorMessage,
 } from '@workflow-skill/workflow-model/accounts'
 import { AIToolLogo } from '../AIToolLogo'
 import { AccountQuotaCard } from './AccountQuotaCard'
@@ -207,11 +208,17 @@ const DICTIONARY = {
     unavailableDesc: '账号管理依赖本地 Electron 桌面服务。请在桌面应用端运行。',
     captureSuccess: (name: string) => `已保存账号「${name}」`,
     importSuccess: (name: string) => `已导入账号「${name}」`,
+    importFailure: '导入凭据失败，请检查格式后重试。',
     switchSuccess: (name: string) => `已写入「${name}」账号配置，请在新会话确认身份`,
+    switchFailure: '切换账号失败，请重试。',
     rollbackSuccess: '已回滚至上一次的账号凭据文件，请在新会话确认身份',
+    rollbackFailure: '回滚账号切换失败，请重试。',
     recoverySuccess: '紧急恢复完成：已恢复原始账号凭据备份',
+    recoveryFailure: '紧急恢复失败，请重试。',
     renameSuccess: (name: string) => `账号已重命名为「${name}」`,
+    renameFailure: '重命名账号失败，请重试。',
     deleteSuccess: (name: string) => `已移除账号「${name}」的本地副本`,
+    deleteFailure: '移除账号副本失败，请重试。',
     accountIdLabel: 'ID',
     emailLabel: '邮箱',
     createdDatePrefix: '创建于',
@@ -347,11 +354,17 @@ const DICTIONARY = {
       'Account management requires native Electron desktop services. Please run in the Trace Desktop application.',
     captureSuccess: (name: string) => `Saved account "${name}"`,
     importSuccess: (name: string) => `Imported account "${name}"`,
+    importFailure: 'Failed to import credential.',
     switchSuccess: (name: string) => `Configured account "${name}". Verify identity in a new session.`,
+    switchFailure: 'Failed to switch account.',
     rollbackSuccess: 'Rolled back to previous account credential file. Verify identity in a new session.',
+    rollbackFailure: 'Failed to rollback account switch.',
     recoverySuccess: 'Emergency recovery completed: restored original credential backup',
+    recoveryFailure: 'Emergency recovery failed.',
     renameSuccess: (name: string) => `Account renamed to "${name}"`,
+    renameFailure: 'Failed to rename account.',
     deleteSuccess: (name: string) => `Removed local copy of "${name}"`,
+    deleteFailure: 'Failed to remove saved account copy.',
     accountIdLabel: 'ID',
     emailLabel: 'Email',
     createdDatePrefix: 'Created',
@@ -376,27 +389,8 @@ const DICTIONARY = {
   },
 }
 
-function formatErrorMessage(error: unknown, fallback: string): string {
-  if (!error) return fallback
-  let message = ''
-  if (typeof error === 'string') {
-    message = error.trim()
-  } else if (error instanceof Error) {
-    message = error.message.trim()
-  } else if (typeof (error as any)?.message === 'string') {
-    message = (error as any).message.trim()
-  } else if (typeof (error as any)?.error === 'string') {
-    message = (error as any).error.trim()
-  }
-  if (!message || message === '[object Object]' || message.toLowerCase() === 'expired' || message.toLowerCase() === 'error') {
-    message = fallback
-  }
-  message = message.replace(/https?:\/\/[^\s]+/gi, '[service]')
-  message = message.replace(/localhost(:\d+)?/gi, '[service]')
-  if (message.length > 240) {
-    message = message.slice(0, 237) + '…'
-  }
-  return message
+export function formatErrorMessage(error: unknown, fallback: string): string {
+  return cleanAccountErrorMessage(error, fallback)
 }
 
 export function AccountSettings({
@@ -1301,7 +1295,7 @@ export function AccountSettings({
       await loadData()
     } catch (err: unknown) {
       setImportCredential('')
-      await handleFailure(err, 'Failed to import credential.')
+      await handleFailure(err, loc.importFailure)
     } finally {
       setIsBusy(false)
     }
@@ -1325,10 +1319,10 @@ export function AccountSettings({
         if (res.warning) onNotify?.(res.warning, 'warning')
         await loadData()
       } else {
-        await handleFailure(res?.error, 'Failed to switch account.')
+        await handleFailure(res?.error, loc.switchFailure)
       }
     } catch (err: unknown) {
-      await handleFailure(err, 'Failed to switch account.')
+      await handleFailure(err, loc.switchFailure)
     } finally {
       setIsBusy(false)
       setSwitchingAccountId(null)
@@ -1348,10 +1342,10 @@ export function AccountSettings({
         if (res.warning) onNotify?.(res.warning, 'warning')
         await loadData()
       } else {
-        await handleFailure(res?.error, 'Failed to rollback account switch.')
+        await handleFailure(res?.error, loc.rollbackFailure)
       }
     } catch (err: unknown) {
-      await handleFailure(err, 'Failed to rollback account switch.')
+      await handleFailure(err, loc.rollbackFailure)
     } finally {
       setIsBusy(false)
     }
@@ -1369,10 +1363,10 @@ export function AccountSettings({
         onNotify?.(loc.recoverySuccess, 'success')
         await loadData()
       } else {
-        await handleFailure(res?.error, 'Emergency recovery could not complete.')
+        await handleFailure(res?.error, loc.recoveryFailure)
       }
     } catch (err: unknown) {
-      await handleFailure(err, 'Emergency recovery failed.')
+      await handleFailure(err, loc.recoveryFailure)
     } finally {
       setIsBusy(false)
     }
@@ -1399,7 +1393,7 @@ export function AccountSettings({
       await loadData()
     } catch (err: unknown) {
       setPendingRenameAccount(null)
-      await handleFailure(err, 'Failed to rename account.')
+      await handleFailure(err, loc.renameFailure)
     } finally {
       setIsBusy(false)
     }
@@ -1419,7 +1413,7 @@ export function AccountSettings({
       await loadData()
     } catch (err: unknown) {
       setPendingDeleteAccount(null)
-      await handleFailure(err, 'Failed to remove saved account copy.')
+      await handleFailure(err, loc.deleteFailure)
     } finally {
       setIsBusy(false)
     }

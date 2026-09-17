@@ -41,6 +41,47 @@ export function sanitizeErrorMessage(error: unknown): string {
   return DEFAULT_ACCOUNT_ERROR_MESSAGE
 }
 
+/**
+ * Strips Electron remote method invocation wrapper and nested Error prefixes from user-facing error text.
+ * Ensures the renderer only receives and displays clean, structured business messages.
+ */
+export function cleanAccountErrorMessage(
+  error: unknown,
+  fallback: string = DEFAULT_ACCOUNT_ERROR_MESSAGE
+): string {
+  if (!error) return fallback
+  let message = ''
+  if (typeof error === 'string') {
+    message = error.trim()
+  } else if (error instanceof Error) {
+    message = error.message.trim()
+  } else if (typeof (error as any)?.message === 'string') {
+    message = (error as any).message.trim()
+  } else if (typeof (error as any)?.error === 'string') {
+    message = (error as any).error.trim()
+  }
+  while (/^Error invoking remote method '[^']+':\s*/i.test(message)) {
+    message = message.replace(/^Error invoking remote method '[^']+':\s*/i, '').trim()
+  }
+  while (/^Error:\s*/i.test(message)) {
+    message = message.replace(/^Error:\s*/i, '').trim()
+  }
+  if (
+    !message ||
+    message === '[object Object]' ||
+    message.toLowerCase() === 'expired' ||
+    message.toLowerCase() === 'error'
+  ) {
+    message = fallback
+  }
+  message = message.replace(/https?:\/\/[^\s]+/gi, '[service]')
+  message = message.replace(/localhost(:\d+)?/gi, '[service]')
+  if (message.length > 240) {
+    message = message.slice(0, 237) + '…'
+  }
+  return message
+}
+
 export const ACCOUNT_TOOLS = ['antigravity', 'codex', 'claude-code'] as const
 export type AccountTool = (typeof ACCOUNT_TOOLS)[number]
 
