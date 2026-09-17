@@ -12,7 +12,21 @@ const wrap = raw => `go-keyring-base64:${Buffer.from(raw).toString('base64')}`
 let raw = wrap(credential('a')), writes = [], running = false, denied = false, profileCalls = 0
 let clientIdentity = 'a@example.invalid'
 const original = raw
-const keychain = { available: () => true, read() { if (denied) throw new AccountError('认证访问被拒绝。'); return raw }, write(value) { if (denied) throw new AccountError('认证访问被拒绝。'); writes.push(value); raw = value } }
+const readOpts = [], writeOpts = []
+const keychain = {
+  available: () => true,
+  read(opts) {
+    readOpts.push(opts)
+    if (denied) throw new AccountError('认证访问被拒绝。')
+    return raw
+  },
+  write(value, opts) {
+    writeOpts.push(opts)
+    if (denied) throw new AccountError('认证访问被拒绝。')
+    writes.push(value)
+    raw = value
+  },
+}
 const adapters = createAccountAdapters({ homeDir: home, env: {}, antigravityKeychain: keychain,
   antigravityAssertStopped() { if (running) throw new AccountError('请先退出 Antigravity。') },
   antigravityIdentityFetch: async (url, options) => {
@@ -64,6 +78,8 @@ try {
   assert.equal(writes.length, 0)
   running = false
   assert.equal((await manager.switchAccount(b.id)).success, true)
+  assert.ok(writeOpts.some(o => o && o.target === 'desktop'), 'Production writeSlot must pass target: desktop')
+  assert.ok(readOpts.some(o => o && o.target === 'desktop'), 'Production read must pass target: desktop')
   assert.equal(readFileSync(fallback, 'utf8'), fallbackBefore)
   assert.equal(readFileSync(legacyPath, 'utf8'), legacy)
   assert.ok(existsSync(path.join(manager.transactionsDir, 'antigravity-native.json')))

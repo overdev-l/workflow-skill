@@ -175,6 +175,48 @@ try {
     assert.equal(agyEmptyIdentity.activeIdentity, undefined, 'Displayed identity must remain unset when client identity is whitespace')
     assert.match(agyEmptyIdentity.error, /登录身份未验证/)
 
+    // Interactive switch: probe returns null / unavailable -> triggers rollback and reports failure
+    let rollbackCount = 0
+    let rollbackSucceeded = true
+    testAdapters.antigravity.withInteractiveSwitch = async (operation, context) => {
+      const result = await operation()
+      if (!result.success) return result
+      if (context?.rollback) {
+        rollbackCount++
+        try {
+          if (rollbackSucceeded) {
+            await context.rollback()
+          } else {
+            throw new AccountError('Synthetic rollback failure in lifecycle')
+          }
+        } catch {
+          rollbackSucceeded = false
+        }
+      }
+      return {
+        success: false,
+        mismatch: true,
+        recoveryNeeded: !rollbackSucceeded,
+        error: rollbackSucceeded
+          ? '无法验证 Antigravity 客户端登录身份，已自动回滚。'
+          : '无法验证 Antigravity 客户端登录身份，且自动回滚失败。',
+      }
+    }
+
+    const switchNullRes = await mgr2.switchAccount(origAcc.id)
+    assert.equal(switchNullRes.success, false)
+    assert.equal(switchNullRes.mismatch, true)
+    assert.equal(switchNullRes.recoveryNeeded, false)
+    assert.equal(rollbackCount, 1)
+
+    // Interactive switch: rollback failure -> returns recoveryNeeded: true
+    rollbackSucceeded = false
+    const switchRollbackFail = await mgr2.switchAccount(origAcc.id)
+    assert.equal(switchRollbackFail.success, false)
+    assert.equal(switchRollbackFail.recoveryNeeded, true, 'Rollback failure must report recoveryNeeded: true')
+    assert.equal(rollbackCount, 2)
+    assert.match(switchRollbackFail.error, /回滚失败/)
+
     console.log('Client session probe, honest activeAccountId, rollback on mismatch, and match success passed')
   } finally {
     rmSync(home2, { recursive: true, force: true })

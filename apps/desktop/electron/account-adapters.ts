@@ -299,7 +299,7 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
   const nativeHome = home === path.resolve(os.homedir())
   const fileMode = options.antigravityFileMode ?? !!(env.SSH_TTY || env.SSH_CLIENT || env.SSH_CONNECTION)
   const native = !fileMode && (options.antigravityKeychain !== undefined || (nativeHome && process.platform === 'darwin'))
-  const keychain = options.antigravityKeychain ?? (native ? createAntigravityKeychain() : undefined)
+  const keychain = options.antigravityKeychain ?? (native ? createAntigravityKeychain({ target: 'desktop' }) : undefined)
   const conflict = !!(env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.JETSKI_APP_DATA_DIR)
   const assertStopped = options.antigravityAssertStopped ?? assertAntigravityStopped
   const desktopStoragePath = options.antigravityDesktopStoragePath ?? resolveAntigravityDesktopStoragePath(home)
@@ -327,13 +327,13 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
   const identityCache = new Map<string, string>()
   const antigravity: AccountAdapter = {
     tool: 'antigravity',
-    ...(native ? { journalKey: 'antigravity-native' as const, authorizeAccess() { keychain!.read(true) } } : {}),
+    ...(native ? { journalKey: 'antigravity-native' as const, authorizeAccess() { keychain!.read({ target: 'desktop', interactive: true }) } } : {}),
     capability: () => ({
       tool: 'antigravity', available: available(),
       reasonCode: conflict ? 'antigravity-auth-conflict' : available() ? undefined : native ? 'antigravity-helper-unavailable' : 'antigravity-file-mode-required',
       detailsCode: native ? 'antigravity-native-keychain' : 'antigravity-ssh-file',
       reason: conflict ? 'Antigravity 存在其他认证来源，无法确认原生账号。' : available() ? undefined : native ? 'Antigravity 原生认证助手未安装，请重新构建应用。' : '当前环境不支持 Antigravity 原生账号切换。',
-      details: native ? 'Antigravity CLI 与客户端分别管理认证目标。切换时会正常退出并重新打开正在运行的客户端；仅当客户端会话经探测确认一致后才激活账号。现有 CLI 会话保留，新 CLI 会话使用所选账号。仅访问 Antigravity 认证项，账号库保存在本地文件。' : '仅支持真实 SSH 环境中的 Antigravity CLI 后备文件；不影响原生客户端。',
+      details: native ? 'Antigravity CLI 与客户端共享 macOS Keychain 原生认证项（service=gemini, account=antigravity）。切换时会正常退出并重新打开正在运行的客户端；仅当客户端会话经探测确认一致后才激活账号。现有 CLI 会话保留，新 CLI 会话使用所选账号。仅访问 Antigravity 认证项，账号库保存在本地文件。' : '仅支持真实 SSH 环境中的 Antigravity CLI 后备文件；不影响原生客户端。',
     }),
     ...(native || options.antigravityClientIdentity !== undefined ? {
       getClientIdentity() {
@@ -355,7 +355,7 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
     inspect: inspectAntigravityCredential,
     matchesIdentity: matchAntigravityCredentials,
     mergeCredential: mergeAntigravityCredentials,
-    read: () => ({ oauth: native ? keychain!.read() : files.read(agyAuth) }),
+    read: () => ({ oauth: native ? keychain!.read({ target: 'desktop' }) : files.read(agyAuth) }),
     desired: credential => {
       const { normalized } = inspectAntigravityCredential(credential)
       const payload = JSON.stringify({ auth_method: normalized.auth_method, token: normalized.token }, null, 2)
@@ -364,7 +364,7 @@ export function createAccountAdapters(options: AccountAdapterOptions = {}): Reco
     writeSlot(slot, value) {
       if (slot !== 'oauth') fail('未知的 Antigravity 认证字段。')
       antigravity.assertCanWrite!()
-      if (native) keychain!.write(value)
+      if (native) keychain!.write(value, { target: 'desktop' })
       else files.write(agyAuth, value)
     },
     credentialFrom: state => native ? (state.oauth === null ? null : decodeAntigravityKeychainSecret(state.oauth)) : fileMode ? state.oauth : null,

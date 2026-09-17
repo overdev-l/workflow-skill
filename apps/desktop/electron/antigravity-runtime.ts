@@ -519,49 +519,60 @@ async function executeInteractiveSwitch(
 
   const safeRollbackAfterReopen = async (): Promise<{ rolledBack: boolean }> => {
     if (guiBundles.length > 0) {
-      for (const bundlePath of guiBundles) {
-        try {
-          await deps.quitApp(bundlePath)
-        } catch {
-          await restoreIfVerifiedGone(guiBundles, deps)
-          return { rolledBack: false }
-        }
+      let pollOutput: string | null = null
+      try {
+        pollOutput = await deps.getPsOutputAsync()
+      } catch {
+        pollOutput = null
       }
+      const pollScan = pollOutput !== null ? scanAntigravityProcesses(pollOutput) : null
+      const isRunning = pollScan ? (pollScan.guiProcesses.length > 0 || pollScan.helperProcesses.length > 0) : true
 
-      const startTime = deps.now()
-      let confirmedGone = false
-      while (true) {
-        if (deps.signal?.aborted) {
-          await restoreIfVerifiedGone(guiBundles, deps)
+      if (isRunning) {
+        for (const bundlePath of guiBundles) {
+          try {
+            await deps.quitApp(bundlePath)
+          } catch {
+            await restoreIfVerifiedGone(guiBundles, deps)
+            return { rolledBack: false }
+          }
+        }
+
+        const startTime = deps.now()
+        let confirmedGone = false
+        while (true) {
+          if (deps.signal?.aborted) {
+            await restoreIfVerifiedGone(guiBundles, deps)
+            return { rolledBack: false }
+          }
+
+          let pollOutput2: string
+          try {
+            pollOutput2 = await deps.getPsOutputAsync()
+          } catch {
+            await restoreIfVerifiedGone(guiBundles, deps)
+            return { rolledBack: false }
+          }
+
+          const pollScan2 = scanAntigravityProcesses(pollOutput2)
+          const hasGuiOrHelper = pollScan2.guiProcesses.length > 0 || pollScan2.helperProcesses.length > 0
+
+          if (!hasGuiOrHelper) {
+            confirmedGone = true
+            break
+          }
+
+          if (deps.now() - startTime >= deps.timeoutMs) {
+            await restoreIfVerifiedGone(guiBundles, deps)
+            return { rolledBack: false }
+          }
+
+          await deps.sleep(deps.pollIntervalMs)
+        }
+
+        if (!confirmedGone) {
           return { rolledBack: false }
         }
-
-        let pollOutput: string
-        try {
-          pollOutput = await deps.getPsOutputAsync()
-        } catch {
-          await restoreIfVerifiedGone(guiBundles, deps)
-          return { rolledBack: false }
-        }
-
-        const pollScan = scanAntigravityProcesses(pollOutput)
-        const hasGuiOrHelper = pollScan.guiProcesses.length > 0 || pollScan.helperProcesses.length > 0
-
-        if (!hasGuiOrHelper) {
-          confirmedGone = true
-          break
-        }
-
-        if (deps.now() - startTime >= deps.timeoutMs) {
-          await restoreIfVerifiedGone(guiBundles, deps)
-          return { rolledBack: false }
-        }
-
-        await deps.sleep(deps.pollIntervalMs)
-      }
-
-      if (!confirmedGone) {
-        return { rolledBack: false }
       }
     }
 
@@ -607,20 +618,32 @@ async function executeInteractiveSwitch(
     return { rolledBack: rollbackOk }
   }
 
-  let restartWarning: string | undefined
-  let reopenFailed = false
   if (guiBundles.length > 0) {
+    let reopenFailed = false
     for (const bundlePath of guiBundles) {
       try {
         await deps.openApp(bundlePath)
       } catch {
         reopenFailed = true
-        restartWarning = 'Antigravity 账号已切换，但重新启动客户端失败，请手动打开。'
       }
     }
-  }
 
-  if (guiBundles.length > 0 && !reopenFailed) {
+    if (reopenFailed) {
+      const { rolledBack } = await safeRollbackAfterReopen()
+      if (!rolledBack) {
+        return {
+          success: false,
+          error: '重新启动 Antigravity 客户端失败，且自动回滚失败。请检查账号状态并重试。',
+          recoveryNeeded: true,
+        }
+      }
+      return {
+        success: false,
+        error: '重新启动 Antigravity 客户端失败，已自动回滚。请手动打开客户端后重试。',
+        recoveryNeeded: false,
+      }
+    }
+
     let ready = true
     try {
       ready = await deps.waitForReadiness(guiBundles[0])
@@ -644,7 +667,25 @@ async function executeInteractiveSwitch(
     }
 
     const expected = deps.expectedIdentity?.trim().toLowerCase()
-    if (expected) {
+    if (deps.expectedIdentity !== undefined) {
+      if (!expected) {
+        const { rolledBack } = await safeRollbackAfterReopen()
+        if (!rolledBack) {
+          return {
+            success: false,
+            error: '无法验证 Antigravity 客户端登录身份：目标账号缺少有效身份标识，且自动回滚失败。',
+            mismatch: true,
+            recoveryNeeded: true,
+          }
+        }
+        return {
+          success: false,
+          error: '无法验证 Antigravity 客户端登录身份：目标账号缺少有效身份标识，已自动回滚。',
+          mismatch: true,
+          recoveryNeeded: false,
+        }
+      }
+
       let probedIdentity: string | null = null
       let probeError = false
       try {
@@ -653,7 +694,8 @@ async function executeInteractiveSwitch(
         probeError = true
       }
 
-      if (probeError || !probedIdentity) {
+      const trimmedProbed = (probedIdentity ?? '').trim()
+      if (probeError || !trimmedProbed) {
         const { rolledBack } = await safeRollbackAfterReopen()
         if (!rolledBack) {
           return {
@@ -671,31 +713,24 @@ async function executeInteractiveSwitch(
         }
       }
 
-      const normalizedProbed = probedIdentity.trim().toLowerCase()
+      const normalizedProbed = trimmedProbed.toLowerCase()
       if (normalizedProbed !== expected) {
         const { rolledBack } = await safeRollbackAfterReopen()
         if (!rolledBack) {
           return {
             success: false,
-            error: `Antigravity 客户端未切换至目标账号（当前仍为 ${probedIdentity}），且自动回滚失败。请在客户端手动登录目标账号。`,
+            error: `Antigravity 客户端未切换至目标账号（当前仍为 ${trimmedProbed}），且自动回滚失败。请在客户端手动登录目标账号。`,
             mismatch: true,
             recoveryNeeded: true,
           }
         }
         return {
           success: false,
-          error: `Antigravity 客户端未切换至目标账号（当前仍为 ${probedIdentity}），已自动回滚。请在客户端手动登录目标账号。`,
+          error: `Antigravity 客户端未切换至目标账号（当前仍为 ${trimmedProbed}），已自动回滚。请在客户端手动登录目标账号。`,
           mismatch: true,
           recoveryNeeded: false,
         }
       }
-    }
-  }
-
-  if (opResult.success && restartWarning) {
-    return {
-      ...opResult,
-      warning: restartWarning,
     }
   }
 

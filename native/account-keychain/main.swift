@@ -165,10 +165,7 @@ func main() {
     }
 
     let target = json["target"] as? String ?? "cli"
-    if target == "desktop" {
-        fail("unavailable")
-    }
-    if target != "cli" {
+    if target != "cli" && target != "desktop" {
         fail("malformed")
     }
 
