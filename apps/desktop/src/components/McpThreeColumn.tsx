@@ -1138,9 +1138,11 @@ export function McpThreeColumn({
                       </span>
                     )}
                   </div>
-                  <div className="mcp-hero-subtitle font-mono">
-                    <span>中央资产库标识: {selectedServer.id}</span>
-                  </div>
+                  {selectedServer.id !== selectedServer.name ? (
+                    <div className="mcp-hero-subtitle font-mono">
+                      <span>中央资产库标识: {selectedServer.id}</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -1186,12 +1188,6 @@ export function McpThreeColumn({
                   </button>
                 </>}
               </div>
-            </div>
-
-            {/* Restart Session Notice Banner */}
-            <div className="mcp-notice-banner">
-              <AlertCircle size={14} />
-              <span>{t.mcp.restartNotice}</span>
             </div>
 
             <div className="mcp-ownership-card">
@@ -1266,29 +1262,10 @@ export function McpThreeColumn({
             <div className="mcp-card">
               <h3 className="mcp-card-title">
                 <span>{t.mcp.configCardTitle}</span>
-                <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                  {selectedServer.id}
-                </span>
               </h3>
 
               <fieldset disabled={selectedServerIsExternal} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
               <div className="mcp-form-grid">
-                {/* Name - Immutable primary key for existing server */}
-                <div className="mcp-form-field">
-                  <label className="mcp-field-label">{t.mcp.serverNameLabel}</label>
-                  <input
-                    className="mcp-input font-mono"
-                    value={formName}
-                    readOnly
-                    disabled
-                    style={{ opacity: 0.7, cursor: 'not-allowed' }}
-                    title={t.mcp.nameImmutableHint}
-                  />
-                  <span style={{ fontSize: '0.6875rem', color: 'var(--color-muted)', marginTop: 2 }}>
-                    {t.mcp.nameImmutableHint}
-                  </span>
-                </div>
-
                 {/* Description */}
                 <div className="mcp-form-field">
                   <label className="mcp-field-label">服务描述 (可选)</label>
@@ -1560,6 +1537,10 @@ export function McpThreeColumn({
                     </div>
                   </>
                 )}
+                <div className="mcp-footnote-hint" style={{ marginTop: '14px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.6875rem', color: 'var(--color-muted)' }}>
+                  <AlertCircle size={12} />
+                  <span>{t.mcp.restartNotice}</span>
+                </div>
               </div>
               </fieldset>
             </div>

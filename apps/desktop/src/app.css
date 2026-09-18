@@ -250,7 +250,7 @@ pre {
 .app-shell {
   position: relative;
   display: grid;
-  grid-template-columns: 160px var(--master-column-width, 280px) minmax(0, 1fr);
+  grid-template-columns: 160px var(--master-column-width, 210px) minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
   overflow: hidden;
@@ -272,7 +272,7 @@ pre {
   z-index: 40;
   top: 0;
   bottom: 0;
-  left: calc(160px + var(--master-column-width, 280px) - 4px);
+  left: calc(160px + var(--master-column-width, 210px) - 4px);
   width: 8px;
   cursor: col-resize;
   touch-action: none;
@@ -404,7 +404,10 @@ body.is-resizing-master-column * {
 }
 
 .app-shell.is-settings,
-.app-shell.is-accounts,
+.app-shell.is-accounts {
+  grid-template-columns: 160px minmax(0, 1fr);
+}
+
 .app-shell.is-master-collapsed {
   grid-template-columns: 160px minmax(0, 1fr);
 }
@@ -7103,60 +7106,6 @@ body.is-resizing-master-column * {
     width: 100%;
     justify-content: flex-start;
     flex-wrap: wrap;
-  }
-
-  /* 4. AI Environments & Skill Mount Lists */
-  .detail-skill-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-
-  .detail-skill-row > div:first-child {
-    width: 100%;
-  }
-
-  .detail-skill-row button {
-    align-self: flex-start;
-  }
-
-  .env-clean-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .env-row-left {
-    width: 100%;
-    padding-right: 0;
-  }
-
-  .env-clean-row button {
-    align-self: flex-start;
-  }
-
-  .env-tree-node-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .node-content-left {
-    width: 100%;
-  }
-
-  .env-tree-node-row button {
-    align-self: flex-start;
-  }
-
-  .branch-header-actions {
-    margin-top: 4px;
-    width: 100%;
-  }
-
-  .branch-action-btn {
-    width: 100%;
-    justify-content: center;
   }
 
   /* 5. Grids & Panels */

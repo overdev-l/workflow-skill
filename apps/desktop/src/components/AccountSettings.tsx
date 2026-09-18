@@ -241,7 +241,8 @@ const DICTIONARY = {
     refreshQuotaBtn: '刷新配额',
     detailsLabel: '详情',
     autoSwitchLabel: '自动切换',
-    autoSwitchDesc: '当前选用模型额度耗尽后自动切换至有额度的账号（可能重启客户端）',
+    autoSwitchDesc: '额度耗尽时自动切至可用账号',
+    autoSwitchFullDesc: '当前选用模型额度耗尽后自动切换至有额度的账号（可能重启客户端）',
   },
   'en-US': {
     headerTitle: 'AI Account Manager',
@@ -389,7 +390,8 @@ const DICTIONARY = {
     refreshQuotaBtn: 'Refresh quota',
     detailsLabel: 'Details',
     autoSwitchLabel: 'Auto Switch',
-    autoSwitchDesc:
+    autoSwitchDesc: 'Auto-switch when model quota is exhausted',
+    autoSwitchFullDesc:
       'Automatically switch to an account with remaining quota when the active model is exhausted (may restart client).',
   },
 }
@@ -457,6 +459,13 @@ export function AccountSettings({
     Partial<Record<AccountTool, AccountDiscoveryResult>>
   >({})
   const [dismissedFeedback, setDismissedFeedback] = useState<Record<string, boolean>>({})
+  const [dismissedLegacyNotice, setDismissedLegacyNotice] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('trace_account_dismissed_legacy_notice') === 'true'
+    } catch {
+      return false
+    }
+  })
   const isSyncingAccountsRef = useRef<boolean>(false)
   const lastAccountSyncTimeRef = useRef<number>(0)
 
@@ -1297,8 +1306,13 @@ export function AccountSettings({
         <div className="account-auto-switch-info">
           <div className="account-auto-switch-title-row">
             <span className="account-auto-switch-label">{loc.autoSwitchLabel}</span>
+            <span
+              className="account-auto-switch-desc"
+              title={loc.autoSwitchFullDesc || loc.autoSwitchDesc}
+            >
+              {loc.autoSwitchDesc}
+            </span>
           </div>
-          <p className="account-auto-switch-desc">{loc.autoSwitchDesc}</p>
           {currentToolState?.autoSwitchStatus && (
             <span className="account-auto-switch-status">{currentToolState.autoSwitchStatus}</span>
           )}
@@ -1960,8 +1974,8 @@ export function AccountSettings({
     </>
   )
 
-  // Tool-level capability details.
-  const capabilityStripNode = (
+  // Tool-level capability details (only rendered when limited or having specific reasons/details)
+  const capabilityStripNode = (!isAvailable || currentCapability?.reason) ? (
     <div className="account-capability-strip">
       <div className="account-capability-strip-left">
         <span
@@ -1995,7 +2009,7 @@ export function AccountSettings({
         </button>
       )}
     </div>
-  )
+  ) : null
 
   // Account Card Grid Content
   const gridContentNode = (
@@ -2227,16 +2241,36 @@ export function AccountSettings({
                 <span className="account-tool-identity-chip"><User size={11} /><span>{activeIdentity}</span></span>
               </div>
             )}
-            {overview?.legacyProfilesPresent && (
+            {overview?.legacyProfilesPresent && !dismissedLegacyNotice && (
               <div className="account-legacy-notice" role="status">
                 <Info size={14} className="account-legacy-icon" />
-                <div><strong>{loc.legacyNoticeTitle}：</strong><span>{loc.legacyNoticeDesc}</span></div>
+                <div className="account-legacy-text">
+                  <strong>{loc.legacyNoticeTitle}：</strong>
+                  <span>{loc.legacyNoticeDesc}</span>
+                </div>
+                <button
+                  type="button"
+                  className="account-contextual-callout-dismiss"
+                  onClick={() => {
+                    setDismissedLegacyNotice(true)
+                    try {
+                      localStorage.setItem('trace_account_dismissed_legacy_notice', 'true')
+                    } catch {}
+                  }}
+                  aria-label={loc.closeBtn}
+                >
+                  <X size={10} />
+                </button>
               </div>
             )}
             {/* Account Cards Grid */}
             {gridContentNode}
-            <p className="account-security-notice">{loc.securityNotice}</p>
-            <p className="account-security-notice">{loc.sessionsNotice}</p>
+
+            {/* Consolidated guidance strip */}
+            <div className="account-guidance-strip">
+              <span className="account-guidance-item">{loc.securityNotice}</span>
+              <span className="account-guidance-item">{loc.sessionsNotice}</span>
+            </div>
           </div>
         </section>
         {modalsNode}
@@ -2253,15 +2287,27 @@ export function AccountSettings({
         </div>
 
         <p className="account-desc">{loc.headerDescription}</p>
-        <p className="account-security-notice">{loc.securityNotice}</p>
 
-        {overview?.legacyProfilesPresent && (
+        {overview?.legacyProfilesPresent && !dismissedLegacyNotice && (
           <div className="account-legacy-notice" role="status">
             <Info size={14} className="account-legacy-icon" />
-            <div>
+            <div className="account-legacy-text">
               <strong>{loc.legacyNoticeTitle}：</strong>
               <span>{loc.legacyNoticeDesc}</span>
             </div>
+            <button
+              type="button"
+              className="account-contextual-callout-dismiss"
+              onClick={() => {
+                setDismissedLegacyNotice(true)
+                try {
+                  localStorage.setItem('trace_account_dismissed_legacy_notice', 'true')
+                } catch {}
+              }}
+              aria-label={loc.closeBtn}
+            >
+              <X size={10} />
+            </button>
           </div>
         )}
 
@@ -2422,10 +2468,14 @@ export function AccountSettings({
             </div>
           </div>
 
-          <p className="account-sessions-hint">{loc.sessionsNotice}</p>
-
           {/* Cards Grid */}
           {gridContentNode}
+
+          {/* Consolidated guidance strip */}
+          <div className="account-guidance-strip">
+            <span className="account-guidance-item">{loc.securityNotice}</span>
+            <span className="account-guidance-item">{loc.sessionsNotice}</span>
+          </div>
         </div>
       </div>
       {modalsNode}

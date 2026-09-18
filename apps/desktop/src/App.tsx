@@ -2629,30 +2629,34 @@ function WorkflowsThreeColumn({
                   <p>{observing ? t.workflows.captureActiveDesc : t.workflows.captureIdleDesc}</p>
                 </div>
               </div>
-              <button
-                type="button"
-                className={`btn btn--capsule btn--sm ${observing ? 'capture-finish-btn' : 'btn--primary'}`}
-                onClick={onToggleCapture}
-              >
-                {observing ? <Check size={12} /> : <Play size={12} />}
-                <span>{observing ? t.workflows.capturePause : t.workflows.captureStart}</span>
-              </button>
+              {(observing || filteredEvents.length > 0) ? (
+                <button
+                  type="button"
+                  className={`btn btn--capsule btn--sm ${observing ? 'capture-finish-btn' : 'btn--primary'}`}
+                  onClick={onToggleCapture}
+                >
+                  {observing ? <Check size={12} /> : <Play size={12} />}
+                  <span>{observing ? t.workflows.capturePause : t.workflows.captureStart}</span>
+                </button>
+              ) : null}
             </header>
 
-            <div className="capture-listener-summary" aria-label={t.workflows.eventStreamTitle}>
-              <span><Activity size={12} />{t.workflows.storedEvents(filteredEvents.length)}</span>
-              <span className="capture-summary-divider" aria-hidden="true" />
-              <span>
-                <Globe size={12} />
-                {t.workflows.currentApp(browserCaptureStatus?.pageUrl || recorderStatus?.activeApplication || 'Browser')}
-              </span>
-              {captureSessionId ? (
-                <>
-                  <span className="capture-summary-divider" aria-hidden="true" />
-                  <span className="font-mono">{captureSessionId.slice(0, 8)}</span>
-                </>
-              ) : null}
-            </div>
+            {(observing || filteredEvents.length > 0) ? (
+              <div className="capture-listener-summary" aria-label={t.workflows.eventStreamTitle}>
+                <span><Activity size={12} />{t.workflows.storedEvents(filteredEvents.length)}</span>
+                <span className="capture-summary-divider" aria-hidden="true" />
+                <span>
+                  <Globe size={12} />
+                  {t.workflows.currentApp(browserCaptureStatus?.pageUrl || recorderStatus?.activeApplication || 'Browser')}
+                </span>
+                {captureSessionId ? (
+                  <>
+                    <span className="capture-summary-divider" aria-hidden="true" />
+                    <span className="font-mono">{captureSessionId.slice(0, 8)}</span>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
 
             {activeEvent ? (
               <section className="capture-event-inspector" aria-labelledby="capture-event-inspector-title">
@@ -2753,11 +2757,9 @@ function WorkflowsThreeColumn({
                   <h2>{t.workflows.guideTitle}</h2>
                   <p>{t.workflows.captureIdleDesc}</p>
                 </div>
-                <ol className="capture-guide-steps">
-                  <li><span>1</span><div><strong>{t.workflows.guideStart}</strong><small>{t.workflows.guideStartDesc}</small></div></li>
-                  <li><span>2</span><div><strong>{t.workflows.guideOperate}</strong><small>{t.workflows.guideOperateDesc}</small></div></li>
-                  <li><span>3</span><div><strong>{t.workflows.guideFinish}</strong><small>{t.workflows.guideFinishDesc}</small></div></li>
-                </ol>
+                <p className="capture-guide-inline-hint">
+                  {t.workflows.guideStart} · {t.workflows.guideOperate} · {t.workflows.guideFinish}
+                </p>
                 <button type="button" className="btn btn--capsule btn--primary" onClick={onToggleCapture}>
                   <Play size={13} />
                   <span>{t.workflows.captureStart}</span>
@@ -2783,7 +2785,7 @@ function WorkflowsThreeColumn({
                 <div className="detail-hero-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <button
                     type="button"
-                    className="btn btn--capsule btn--primary btn--sm"
+                    className={`btn btn--capsule btn--sm ${isDirty ? 'btn--primary' : 'btn--secondary'}`}
                     onClick={() => void saveDraft()}
                     disabled={!isDirty || saving}
                     title={t.workflows.saveChanges}
@@ -2865,10 +2867,6 @@ function WorkflowsThreeColumn({
 
             {detailTab === 'graph' ? (
               <section id="workflow-graph-panel" role="tabpanel" className="detail-section-card workflow-graph-card workflow-tab-panel">
-                <div className="detail-section-card-title">
-                  <span>{t.workflows.workflowEditorTitle}</span>
-                  <span className="workflow-panel-meta font-mono">{t.workflows.stepCount(draft.nodes.length)}</span>
-                </div>
                 <WorkflowGraph
                   workflow={draft}
                   selectedNodeId={selectedNodeId}
@@ -2934,15 +2932,6 @@ function WorkflowsThreeColumn({
                         </span>
                       ) : null}
                       {selectedNode ? <code>{String(draft.nodes.findIndex((node) => node.id === selectedNode.id) + 1).padStart(2, '0')}</code> : null}
-                      <button
-                        type="button"
-                        className="btn btn--secondary btn--capsule btn--sm"
-                        onClick={() => void saveDraft()}
-                        disabled={!isDirty || saving}
-                      >
-                        <Save size={11} />
-                        <span>{saving ? t.workflows.savingChanges : t.workflows.saveChanges}</span>
-                      </button>
                     </div>
                   </div>
                   {selectedNode ? (
@@ -2991,18 +2980,6 @@ function WorkflowsThreeColumn({
                     <span>{t.workflows.skillPreviewDesc}</span>
                   </div>
                   <div>
-                    <button
-                      type="button"
-                      className="btn btn--primary btn--capsule btn--sm"
-                      onClick={() => void saveAsSkill()}
-                      disabled={Boolean(savedMap[activeWf.id])}
-                    >
-                      <Sparkles size={11} />
-                      <span>{savedMap[activeWf.id] ? t.workflows.savedAsSkill : t.workflows.saveAsSkill}</span>
-                    </button>
-                    <button type="button" className="btn btn--secondary btn--capsule btn--sm" onClick={() => onExportCode(draft, draft.name)}>
-                      <Code size={11} /><span>{t.detail.exportCodeBtn}</span>
-                    </button>
                     <button type="button" className="btn btn--secondary btn--capsule btn--sm" onClick={() => void copySkillPreview()}>
                       <Copy size={11} /><span>{t.detail.copyClipboardBtn}</span>
                     </button>
@@ -3019,11 +2996,9 @@ function WorkflowsThreeColumn({
               <h2>{t.workflows.emptyTitle}</h2>
               <p>{t.workflows.emptyDesc}</p>
             </div>
-            <ol className="capture-guide-steps">
-              <li><span>1</span><div><strong>{t.workflows.guideStart}</strong><small>{t.workflows.guideStartDesc}</small></div></li>
-              <li><span>2</span><div><strong>{t.workflows.guideOperate}</strong><small>{t.workflows.guideOperateDesc}</small></div></li>
-              <li><span>3</span><div><strong>{t.workflows.guideFinish}</strong><small>{t.workflows.guideFinishDesc}</small></div></li>
-            </ol>
+            <p className="capture-guide-inline-hint">
+              {t.workflows.guideStart} · {t.workflows.guideOperate} · {t.workflows.guideFinish}
+            </p>
             <button type="button" className="btn btn--capsule btn--primary" onClick={onToggleCapture}>
               <Play size={13} /><span>{t.workflows.captureStart}</span>
             </button>
