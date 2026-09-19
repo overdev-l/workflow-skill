@@ -1998,28 +1998,6 @@ function SkillsThreeColumn({
                 ) : null}
               </header>
 
-              <div className="skill-ownership-card">
-                <div className="skill-ownership-card__header">
-                  <div>
-                    <div className="skill-ownership-card__eyebrow">资产持有</div>
-                    <div className="skill-ownership-card__title-row">
-                      <span className={`skill-ownership-badge ${getSkillOwnershipClass(activeLocalSkill)}`}>
-                        {getSkillOwnershipLabel(activeLocalSkill)}
-                      </span>
-                    </div>
-                  </div>
-                  {activeLocalSkill.ownership === 'external' ? (
-                    <button type="button" className="btn btn--primary btn--capsule btn--sm" disabled={adoptingSkill} onClick={() => void handleAdoptSkill()}>
-                      {adoptingSkill ? <RefreshCw size={11} className="spin" /> : <Download size={11} />}
-                      <span>转移到应用管理</span>
-                    </button>
-                  ) : null}
-                </div>
-                <div className="skill-ownership-card__path font-mono" title={activeLocalSkill.externalSource?.fullPath || activeLocalSkill.skillPath}>
-                  {activeLocalSkill.externalSource?.fullPath || activeLocalSkill.skillPath || '中心 Skill 目录'}
-                </div>
-              </div>
-
               {/* Pure Document View (Read-Only) */}
               <div className="skill-doc-wrap">
                 <div className="skill-doc-meta-bar font-mono">
