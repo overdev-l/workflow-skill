@@ -2138,6 +2138,31 @@ export function AccountSettings({
                 })}
               </div>
               <div className="account-workbench-actions">
+                {selectedTool === 'antigravity' && (
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={Boolean(currentToolState?.autoSwitchEnabled)}
+                    aria-label={loc.autoSwitchLabel}
+                    title={
+                      currentToolState?.autoSwitchStatus
+                        ? `${loc.autoSwitchFullDesc || loc.autoSwitchDesc}（${currentToolState.autoSwitchStatus}）`
+                        : (loc.autoSwitchFullDesc || loc.autoSwitchDesc)
+                    }
+                    className="account-header-auto-switch"
+                    onClick={() => void handleToggleAutoSwitch(!currentToolState?.autoSwitchEnabled)}
+                    disabled={isBusy || isOAuthPending || togglingAutoSwitch}
+                  >
+                    <span className="account-header-auto-switch-label">{loc.autoSwitchLabel}</span>
+                    <span
+                      className={`account-header-auto-switch-toggle ${
+                        currentToolState?.autoSwitchEnabled ? 'account-header-auto-switch-toggle--active' : ''
+                      }`}
+                    >
+                      <span className="account-header-auto-switch-knob" />
+                    </span>
+                  </button>
+                )}
                 {canRollback && (
                   <button
                     type="button"
@@ -2234,7 +2259,6 @@ export function AccountSettings({
             {nativeAccessButton}
 
             {capabilityStripNode}
-            {autoSwitchNode}
             {activeIdentity && (
               <div className="account-tool-identity-chip-wrap">
                 <span className="account-desc">{loc.activeIdentityLabel}</span>
