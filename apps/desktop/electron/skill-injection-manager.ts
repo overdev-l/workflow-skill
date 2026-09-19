@@ -20,6 +20,7 @@ import os from 'node:os'
 import { parseDocument } from 'yaml'
 import {
   DEFAULT_AI_TOOLS,
+  type AIToolTarget,
   type AdoptSkillResult,
   type BatchSkillAdoptionResult,
   type BatchItemResult,
@@ -107,6 +108,82 @@ function resolveGlobalSkillDirectory(tool: (typeof DEFAULT_AI_TOOLS)[number], ho
       ? tool.customDir
       : path.join(homeDir, tool.customDir)
     : path.join(homeDir, tool.defaultDir)
+}
+
+export function getAIToolDirectory(tool: AIToolTarget, options?: SkillInjectionOptions): string {
+  const projectRoot = options?.defaultProjectWorkspace || ''
+  const homeDir = getEffectiveHomeDir(options?.homeDir)
+
+  if (tool.scope === 'project' && !projectRoot) return ''
+
+  if (tool.customDir) {
+    if (path.isAbsolute(tool.customDir)) return tool.customDir
+    return tool.scope === 'project'
+      ? path.join(projectRoot, tool.customDir)
+      : path.join(homeDir, tool.customDir)
+  }
+
+  if (tool.scope === 'project') {
+    return path.join(projectRoot, tool.defaultDir)
+  }
+
+  return resolveGlobalSkillDirectory(tool, homeDir)
+}
+
+export function countDirectChildSkillDirectories(dir: string): number {
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true })
+    let count = 0
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      try {
+        const fullPath = path.join(dir, entry.name)
+        const stat = statSync(fullPath)
+        if (stat.isDirectory()) {
+          count++
+        }
+      } catch {
+        // Ignore broken symlinks, permission errors, or stat failures
+      }
+    }
+    return count
+  } catch {
+    return 0
+  }
+}
+
+export function detectInstalledAITools(options?: SkillInjectionOptions): AIToolTarget[] {
+  return DEFAULT_AI_TOOLS.map((tool) => {
+    const dir = getAIToolDirectory(tool, options)
+    if (tool.scope === 'project' && !dir) {
+      return {
+        ...tool,
+        installed: false,
+        detectedPath: '',
+        itemCount: 0,
+        rootExists: false,
+        skillsDirExists: false,
+        pendingMount: false,
+      }
+    }
+
+    const baseDir = path.dirname(dir)
+    const rootExists = existsSync(baseDir)
+    const skillsDirExists = existsSync(dir)
+    const installed = skillsDirExists
+    const pendingMount = tool.scope === 'project' ? !skillsDirExists : false
+    const itemCount = skillsDirExists ? countDirectChildSkillDirectories(dir) : 0
+
+    return {
+      ...tool,
+      installed,
+      detectedPath: dir,
+      itemCount,
+      rootExists,
+      skillsDirExists,
+      pendingMount,
+    }
+  })
 }
 
 export function validateProjectSkillRelPath(relPath?: string): {

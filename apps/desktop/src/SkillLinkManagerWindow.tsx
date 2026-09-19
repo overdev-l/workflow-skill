@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Check,
   Download,
@@ -96,38 +96,39 @@ export function SkillLinkManagerWindow() {
   }, [toast])
 
   // 4. Load skills, global tools & scanned AI projects
+  const reloadSeqRef = useRef(0)
   const reloadData = async () => {
-    if (window.workflowSkill?.getAITools) {
-      try {
-        const detected = await window.workflowSkill.getAITools()
-        if (Array.isArray(detected) && detected.length > 0) {
-          setAiTools(detected)
-        }
-      } catch {}
-    }
-
-    if (window.workflowSkill?.getAIProjects) {
-      try {
-        const projList = await window.workflowSkill.getAIProjects()
-        if (Array.isArray(projList)) {
-          setProjects(projList)
-        }
-      } catch {}
-    }
-
-    if (window.workflowSkill?.loadLocalSkills) {
-      try {
-        const loaded = await window.workflowSkill.loadLocalSkills()
-        if (Array.isArray(loaded)) {
-          setSkills(loaded)
-        }
-      } catch {}
-    }
+    const seq = ++reloadSeqRef.current
+    try {
+      const [detected, projList, loaded] = await Promise.all([
+        window.workflowSkill?.getAITools ? window.workflowSkill.getAITools() : Promise.resolve(null),
+        window.workflowSkill?.getAIProjects ? window.workflowSkill.getAIProjects() : Promise.resolve(null),
+        window.workflowSkill?.loadLocalSkills ? window.workflowSkill.loadLocalSkills() : Promise.resolve(null),
+      ])
+      if (seq !== reloadSeqRef.current) return
+      if (Array.isArray(detected) && detected.length > 0) {
+        setAiTools(detected)
+      }
+      if (Array.isArray(projList)) {
+        setProjects(projList)
+      }
+      if (Array.isArray(loaded)) {
+        setSkills(loaded)
+      }
+    } catch {}
   }
 
   useEffect(() => {
     void reloadData()
   }, [skillId])
+
+  useEffect(() => {
+    if (window.workflowSkill?.onSkillsChanged) {
+      return window.workflowSkill.onSkillsChanged(() => {
+        void reloadData()
+      })
+    }
+  }, [])
 
   const currentSkill = skills.find((s) => s.id === skillId)
   const targetTools = currentSkill?.targetTools || []
@@ -202,6 +203,7 @@ export function SkillLinkManagerWindow() {
               : s,
           ),
         )
+        await reloadData()
         setToast(`已从 ${displayName} 取消注入`)
       } else {
         if (status === 'conflict' || status === 'broken') {
@@ -245,6 +247,7 @@ export function SkillLinkManagerWindow() {
               : s,
           ),
         )
+        await reloadData()
         setToast(`已成功注入到 ${displayName}`)
       }
     } catch (err: any) {
@@ -287,6 +290,7 @@ export function SkillLinkManagerWindow() {
               : s,
           ),
         )
+        await reloadData()
         setToast(`已从 ${proj.name}/${relPath} 取消注入`)
       } else {
         if (status === 'conflict' || status === 'broken') {
@@ -339,6 +343,7 @@ export function SkillLinkManagerWindow() {
               : s,
           ),
         )
+        await reloadData()
         setToast(`已成功注入到 ${proj.name}/${relPath}`)
       }
     } catch (err: any) {

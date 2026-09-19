@@ -70,6 +70,9 @@ import {
   disconnectSkillTarget,
   resolveSkillConflict,
   discoverAllGlobalSkills,
+  detectInstalledAITools as detectInstalledAIToolsCore,
+  getAIToolDirectory as getAIToolDirectoryCore,
+  countDirectChildSkillDirectories as countDirectChildSkillDirectoriesCore,
 } from './skill-injection-manager'
 import { AccountManager } from './account-manager'
 import { AccountOAuthService } from './account-oauth'
@@ -581,88 +584,22 @@ app.whenReady().then(() => {
   }
 
   function getAIToolDirectory(tool: AIToolTarget): string {
-    const projectRoot = getStoredProjectWorkspace()
-    if (tool.scope === 'project' && !projectRoot) return ''
-
-    if (tool.customDir) {
-      if (path.isAbsolute(tool.customDir)) return tool.customDir
-      return tool.scope === 'project'
-        ? path.join(projectRoot, tool.customDir)
-        : path.join(os.homedir(), tool.customDir)
-    }
-
-    if (tool.scope === 'project') {
-      return path.join(projectRoot, tool.defaultDir)
-    }
-
-    // Dynamic resolution for Gemini / Antigravity global paths
-    if (tool.id === 'gemini-global') {
-      const candidates = [
-        path.join(os.homedir(), '.gemini/antigravity/skills'),
-        path.join(os.homedir(), '.gemini/config/skills'),
-        path.join(os.homedir(), '.gemini/skills'),
-      ]
-      for (const cand of candidates) {
-        if (existsSync(cand)) return cand
-      }
-    }
-
-    return path.join(os.homedir(), tool.defaultDir)
+    return getAIToolDirectoryCore(tool, {
+      traceHome: getStoredTraceHome(),
+      defaultProjectWorkspace: getStoredProjectWorkspace(),
+      homeDir: os.homedir(),
+    })
   }
 
   function countDirectChildSkillDirectories(dir: string): number {
-    try {
-      const entries = readdirSync(dir, { withFileTypes: true })
-      let count = 0
-      for (const entry of entries) {
-        if (entry.name.startsWith('.')) continue
-        try {
-          const fullPath = path.join(dir, entry.name)
-          const stat = statSync(fullPath)
-          if (stat.isDirectory()) {
-            count++
-          }
-        } catch {
-          // Ignore broken symlinks, permission errors, or stat failures
-        }
-      }
-      return count
-    } catch {
-      return 0
-    }
+    return countDirectChildSkillDirectoriesCore(dir)
   }
 
   function detectInstalledAITools(): AIToolTarget[] {
-    return DEFAULT_AI_TOOLS.map((tool) => {
-      const dir = getAIToolDirectory(tool)
-      if (tool.scope === 'project' && !dir) {
-        return {
-          ...tool,
-          installed: false,
-          detectedPath: '',
-          itemCount: 0,
-          rootExists: false,
-          skillsDirExists: false,
-          pendingMount: false,
-        }
-      }
-
-      const baseDir = path.dirname(dir)
-      const rootExists = existsSync(baseDir)
-      const skillsDirExists = existsSync(dir)
-      const installed = skillsDirExists
-      const pendingMount = tool.scope === 'project' ? !skillsDirExists : false
-      const itemCount = skillsDirExists ? countDirectChildSkillDirectories(dir) : 0
-
-      return {
-        ...tool,
-        installed,
-        detectedPath: dir,
-        itemCount,
-        rootExists,
-        skillsDirExists,
-        pendingMount,
-      }
+    return detectInstalledAIToolsCore({
+      traceHome: getStoredTraceHome(),
+      defaultProjectWorkspace: getStoredProjectWorkspace(),
+      homeDir: os.homedir(),
     })
   }
 
@@ -1056,18 +993,22 @@ app.whenReady().then(() => {
 
   ipcMain.handle('system:link-skill-project', (_event, skillId: string, projectPath: string) => {
     if (!skillId || !projectPath) return { success: false }
-    return injectSkillToTarget(skillId, { scope: 'project', projectPath, relPath: '.agents/skills' }, {
+    const res = injectSkillToTarget(skillId, { scope: 'project', projectPath, relPath: '.agents/skills' }, {
       traceHome: getStoredTraceHome(),
       defaultProjectWorkspace: getStoredProjectWorkspace(),
     })
+    if (res.success) notifySkillsChanged()
+    return res
   })
 
   ipcMain.handle('system:unlink-skill-project', (_event, skillId: string, projectPath: string) => {
     if (!skillId || !projectPath) return { success: false }
-    return uninjectSkillFromTarget(skillId, { scope: 'project', projectPath, relPath: '.agents/skills' }, {
+    const res = uninjectSkillFromTarget(skillId, { scope: 'project', projectPath, relPath: '.agents/skills' }, {
       traceHome: getStoredTraceHome(),
       defaultProjectWorkspace: getStoredProjectWorkspace(),
     })
+    if (res.success) notifySkillsChanged()
+    return res
   })
 
   ipcMain.handle('system:link-all-skills-project', (_event, projectPath: string) => {
@@ -1079,10 +1020,11 @@ app.whenReady().then(() => {
       { scope: 'project', projectPath, relPath: '.agents/skills' },
       { traceHome: getStoredTraceHome() },
     )
-    notifySkillsChanged()
+    const count = managedResult.results.filter((item) => item.success).length
+    if (count > 0) notifySkillsChanged()
     return {
-      success: managedResult.results.every((item) => item.success),
-      count: managedResult.results.filter((item) => item.success).length,
+      success: managedResult.results.length > 0 && managedResult.results.every((item) => item.success),
+      count,
     }
   })
 
@@ -1095,10 +1037,11 @@ app.whenReady().then(() => {
       { scope: 'project', projectPath, relPath: '.agents/skills' },
       { traceHome: getStoredTraceHome() },
     )
-    notifySkillsChanged()
+    const count = managedResult.results.filter((item) => item.success).length
+    if (count > 0) notifySkillsChanged()
     return {
-      success: managedResult.results.every((item) => item.success),
-      count: managedResult.results.filter((item) => item.success).length,
+      success: managedResult.results.length > 0 && managedResult.results.every((item) => item.success),
+      count,
     }
   })
 
@@ -1208,6 +1151,7 @@ ${skill.description || ''}
       }
     }
 
+    if (migratedCount > 0) notifySkillsChanged()
     return {
       success: true,
       count: migratedCount,
@@ -1272,6 +1216,7 @@ ${skill.description || ''}
       targetPaths.add(path.join(skillsDir, `${skillId}.json`))
 
       await deleteSkillPaths(targetPaths, mode, (targetPath) => shell.trashItem(targetPath))
+      notifySkillsChanged()
       return true
     } catch (error) {
       console.error(`[Trace] Failed to ${mode === 'trash' ? 'trash' : 'delete'} skill ${skillId}:`, error)
@@ -1356,18 +1301,22 @@ ${skill.description || ''}
 
   ipcMain.handle('system:link-skill-target', (_event, skillId: string, targetId: string) => {
     if (!skillId || !targetId) return { success: false }
-    return injectSkillToTarget(skillId, { scope: 'global', targetId }, {
+    const res = injectSkillToTarget(skillId, { scope: 'global', targetId }, {
       traceHome: getStoredTraceHome(),
       defaultProjectWorkspace: getStoredProjectWorkspace(),
     })
+    if (res.success) notifySkillsChanged()
+    return res
   })
 
   ipcMain.handle('system:unlink-skill-target', (_event, skillId: string, targetId: string) => {
     if (!skillId || !targetId) return { success: false }
-    return uninjectSkillFromTarget(skillId, { scope: 'global', targetId }, {
+    const res = uninjectSkillFromTarget(skillId, { scope: 'global', targetId }, {
       traceHome: getStoredTraceHome(),
       defaultProjectWorkspace: getStoredProjectWorkspace(),
     })
+    if (res.success) notifySkillsChanged()
+    return res
   })
 
   ipcMain.handle('system:get-skill-link-health', (_event, skillId: string) => {
@@ -1409,8 +1358,8 @@ ${skill.description || ''}
       { traceHome: getStoredTraceHome() },
     )
     const count = result.results.filter((item) => item.success).length
-    notifySkillsChanged()
-    return { success: result.results.every((item) => item.success), count }
+    if (count > 0) notifySkillsChanged()
+    return { success: result.results.length > 0 && result.results.every((item) => item.success), count }
   })
 
   ipcMain.handle('system:unlink-all-skills-target', (_event, targetId: string) => {
@@ -1423,8 +1372,8 @@ ${skill.description || ''}
       { traceHome: getStoredTraceHome() },
     )
     const count = result.results.filter((item) => item.success).length
-    notifySkillsChanged()
-    return { success: result.results.every((item) => item.success), count }
+    if (count > 0) notifySkillsChanged()
+    return { success: result.results.length > 0 && result.results.every((item) => item.success), count }
   })
 
   ipcMain.handle('system:read-skill-markdown', (_event, skillId: string) => {
@@ -1752,7 +1701,7 @@ ${skill.description || ''}
         traceHome: getStoredTraceHome(),
         defaultProjectWorkspace: getStoredProjectWorkspace(),
       })
-      notifySkillsChanged()
+      if (res.results.some((item) => item.success)) notifySkillsChanged()
       return res
     }
   )
@@ -1764,7 +1713,7 @@ ${skill.description || ''}
         traceHome: getStoredTraceHome(),
         defaultProjectWorkspace: getStoredProjectWorkspace(),
       })
-      notifySkillsChanged()
+      if (res.results.some((item) => item.success)) notifySkillsChanged()
       return res
     }
   )

@@ -1001,6 +1001,8 @@ function ManageSkillLinksModal({
   open,
   onClose,
   onToggleLinkTarget,
+  onRefreshAiTools,
+  notify,
 }: {
   skill: Skill | null
   skills: Skill[]
@@ -1008,6 +1010,8 @@ function ManageSkillLinksModal({
   open: boolean
   onClose: () => void
   onToggleLinkTarget: (skill: Skill, targetId: string) => Promise<void>
+  onRefreshAiTools?: () => Promise<void>
+  notify?: (msg: string) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [activeTab, setActiveTab] = useState<'global' | 'project'>('global')
@@ -1081,6 +1085,9 @@ function ManageSkillLinksModal({
               currentSkill.targetProjects = (currentSkill.targetProjects || []).filter(
                 (p) => p.toLowerCase() !== proj.path.toLowerCase())
             }
+            await onRefreshAiTools?.()
+          } else {
+            notify?.(res.error || `取消注入失败`)
           }
         }
       } else {
@@ -1098,9 +1105,14 @@ function ManageSkillLinksModal({
                 !(item.projectPath.toLowerCase() === proj.path.toLowerCase() && item.relPath === relPath)),
               { projectPath: proj.path, relPath },
             ]
+            await onRefreshAiTools?.()
+          } else {
+            notify?.(res.error || `注入失败`)
           }
         }
       }
+    } catch (err: any) {
+      notify?.(err?.message || `操作失败`)
     } finally {
       setProjectPathOperating((prev) => ({ ...prev, [key]: false }))
     }
@@ -1111,6 +1123,7 @@ function ManageSkillLinksModal({
     setBusy(true)
     try {
       const successfulPaths: string[] = []
+      const errors: string[] = []
       for (const sp of SUPPORTED_PROJECT_SKILL_PATHS) {
         const key = `${proj.path}:${sp.relPath}`
         if (shouldInject) {
@@ -1120,7 +1133,11 @@ function ManageSkillLinksModal({
               projectPath: proj.path,
               relPath: sp.relPath,
             })
-            if (res.results.some((item) => !item.success)) continue
+            const failed = res.results.find((item) => !item.success)
+            if (failed) {
+              errors.push(failed.error || `${sp.relPath} 注入失败`)
+              continue
+            }
           }
           successfulPaths.push(sp.relPath)
           setProjectLinkMap((prev) => ({ ...prev, [key]: true }))
@@ -1131,28 +1148,43 @@ function ManageSkillLinksModal({
               projectPath: proj.path,
               relPath: sp.relPath,
             })
-            if (res.results.some((item) => !item.success)) continue
+            const failed = res.results.find((item) => !item.success)
+            if (failed) {
+              errors.push(failed.error || `${sp.relPath} 取消失败`)
+              continue
+            }
           }
           successfulPaths.push(sp.relPath)
           setProjectLinkMap((prev) => ({ ...prev, [key]: false }))
         }
       }
       if (shouldInject) {
-        currentSkill.targetProjects = Array.from(new Set([...(currentSkill.targetProjects || []), proj.path]))
-        currentSkill.targetProjectPaths = [
-          ...(currentSkill.targetProjectPaths || []).filter((item) =>
-            item.projectPath.toLowerCase() !== proj.path.toLowerCase() || !successfulPaths.includes(item.relPath)),
-          ...successfulPaths.map((relPath) => ({ projectPath: proj.path, relPath })),
-        ]
+        if (successfulPaths.length > 0) {
+          currentSkill.targetProjects = Array.from(new Set([...(currentSkill.targetProjects || []), proj.path]))
+          currentSkill.targetProjectPaths = [
+            ...(currentSkill.targetProjectPaths || []).filter((item) =>
+              item.projectPath.toLowerCase() !== proj.path.toLowerCase() || !successfulPaths.includes(item.relPath)),
+            ...successfulPaths.map((relPath) => ({ projectPath: proj.path, relPath })),
+          ]
+          await onRefreshAiTools?.()
+        }
       } else {
-        currentSkill.targetProjectPaths = (currentSkill.targetProjectPaths || []).filter((item) =>
-          item.projectPath.toLowerCase() !== proj.path.toLowerCase() || !successfulPaths.includes(item.relPath))
-        if (!currentSkill.targetProjectPaths.some((item) => item.projectPath.toLowerCase() === proj.path.toLowerCase())) {
-          currentSkill.targetProjects = (currentSkill.targetProjects || []).filter(
-            (p) => p.toLowerCase() !== proj.path.toLowerCase()
-          )
+        if (successfulPaths.length > 0) {
+          currentSkill.targetProjectPaths = (currentSkill.targetProjectPaths || []).filter((item) =>
+            item.projectPath.toLowerCase() !== proj.path.toLowerCase() || !successfulPaths.includes(item.relPath))
+          if (!currentSkill.targetProjectPaths.some((item) => item.projectPath.toLowerCase() === proj.path.toLowerCase())) {
+            currentSkill.targetProjects = (currentSkill.targetProjects || []).filter(
+              (p) => p.toLowerCase() !== proj.path.toLowerCase()
+            )
+          }
+          await onRefreshAiTools?.()
         }
       }
+      if (errors.length > 0 && successfulPaths.length === 0) {
+        notify?.(errors.join('; '))
+      }
+    } catch (err: any) {
+      notify?.(err?.message || `批量操作失败`)
     } finally {
       setBusy(false)
     }
@@ -2055,6 +2087,8 @@ function SkillsThreeColumn({
           open={Boolean(linkModalSkill)}
           onClose={() => setLinkModalSkill(null)}
           onToggleLinkTarget={onToggleLinkTarget}
+          onRefreshAiTools={onReloadSkills}
+          notify={notify}
         />
         <ConflictResolutionDialog
           open={Boolean(skillConflictBinding && activeLocalSkill)}
@@ -4687,50 +4721,68 @@ export function App() {
   const [selectedSkillId, setSelectedSkillId] = useState<string>('')
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('')
 
-  useEffect(() => {
-    let active = true
-
-    const refreshAiTools = () => {
-      if (window.workflowSkill?.getAITools) {
-        window.workflowSkill
-          .getAITools()
-          .then((detected) => {
-            if (active && Array.isArray(detected) && detected.length > 0) {
-              setAiTools(detected)
-            }
-          })
-          .catch(() => {})
+  const aiToolsReqSeqRef = useRef(0)
+  const refreshAiTools = useCallback(async () => {
+    if (!window.workflowSkill?.getAITools) return
+    const currentSeq = ++aiToolsReqSeqRef.current
+    try {
+      const detected = await window.workflowSkill.getAITools()
+      if (currentSeq === aiToolsReqSeqRef.current && Array.isArray(detected) && detected.length > 0) {
+        setAiTools(detected)
       }
-    }
-
-    refreshAiTools()
-    window.addEventListener('workflow-skill:workspace-changed', refreshAiTools)
-
-    if (window.workflowSkill?.loadLocalSkills) {
-      window.workflowSkill
-        .loadLocalSkills()
-        .then((loaded) => {
-          if (active && Array.isArray(loaded)) {
-            if (loaded.length > 0) {
-              setSkills(loaded)
-              setSelectedSkillId((prev) => prev || loaded[0].id)
-            } else {
-              // Seed demo skills with rich target tools data
-              setSkills(demoSkills)
-              setSelectedSkillId((prev) => prev || demoSkills[0].id)
-              for (const ds of demoSkills) {
-                void window.workflowSkill?.saveLocalSkill?.(ds)
-              }
-            }
-          }
-        })
-        .catch(() => {})
-    }
-    return () => {
-      active = false
-      window.removeEventListener('workflow-skill:workspace-changed', refreshAiTools)
+    } catch {
+      // Retain current state on error
     }
   }, [])
+
+  const skillsReqSeqRef = useRef(0)
+  const refreshSkills = useCallback(async () => {
+    if (!window.workflowSkill?.loadLocalSkills) return
+    const currentSeq = ++skillsReqSeqRef.current
+    try {
+      const loaded = await window.workflowSkill.loadLocalSkills()
+      if (currentSeq === skillsReqSeqRef.current && Array.isArray(loaded)) {
+        if (loaded.length > 0) {
+          setSkills(loaded)
+          setSelectedSkillId((prev) => prev || loaded[0].id)
+        } else {
+          // Seed demo skills with rich target tools data
+          setSkills(demoSkills)
+          setSelectedSkillId((prev) => prev || demoSkills[0].id)
+          for (const ds of demoSkills) {
+            void window.workflowSkill?.saveLocalSkill?.(ds)
+          }
+        }
+      }
+    } catch {
+      // Retain current state on error
+    }
+  }, [])
+
+  const refreshAllSkillsData = useCallback(async () => {
+    await Promise.all([refreshSkills(), refreshAiTools()])
+  }, [refreshSkills, refreshAiTools])
+
+  useEffect(() => {
+    void refreshAiTools()
+    void refreshSkills()
+
+    const handleWorkspaceChanged = () => {
+      void refreshAiTools()
+      void refreshSkills()
+    }
+    window.addEventListener('workflow-skill:workspace-changed', handleWorkspaceChanged)
+
+    const unsubscribeSkills = window.workflowSkill?.onSkillsChanged?.(() => {
+      void refreshAiTools()
+      void refreshSkills()
+    })
+
+    return () => {
+      window.removeEventListener('workflow-skill:workspace-changed', handleWorkspaceChanged)
+      unsubscribeSkills?.()
+    }
+  }, [refreshAiTools, refreshSkills])
 
   const handleToggleLinkTarget = async (skill: Skill, targetId: string) => {
     const isCurrentlyLinked = Boolean(skill.targetTools?.includes(targetId))
@@ -4753,6 +4805,7 @@ export function App() {
               : s,
           ),
         )
+        await refreshAiTools()
         setToast(t.skills.unlinkedSuccessToast(skill.name, toolName))
       } else {
         if (window.workflowSkill?.linkSkillTarget) {
@@ -4769,6 +4822,7 @@ export function App() {
               : s,
           ),
         )
+        await refreshAiTools()
         setToast(t.skills.linkedSuccessToast(skill.name, toolName))
       }
     } catch (err: any) {
@@ -4788,6 +4842,7 @@ export function App() {
     if (activeDetail?.skill?.id === skill.id) {
       setActiveDetail(null)
     }
+    await refreshAiTools()
     setToast(mode === 'trash' ? t.skills.trashedToast(skill.name) : t.skills.deletedToast(skill.name))
   }
 
@@ -5283,13 +5338,7 @@ export function App() {
           onSelectSkillId={setSelectedSkillId}
           onToggleLinkTarget={handleToggleLinkTarget}
           onDeleteSkill={handleDeleteSkillCompletely}
-          onReloadSkills={async () => {
-            if (window.workflowSkill?.loadLocalSkills) setSkills(await window.workflowSkill.loadLocalSkills())
-            if (window.workflowSkill?.getAITools) {
-              const detected = await window.workflowSkill.getAITools()
-              if (Array.isArray(detected) && detected.length > 0) setAiTools(detected)
-            }
-          }}
+          onReloadSkills={refreshAllSkillsData}
           onExportCode={(wf, name) => setExportState({ open: true, skillName: name, workflow: wf })}
           notify={setToast}
           scope={workspaceScope}
