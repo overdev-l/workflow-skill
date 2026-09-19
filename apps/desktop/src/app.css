@@ -7293,39 +7293,182 @@ body.is-resizing-master-column * {
 .skill-adoption-result strong { font-size: 12px; font-weight: 650; }
 .skill-adoption-result span { color: var(--color-muted); font-size: 10px; }
 
-.conflict-resolution-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: color-mix(in oklch, var(--color-ink) 34%, transparent);
-  backdrop-filter: blur(18px) saturate(145%);
+.conflict-resolution-dialog {
+  width: min(440px, calc(100vw - 32px));
 }
 
-.conflict-resolution-dialog { width: min(470px, calc(100vw - 32px)); }
-.conflict-resolution-title-wrap { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.conflict-resolution-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 auto; border-radius: 9px; color: var(--color-danger-ink); background: var(--color-danger-bg); }
-.conflict-resolution-subtitle { margin: 2px 0 0; color: var(--color-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conflict-resolution-summary { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 10px; padding: 9px 10px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--surface-float); }
-.conflict-resolution-summary > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; font-size: 11px; }
-.conflict-resolution-summary span { color: var(--color-muted); }
-.conflict-resolution-summary strong { color: var(--color-danger-ink); font-weight: 600; }
-.conflict-resolution-summary code { min-width: 0; overflow: hidden; color: var(--color-ink); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.conflict-resolution-options { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; }
-.conflict-resolution-option { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 9px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; color: var(--color-ink); background: var(--surface-float); text-align: left; cursor: pointer; transition: border-color .15s ease, background .15s ease, opacity .15s ease; }
-.conflict-resolution-option:hover:not(:disabled) { border-color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 8%, var(--surface-float)); }
-.conflict-resolution-option:disabled { opacity: .55; cursor: not-allowed; }
-.conflict-resolution-option__icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex: 0 0 auto; border-radius: 6px; color: var(--color-accent); background: color-mix(in oklch, var(--color-accent) 13%, transparent); }
-.conflict-resolution-option.is-primary .conflict-resolution-option__icon { color: var(--color-success-ink); background: var(--color-success-bg); }
-.conflict-resolution-option.is-target .conflict-resolution-option__icon { color: var(--color-accent); }
-.conflict-resolution-option.is-neutral .conflict-resolution-option__icon { color: var(--color-muted); background: var(--surface-raised); }
-.conflict-resolution-option__copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.conflict-resolution-option__copy strong { font-size: 12px; font-weight: 600; }
-.conflict-resolution-option__copy small { color: var(--color-muted); font-size: 10px; line-height: 1.35; }
-.conflict-resolution-error { margin-top: 10px; padding: 7px 9px; border: 1px solid color-mix(in oklch, var(--color-danger) 28%, transparent); border-radius: 6px; color: var(--color-danger-ink); background: var(--color-danger-bg); font-size: 11px; line-height: 1.4; }
+.conflict-resolution-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.conflict-resolution-title-wrap h2 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--color-ink);
+}
+
+.conflict-resolution-subtitle {
+  margin: 2px 0 0;
+  color: var(--color-muted);
+  font-size: 0.6875rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conflict-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-ink);
+  font-size: 0.625rem;
+  font-weight: 500;
+}
+
+.conflict-resolution-dialog__body {
+  padding: 12px 18px;
+  gap: 10px;
+}
+
+/* Flat Metadata List - No Card inside Card per DESIGN.md §1 */
+.conflict-paths-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.conflict-path-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.6875rem;
+}
+
+.conflict-path-label {
+  color: var(--color-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.conflict-path-value {
+  color: var(--color-ink);
+  font-size: 0.625rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  direction: rtl;
+}
+
+.conflict-resolution-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.conflict-resolution-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--motion-smooth),
+              background var(--motion-fast) var(--motion-smooth),
+              opacity var(--motion-fast) var(--motion-smooth);
+}
+
+.conflict-resolution-option:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-raised);
+}
+
+.conflict-resolution-option:active:not(:disabled) {
+  background: var(--color-surface);
+}
+
+.conflict-resolution-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.conflict-resolution-option__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  color: var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 12%, transparent);
+}
+
+.conflict-resolution-option.is-primary .conflict-resolution-option__icon {
+  color: var(--color-primary);
+  background: color-mix(in oklch, var(--color-primary) 12%, transparent);
+}
+
+.conflict-resolution-option.is-target .conflict-resolution-option__icon {
+  color: var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 12%, transparent);
+}
+
+.conflict-resolution-option.is-neutral .conflict-resolution-option__icon {
+  color: var(--color-muted);
+  background: var(--color-surface-raised);
+}
+
+.conflict-resolution-option__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.conflict-resolution-option__copy strong {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.conflict-resolution-option__copy small {
+  color: var(--color-muted);
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
+.conflict-resolution-error {
+  padding: 6px 10px;
+  border: 1px solid color-mix(in oklch, var(--color-danger) 28%, transparent);
+  border-radius: 6px;
+  color: var(--color-danger-ink);
+  background: var(--color-danger-bg);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
 
 /* =========================================================================
    Skill Distribution Board (OPC-73 Stage 2)

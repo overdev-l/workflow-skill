@@ -26,21 +26,21 @@ const STRATEGIES: Array<{
   {
     id: 'use_app',
     title: '以应用为准',
-    description: '用 Trace 中央版本恢复目标。原目标会先备份到回收目录。',
+    description: '使用应用版本覆盖目标（原内容已备份至回收目录）',
     icon: Check,
     tone: 'is-primary',
   },
   {
     id: 'use_target',
     title: '以目标为准',
-    description: '把目标修改纳入中央资产，旧中央版本会先备份。',
+    description: '同步目标外部修改回应用（旧版本已备份）',
     icon: Download,
     tone: 'is-target',
   },
   {
     id: 'keep_external',
     title: '保留外部',
-    description: '保持目标现状，只解除 Trace 对这个目标的管理关联。',
+    description: '保持目标现状，仅解除与 Trace 的管理关联',
     icon: ExternalLink,
     tone: 'is-neutral',
   },
@@ -63,7 +63,10 @@ export function ConflictResolutionDialog({
   if (!open) return null
 
   return (
-    <div className="conflict-resolution-backdrop view-enter" onMouseDown={() => { if (!busy) onClose() }}>
+    <div
+      className="modal-glass-backdrop conflict-resolution-backdrop view-enter"
+      onMouseDown={() => { if (!busy) onClose() }}
+    >
       <div
         className="glass-dialog-box conflict-resolution-dialog modal-pop"
         role="alertdialog"
@@ -73,54 +76,84 @@ export function ConflictResolutionDialog({
       >
         <div className="dialog-header-row">
           <div className="conflict-resolution-title-wrap">
-            <span className="conflict-resolution-icon"><AlertTriangle size={16} /></span>
+            <div className="danger-icon-badge">
+              <AlertTriangle size={15} />
+            </div>
             <div>
-              <h3 id="conflict-resolution-title" className="glass-dialog-title">解决 {assetKind} 冲突</h3>
-              <p className="conflict-resolution-subtitle">{assetName} · {targetLabel}</p>
+              <h2 id="conflict-resolution-title">解决 {assetKind} 冲突</h2>
+              <p className="conflict-resolution-subtitle font-mono">
+                <span>{assetName} · {targetLabel}</span>
+                {statusLabel && statusLabel !== '存在冲突' ? (
+                  <span className="conflict-status-pill">{statusLabel}</span>
+                ) : null}
+              </p>
             </div>
           </div>
-          <button type="button" className="clear-search-btn" onClick={onClose} disabled={busy} aria-label="关闭">
+          <button
+            type="button"
+            className="dialog-close-btn"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="关闭"
+          >
             <X size={14} />
           </button>
         </div>
 
-        <div className="conflict-resolution-summary">
-          <div><span>当前状态</span><strong>{statusLabel}</strong></div>
-          {sourcePath ? <div><span>应用源</span><code title={sourcePath}>{sourcePath}</code></div> : null}
-          {targetPath ? <div><span>目标位置</span><code title={targetPath}>{targetPath}</code></div> : null}
-        </div>
-        <p className="dialog-desc-text">
-          目标内容已被外部修改。请选择处理方式；未选择前不会覆盖或删除任何内容。
-        </p>
+        <div className="dialog-body conflict-resolution-dialog__body">
+          {(sourcePath || targetPath) ? (
+            <div className="conflict-paths-list font-mono">
+              {sourcePath ? (
+                <div className="conflict-path-row">
+                  <span className="conflict-path-label">应用源</span>
+                  <span className="conflict-path-value" title={sourcePath}>{sourcePath}</span>
+                </div>
+              ) : null}
+              {targetPath ? (
+                <div className="conflict-path-row">
+                  <span className="conflict-path-label">目标位置</span>
+                  <span className="conflict-path-value" title={targetPath}>{targetPath}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
-        <div className="conflict-resolution-options">
-          {STRATEGIES.map((strategy) => {
-            const Icon = strategy.icon
-            const disabled = busy || (strategy.id === 'use_target' && !canUseTarget)
-            return (
-              <button
-                key={strategy.id}
-                type="button"
-                className={`conflict-resolution-option ${strategy.tone}`}
-                disabled={disabled}
-                onClick={() => void onResolve(strategy.id)}
-              >
-                <span className="conflict-resolution-option__icon">
-                  {busy ? <RefreshCw size={14} className="spin" /> : <Icon size={14} />}
-                </span>
-                <span className="conflict-resolution-option__copy">
-                  <strong>{strategy.title}</strong>
-                  <small>{strategy.id === 'use_target' && !canUseTarget ? '目标软链已损坏，无法读取目标内容。' : strategy.description}</small>
-                </span>
-              </button>
-            )
-          })}
-        </div>
+          <div className="conflict-resolution-options">
+            {STRATEGIES.map((strategy) => {
+              const Icon = strategy.icon
+              const disabled = busy || (strategy.id === 'use_target' && !canUseTarget)
+              return (
+                <button
+                  key={strategy.id}
+                  type="button"
+                  className={`conflict-resolution-option ${strategy.tone}`}
+                  disabled={disabled}
+                  onClick={() => void onResolve(strategy.id)}
+                >
+                  <span className="conflict-resolution-option__icon">
+                    {busy ? <RefreshCw size={13} className="spin" /> : <Icon size={13} />}
+                  </span>
+                  <span className="conflict-resolution-option__copy">
+                    <strong>{strategy.title}</strong>
+                    <small>{strategy.id === 'use_target' && !canUseTarget ? '目标软链已损坏，无法读取目标内容' : strategy.description}</small>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
 
-        {error ? <div className="conflict-resolution-error" role="alert">{error}</div> : null}
+          {error ? <div className="conflict-resolution-error" role="alert">{error}</div> : null}
+        </div>
 
         <div className="dialog-footer-row">
-          <button type="button" className="btn btn--capsule-ghost btn--sm" onClick={onClose} disabled={busy}>取消</button>
+          <button
+            type="button"
+            className="btn btn--secondary btn--capsule btn--sm"
+            onClick={onClose}
+            disabled={busy}
+          >
+            取消
+          </button>
         </div>
       </div>
     </div>

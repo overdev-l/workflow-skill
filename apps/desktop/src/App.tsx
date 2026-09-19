@@ -1,6 +1,5 @@
 import { ProjectsThreeColumn } from './components/ProjectsThreeColumn'
 import { AppUpdate, useUpdateBlocker } from './components/AppUpdate'
-import { SkillDistributionBoard } from './components/SkillDistributionBoard'
 import { SkillDiagnosticWorkbench } from './components/SkillDiagnosticWorkbench'
 import {
   useCallback,
@@ -2007,9 +2006,6 @@ function SkillsThreeColumn({
                       <span className={`skill-ownership-badge ${getSkillOwnershipClass(activeLocalSkill)}`}>
                         {getSkillOwnershipLabel(activeLocalSkill)}
                       </span>
-                      <span className="skill-ownership-card__hint">
-                        {activeLocalSkill.ownership === 'external' ? '当前目录由 AI 应用自行维护' : '中心库由 Trace 维护，目标目录仅作为分发入口'}
-                      </span>
                     </div>
                   </div>
                   {activeLocalSkill.ownership === 'external' ? (
@@ -2023,28 +2019,6 @@ function SkillsThreeColumn({
                   {activeLocalSkill.externalSource?.fullPath || activeLocalSkill.skillPath || '中心 Skill 目录'}
                 </div>
               </div>
-
-              <SkillDistributionBoard
-                skill={activeLocalSkill}
-                aiTools={aiTools}
-                scope={skillTab}
-                onScopeChange={setSkillTab}
-                projects={projects}
-                selectedProjectId={projectId}
-                onSelectProjectId={setProjectId}
-                onReloadSkills={async () => {
-                  await onReloadSkills()
-                  projectDiscovery.refresh()
-                  await refreshSkillAdoptionPlan()
-                  await onRefreshProjects?.()
-                }}
-                onResolveConflict={(binding) => {
-                  setSkillConflictBinding(binding)
-                  setSkillConflictError('')
-                }}
-                onAdoptSkill={handleAdoptSkill}
-                notify={notify}
-              />
 
               {/* Pure Document View (Read-Only) */}
               <div className="skill-doc-wrap">
