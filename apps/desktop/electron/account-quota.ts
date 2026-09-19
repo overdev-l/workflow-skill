@@ -46,9 +46,12 @@ const MAX_MODELS_PER_ACCOUNT = 40
 export const MAX_LABEL_LENGTH = 100
 export const MAX_PLAN_LENGTH = 50
 
-const ALLOWED_QUOTA_URLS = new Set([
+export const ALLOWED_QUOTA_URLS = new Set([
   'https://chatgpt.com/backend-api/wham/usage',
   'https://api.anthropic.com/api/oauth/usage',
+  'https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist',
+  'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
+  'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
   'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist',
   'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
   'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
@@ -200,13 +203,15 @@ function classifyAntigravityQuotaPeriod(...values: unknown[]): AccountQuotaPerio
   if (
     /\b5\s*(?:h|hr|hrs|hour|hours)\b/.test(text) ||
     /\bfive\s+hours?\b/.test(text) ||
-    text.includes('5h')
+    text.includes('5h') ||
+    /\b18000\b/.test(text)
   ) {
     return 'five-hour'
   }
   if (
     /\b(?:weekly|week|7\s*(?:d|day|days)|seven\s+(?:day|days))\b/.test(text) ||
-    text.includes('7d')
+    text.includes('7d') ||
+    /\b604800\b/.test(text)
   ) {
     return 'weekly'
   }
@@ -217,15 +222,26 @@ function parseAntigravityQuotaBucket(rawBucket: unknown): AntigravityQuotaBucket
   if (!rawBucket || typeof rawBucket !== 'object' || Array.isArray(rawBucket)) return undefined
   const bucket = rawBucket as Record<string, any>
   const nestedRemaining = bucket.remaining && typeof bucket.remaining === 'object' && !Array.isArray(bucket.remaining)
-    ? bucket.remaining.remainingFraction
+    ? (bucket.remaining.remainingFraction ?? bucket.remaining.remaining_fraction)
     : undefined
   const nestedResetTime = bucket.remaining && typeof bucket.remaining === 'object' && !Array.isArray(bucket.remaining)
-    ? bucket.remaining.resetTime
+    ? (bucket.remaining.resetTime ?? bucket.remaining.reset_time)
     : undefined
-  const period = classifyAntigravityQuotaPeriod(bucket.bucketId, bucket.displayName, bucket.window, bucket.description)
+  const period = classifyAntigravityQuotaPeriod(
+    bucket.bucketId,
+    bucket.id,
+    bucket.name,
+    bucket.displayName,
+    bucket.window,
+    bucket.description,
+    bucket.period,
+    bucket.duration,
+    bucket.durationSeconds ? String(bucket.durationSeconds) : undefined
+  )
   if (!period) return undefined
 
-  const remainingPercent = safeRemainingPercent(bucket.remainingFraction ?? nestedRemaining, false)
+  const rawRemainingVal = bucket.remainingFraction ?? bucket.remaining_fraction ?? nestedRemaining
+  const remainingPercent = safeRemainingPercent(rawRemainingVal, false)
   const resetsAt = safeEpochMs(bucket.resetTime ?? bucket.reset_time ?? nestedResetTime, false)
   return {
     period,
@@ -295,7 +311,9 @@ function parseAntigravityQuotaSummary(body: unknown): AntigravityQuotaSummary {
       group.displayName,
       group.description,
       group.groupId,
-      group.id
+      group.id,
+      group.name,
+      group.title
     )
     if (families.length === 0 || !Array.isArray(group.buckets)) continue
 
@@ -631,7 +649,7 @@ async function queryAntigravityQuota(
   let project: string | undefined
   let detectedPlan: string | undefined
   let planReason: 'restricted-age' | 'unavailable' = 'unavailable'
-  const loadUrl = 'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist'
+  const loadUrl = 'https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist'
 
   try {
     const loadRes = await executeBoundedFetch(fetchFn, loadUrl, {
@@ -639,7 +657,7 @@ async function queryAntigravityQuota(
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'User-Agent': 'antigravity-cli',
+        'User-Agent': 'antigravity/1.0',
         'Accept': 'application/json',
       },
       body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
@@ -666,7 +684,7 @@ async function queryAntigravityQuota(
   }
 
   const entitlement = detectedPlan ? { plan: detectedPlan } : { planReason }
-  const modelsUrl = 'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels'
+  const modelsUrl = 'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels'
   let modelsRes: { status: number; json: any; ok: boolean }
 
   try {
@@ -675,7 +693,7 @@ async function queryAntigravityQuota(
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'User-Agent': 'antigravity-cli',
+        'User-Agent': 'antigravity/1.0',
         'Accept': 'application/json',
       },
       body: JSON.stringify(project ? { project } : {}),
@@ -689,7 +707,7 @@ async function queryAntigravityQuota(
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
-          'User-Agent': 'antigravity-cli',
+          'User-Agent': 'antigravity/1.0',
           'Accept': 'application/json',
         },
         body: JSON.stringify({}),
@@ -717,7 +735,7 @@ async function queryAntigravityQuota(
   // A summary failure is intentionally best-effort: it must not hide a valid
   // per-model 5-hour result.
   let quotaSummary: AntigravityQuotaSummary | undefined
-  const summaryUrl = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary'
+  const summaryUrl = 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary'
   try {
     let summaryRes: { status: number; json: any; ok: boolean } | undefined
     try {
@@ -726,13 +744,17 @@ async function queryAntigravityQuota(
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
-          'User-Agent': 'antigravity-cli',
+          'User-Agent': 'antigravity/1.0',
           'Accept': 'application/json',
         },
         body: JSON.stringify(project ? { project } : {}),
       })
     } catch {
       summaryRes = undefined
+    }
+
+    if (summaryRes?.status === 401) {
+      return { status: 'expired', windows: [], ...entitlement }
     }
 
     // If summary request failed or returned non-ok (e.g. 403 forbidden or network error with project), retry without project
@@ -744,13 +766,17 @@ async function queryAntigravityQuota(
           headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            'User-Agent': 'antigravity-cli',
+            'User-Agent': 'antigravity/1.0',
             'Accept': 'application/json',
           },
           body: JSON.stringify({}),
         })
       } catch {
         summaryRes = undefined
+      }
+
+      if (summaryRes?.status === 401) {
+        return { status: 'expired', windows: [], ...entitlement }
       }
     }
 
@@ -777,8 +803,14 @@ async function queryAntigravityQuota(
     const label = safeDisplayName ?? modelKey
     const family = classifyAntigravityModelFamily(modelKey, m.displayName, m.apiProvider)
 
-    const rawRemaining = safeRemainingPercent(m.quotaInfo?.remainingFraction, false)
-    const rawResetsAt = safeEpochMs(m.quotaInfo?.resetTime, false)
+    const rawRemaining = safeRemainingPercent(
+      m.quotaInfo?.remainingFraction ?? m.quotaInfo?.remaining_fraction,
+      false
+    )
+    const rawResetsAt = safeEpochMs(
+      m.quotaInfo?.resetTime ?? m.quotaInfo?.reset_time,
+      false
+    )
 
     const familySummary = family ? quotaSummary?.get(family) : undefined
     const familyFiveHour = familySummary?.get('five-hour')
@@ -816,7 +848,7 @@ async function queryAntigravityQuota(
       ) {
         fiveHourResetsAt = familyFiveHour.resetsAt ?? rawResetsAt
       } else {
-        fiveHourResetsAt = familyFiveHour.resetsAt ?? rawResetsAt
+        fiveHourResetsAt = rawResetsAt ?? familyFiveHour.resetsAt
       }
     } else {
       fiveHourRemaining = rawRemaining

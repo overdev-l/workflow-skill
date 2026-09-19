@@ -31,6 +31,7 @@ import { groupAntigravityQuotaWindows, mergeQuotaWindows } from '../apps/desktop
 import { formatQuotaWindowLabel } from '../apps/desktop/src/utils/quota-label.ts'
 import { randomUUID } from 'node:crypto'
 import {
+  ALLOWED_QUOTA_URLS,
   AccountQuotaService,
   HTTP_TIMEOUT_MS,
   MAX_CONCURRENT_HTTP,
@@ -416,6 +417,12 @@ await test('3. Antigravity positive query: loadCodeAssist, fetchAvailableModels,
   assert.equal(m2Weekly.resetsAt, Date.parse('2030-01-03T00:00:00Z'))
 
   assert.equal(calls.length, 3)
+  assert.equal(calls[0].url, 'https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist')
+  assert.equal(calls[0].init.headers['User-Agent'], 'antigravity/1.0')
+  assert.equal(calls[1].url, 'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels')
+  assert.equal(calls[1].init.headers['User-Agent'], 'antigravity/1.0')
+  assert.equal(calls[2].url, 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary')
+  assert.equal(calls[2].init.headers['User-Agent'], 'antigravity/1.0')
   assert.deepEqual(calls[0].body, { metadata: { ideType: 'ANTIGRAVITY' } })
   assert.deepEqual(calls[1].body, { project: 'test-project-123' })
   assert.deepEqual(calls[2].body, { project: 'test-project-123' })
@@ -1659,6 +1666,168 @@ await test('Antigravity retrieveUserQuotaSummary 403 project retry: retries with
   assert.deepEqual(requests[1].body, { project: 'problematic-project' })
   assert.deepEqual(requests[2].body, { project: 'problematic-project' })
   assert.deepEqual(requests[3].body, {})
+})
+
+await test('Antigravity daily endpoint allowlist: ALLOWED_QUOTA_URLS contains all daily and legacy endpoints', async () => {
+  assert.ok(ALLOWED_QUOTA_URLS.has('https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist'))
+  assert.ok(ALLOWED_QUOTA_URLS.has('https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels'))
+  assert.ok(ALLOWED_QUOTA_URLS.has('https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary'))
+  assert.ok(ALLOWED_QUOTA_URLS.has('https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist'))
+  assert.ok(ALLOWED_QUOTA_URLS.has('https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels'))
+  assert.ok(ALLOWED_QUOTA_URLS.has('https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary'))
+})
+
+await test('Antigravity daily endpoint: falls back to familyFiveHour.remainingPercent when quotaInfo.remainingFraction is undefined', async () => {
+  const store = new MockStore()
+  const acc = makeAntigravityAccount()
+  store.set(acc.metadata.id, acc)
+
+  const requests = []
+  const mockFetch = async (url, init) => {
+    const body = init?.body ? JSON.parse(init.body) : null
+    requests.push({ url, init, body })
+
+    if (url.endsWith(':loadCodeAssist')) {
+      return jsonResponse({
+        cloudaicompanionProject: 'daily-proj-1',
+        currentTier: { name: 'Google One AI Premium' },
+      })
+    }
+    if (url.endsWith(':fetchAvailableModels')) {
+      return jsonResponse({
+        models: {
+          // Model 1: quotaInfo is present, but remainingFraction is undefined (exhausted / group-managed)
+          'gemini-3.8-flash-high': {
+            displayName: 'Gemini 3.8 Flash High',
+            quotaInfo: {
+              resetTime: '2030-01-01T05:00:00Z',
+            },
+          },
+          // Model 2: quotaInfo is empty object {}
+          'gemini-3.7-flash-medium': {
+            displayName: 'Gemini 3.7 Flash Medium',
+            quotaInfo: {},
+          },
+          // Model 3: quotaInfo with remainingFraction explicitly undefined
+          'claude-sonnet-4.6-thinking': {
+            displayName: 'Claude Sonnet 4.6 (Thinking)',
+            quotaInfo: {
+              remainingFraction: undefined,
+              resetTime: '2030-01-01T03:00:00Z',
+            },
+          },
+          // Model 4: quotaInfo with remainingFraction undefined
+          'gpt-oss-120b-medium': {
+            displayName: 'GPT-OSS 120B (Medium)',
+            quotaInfo: {
+              remainingFraction: undefined,
+            },
+          },
+        },
+      })
+    }
+    if (url.endsWith(':retrieveUserQuotaSummary')) {
+      return jsonResponse({
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              {
+                bucketId: 'gemini_5h',
+                window: '5h',
+                remainingFraction: 0.47, // Real 5-hour: 47%
+                resetTime: '2030-01-01T04:30:00Z',
+              },
+              {
+                bucketId: 'gemini_weekly',
+                window: 'weekly',
+                remainingFraction: 0.58, // Real weekly: 58%
+                resetTime: '2030-01-07T00:00:00Z',
+              },
+            ],
+          },
+          {
+            displayName: 'Claude Models',
+            buckets: [
+              {
+                bucketId: 'claude_5h',
+                window: '5h',
+                remainingFraction: 0.0, // Genuine 0 (exhausted!)
+                resetTime: '2030-01-01T03:00:00Z',
+              },
+              {
+                bucketId: 'claude_weekly',
+                window: 'weekly',
+                remainingFraction: 0.25,
+                resetTime: '2030-01-07T00:00:00Z',
+              },
+            ],
+          },
+          {
+            displayName: 'OpenAI Models',
+            buckets: [
+              {
+                bucketId: 'openai_5h',
+                window: '5h',
+                remainingFraction: 0.8,
+                resetTime: '2030-01-01T04:00:00Z',
+              },
+              {
+                bucketId: 'openai_weekly',
+                window: 'weekly',
+                remainingFraction: 0.9,
+                resetTime: '2030-01-07T00:00:00Z',
+              },
+            ],
+          },
+        ],
+      })
+    }
+    throw new Error(`Unexpected URL: ${url}`)
+  }
+
+  const service = new AccountQuotaService({ store, fetch: mockFetch })
+  const snapshot = await service.refreshAccount(acc.metadata.id)
+
+  assert.equal(snapshot.status, 'ready')
+  assert.equal(snapshot.plan, 'Google One AI Premium')
+
+  // Gemini 3.8: 5h falls back to group 47%, weekly is 58%
+  const g38_5h = snapshot.windows.find(w => w.id === 'gemini-3.8-flash-high' && w.period === 'five-hour')
+  assert.ok(g38_5h)
+  assert.equal(g38_5h.remainingPercent, 47)
+  assert.equal(g38_5h.resetsAt, Date.parse('2030-01-01T04:30:00Z'))
+
+  const g38_w = snapshot.windows.find(w => w.id === 'gemini-3.8-flash-high:weekly' && w.period === 'weekly')
+  assert.ok(g38_w)
+  assert.equal(g38_w.remainingPercent, 58)
+
+  // Gemini 3.7: 5h falls back to group 47%
+  const g37_5h = snapshot.windows.find(w => w.id === 'gemini-3.7-flash-medium' && w.period === 'five-hour')
+  assert.ok(g37_5h)
+  assert.equal(g37_5h.remainingPercent, 47)
+
+  // Claude: 5h falls back to genuine 0% from group (exhausted)
+  const claude_5h = snapshot.windows.find(w => w.id === 'claude-sonnet-4.6-thinking' && w.period === 'five-hour')
+  assert.ok(claude_5h)
+  assert.equal(claude_5h.remainingPercent, 0)
+  assert.equal(claude_5h.resetsAt, Date.parse('2030-01-01T03:00:00Z'))
+
+  // OpenAI: 5h falls back to 80%
+  const gpt_5h = snapshot.windows.find(w => w.id === 'gpt-oss-120b-medium' && w.period === 'five-hour')
+  assert.ok(gpt_5h)
+  assert.equal(gpt_5h.remainingPercent, 80)
+
+  // All URLs targeted daily-cloudcode-pa.googleapis.com with project and User-Agent: antigravity/1.0
+  assert.equal(requests.length, 3)
+  assert.equal(requests[0].url, 'https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist')
+  assert.equal(requests[0].init.headers['User-Agent'], 'antigravity/1.0')
+  assert.equal(requests[1].url, 'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels')
+  assert.equal(requests[1].init.headers['User-Agent'], 'antigravity/1.0')
+  assert.equal(requests[2].url, 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary')
+  assert.equal(requests[2].init.headers['User-Agent'], 'antigravity/1.0')
+  assert.deepEqual(requests[1].body, { project: 'daily-proj-1' })
+  assert.deepEqual(requests[2].body, { project: 'daily-proj-1' })
 })
 
 console.log(`\n========================================`)
