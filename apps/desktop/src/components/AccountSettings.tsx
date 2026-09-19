@@ -1209,7 +1209,7 @@ export function AccountSettings({
     return res
   }, [discoveryResults, selectedTool, dismissedFeedback])
 
-  const getDiscoveryNoticeText = (notice: AccountDiscoveryResult): string => {
+  const getDiscoveryNoticeText = useCallback((notice: AccountDiscoveryResult): string => {
     if (notice.status === 'expired') {
       return loc.discoveryExpiredNotice
     }
@@ -1223,7 +1223,24 @@ export function AccountSettings({
       return loc.discoveryErrorNotice
     }
     return notice.message ? formatErrorMessage(notice.message, loc.discoveryErrorNotice) : loc.discoveryErrorNotice
-  }
+  }, [loc])
+
+  const lastNotifiedNoticeRef = useRef<string | null>(null)
+  useEffect(() => {
+    const errorText = currentToolState?.error
+    const noticeText = currentDiscoveryNotice ? getDiscoveryNoticeText(currentDiscoveryNotice) : null
+    const messageToToast = errorText
+      ? (noticeText && !noticeText.includes(errorText) && !errorText.includes(noticeText)
+          ? `${errorText}（${noticeText}）`
+          : errorText)
+      : noticeText
+    if (messageToToast && messageToToast !== lastNotifiedNoticeRef.current) {
+      lastNotifiedNoticeRef.current = messageToToast
+      onNotify?.(messageToToast, 'error')
+    } else if (!messageToToast) {
+      lastNotifiedNoticeRef.current = null
+    }
+  }, [currentToolState?.error, currentDiscoveryNotice, onNotify, getDiscoveryNoticeText])
 
   const authorizeNativeAccount = async () => {
     if (!api?.authorizeAntigravityKeychain || isBusy || isOAuthPending) return
@@ -1249,33 +1266,6 @@ export function AccountSettings({
         {resolvedLocale === 'en-US' ? 'Allow account access' : '允许读取账号'}
       </button>
     ) : null
-
-  const discoveryNoticeDuplicatesToolError = Boolean(currentDiscoveryNotice && currentToolState?.error &&
-    (currentDiscoveryNotice.message === currentToolState.error || getDiscoveryNoticeText(currentDiscoveryNotice) === currentToolState.error))
-  const contextualNoticeNode = currentDiscoveryNotice && !discoveryNoticeDuplicatesToolError ? (
-    <div
-      className={`account-contextual-callout account-contextual-callout--${currentDiscoveryNotice.status}`}
-      role="status"
-    >
-      <div className="account-contextual-callout-body">
-        <Info size={12} className="account-contextual-callout-icon" />
-        <span>{getDiscoveryNoticeText(currentDiscoveryNotice)}</span>
-      </div>
-      <button
-        type="button"
-        className="account-contextual-callout-dismiss"
-        onClick={() =>
-          setDismissedFeedback((prev) => ({
-            ...prev,
-            [`${selectedTool}:${currentDiscoveryNotice.status}`]: true,
-          }))
-        }
-        aria-label={loc.closeBtn}
-      >
-        <X size={10} />
-      </button>
-    </div>
-  ) : null
 
   const [togglingAutoSwitch, setTogglingAutoSwitch] = useState<boolean>(false)
 
@@ -2235,17 +2225,6 @@ export function AccountSettings({
               </div>
             )}
 
-            {/* Tool State Error Callout */}
-            {currentToolState?.error && !isRecoveryNeeded && (
-              <div className="account-tool-error-callout" role="alert">
-                <AlertTriangle size={14} className="account-tool-error-icon" />
-                <div className="account-tool-error-body">
-                  <strong>{loc.toolErrorTitle}</strong>
-                  <span>{currentToolState.error}</span>
-                </div>
-              </div>
-            )}
-
             {/* Tool State Warning Callout */}
             {currentToolState?.warning && !currentToolState?.error && !isRecoveryNeeded && (
               <div className="account-sessions-hint" style={{ margin: '4px 0' }} role="status">
@@ -2254,8 +2233,6 @@ export function AccountSettings({
               </div>
             )}
 
-            {/* Contextual Discovery Notice */}
-            {contextualNoticeNode}
             {nativeAccessButton}
 
             {capabilityStripNode}
@@ -2393,19 +2370,7 @@ export function AccountSettings({
           {capabilityStripNode}
           {autoSwitchNode}
 
-          {/* Contextual Discovery Notice */}
-          {contextualNoticeNode}
           {nativeAccessButton}
-
-          {currentToolState?.error && (
-            <div className="account-tool-error-callout" role="alert">
-              <AlertTriangle size={14} className="account-tool-error-icon" />
-              <div className="account-tool-error-body">
-                <strong>{loc.toolErrorTitle}</strong>
-                <span>{currentToolState.error}</span>
-              </div>
-            </div>
-          )}
 
           {isRecoveryNeeded && (
             <div className="account-recovery-banner" role="status">
