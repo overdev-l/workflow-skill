@@ -2254,12 +2254,6 @@ export function AccountSettings({
             )}
             {/* Account Cards Grid */}
             {gridContentNode}
-
-            {/* Consolidated guidance strip */}
-            <div className="account-guidance-strip">
-              <span className="account-guidance-item">{loc.securityNotice}</span>
-              <span className="account-guidance-item">{loc.sessionsNotice}</span>
-            </div>
           </div>
         </section>
         {modalsNode}
@@ -2434,12 +2428,6 @@ export function AccountSettings({
 
           {/* Cards Grid */}
           {gridContentNode}
-
-          {/* Consolidated guidance strip */}
-          <div className="account-guidance-strip">
-            <span className="account-guidance-item">{loc.securityNotice}</span>
-            <span className="account-guidance-item">{loc.sessionsNotice}</span>
-          </div>
         </div>
       </div>
       {modalsNode}

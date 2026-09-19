@@ -35,6 +35,8 @@ import {
   HTTP_TIMEOUT_MS,
   MAX_CONCURRENT_HTTP,
   MAX_RESPONSE_BYTES,
+  classifyAntigravityGroupFamilies,
+  classifyAntigravityModelFamily,
   mergeAntigravityBucket,
   parseAntigravityQuotaSummary,
 } from '../apps/desktop/electron/account-quota.ts'
@@ -383,6 +385,7 @@ await test('3. Antigravity positive query: loadCodeAssist, fetchAvailableModels,
   const m1 = snapshot.windows.find((w) => w.id === 'gemini-pro')
   assert.ok(m1)
   assert.equal(m1.label, 'Gemini Pro')
+  assert.equal(m1.family, 'google')
   assert.equal(m1.period, 'five-hour')
   assert.equal(m1.durationSeconds, 18000)
   assert.equal(m1.remainingPercent, 70)
@@ -391,6 +394,7 @@ await test('3. Antigravity positive query: loadCodeAssist, fetchAvailableModels,
   const m1Weekly = snapshot.windows.find((w) => w.id === 'gemini-pro:weekly')
   assert.ok(m1Weekly)
   assert.equal(m1Weekly.label, 'Gemini Pro')
+  assert.equal(m1Weekly.family, 'google')
   assert.equal(m1Weekly.period, 'weekly')
   assert.equal(m1Weekly.durationSeconds, 604800)
   assert.equal(m1Weekly.remainingPercent, 82)
@@ -399,11 +403,14 @@ await test('3. Antigravity positive query: loadCodeAssist, fetchAvailableModels,
   const m2 = snapshot.windows.find((w) => w.id === 'claude-sonnet')
   assert.ok(m2)
   assert.equal(m2.label, 'claude-sonnet') // Fallback to id
+  assert.equal(m2.family, 'claude')
   assert.equal(m2.period, 'five-hour')
   assert.equal(m2.remainingPercent, 0) // Genuine zero preserved
 
   const m2Weekly = snapshot.windows.find((w) => w.id === 'claude-sonnet:weekly')
   assert.ok(m2Weekly)
+  assert.equal(m2Weekly.label, 'claude-sonnet')
+  assert.equal(m2Weekly.family, 'claude')
   assert.equal(m2Weekly.period, 'weekly')
   assert.equal(m2Weekly.remainingPercent, 55)
   assert.equal(m2Weekly.resetsAt, Date.parse('2030-01-03T00:00:00Z'))
@@ -1096,7 +1103,7 @@ await test('Localized labels preserve Claude model scope and Antigravity model n
   assert.equal(formatQuotaWindowLabel({id: 'gemini-pro:weekly', label: 'Gemini Pro', modelLabel: 'Gemini Pro', period: 'weekly', durationSeconds: 604800}, 'antigravity', 'en-US'), 'Gemini Pro · Weekly quota')
 })
 
-await test('Antigravity quota UI keeps the visible model set and groups two periods per model', async () => {
+await test('Antigravity quota UI groups into three vendor shared pools (Google / OpenAI / Claude)', async () => {
   const models = [
     ['gemini-3.8-flash-tiered', 'Gemini 3.8 Flash High'],
     ['gemini-3.7-flash-tiered', 'Gemini 3.7 Flash Medium'],
@@ -1113,10 +1120,17 @@ await test('Antigravity quota UI keeps the visible model set and groups two peri
   windows.push({ id: 'internal-model', label: 'Internal Model', period: 'five-hour', remainingPercent: 99 })
 
   const groups = groupAntigravityQuotaWindows(windows)
-  assert.deepEqual(groups.map((group) => group.label), models.map(([, label]) => label))
-  assert.equal(groups.length, 7)
+  assert.equal(groups.length, 3)
+  assert.deepEqual(groups.map((group) => group.id), ['google', 'openai', 'claude'])
+  assert.deepEqual(groups.map((group) => group.label), ['Google / Gemini', 'OpenAI / GPT', 'Claude'])
   assert.ok(groups.every((group) => group.windows.length === 2))
   assert.deepEqual(groups[0].windows.map((window) => window.period), ['weekly', 'five-hour'])
+
+  // Verify conservative merging across models within Google pool
+  const google5h = groups[0].windows.find((w) => w.period === 'five-hour')
+  const googleWeekly = groups[0].windows.find((w) => w.period === 'weekly')
+  assert.equal(google5h.remainingPercent, 87) // Min of 90, 89, 88, 87
+  assert.equal(googleWeekly.remainingPercent, 77) // Min of 80, 79, 78, 77
 })
 
 await test('Antigravity authoritative five-hour exhaustion overrides non-zero model window', async () => {
@@ -1450,6 +1464,201 @@ await test('Antigravity stale and error preservation distinguishes stale cache f
   assert.equal(snap3.status, 'error')
   assert.equal(snap3.stale, undefined)
   assert.deepEqual(snap3.windows, [])
+})
+
+await test('Antigravity family classification distinguishes google, claude, and openai', () => {
+  // Model classification
+  assert.equal(classifyAntigravityModelFamily('gemini-3.8-flash-high'), 'google')
+  assert.equal(classifyAntigravityModelFamily('gemini-3.7-flash-medium'), 'google')
+  assert.equal(classifyAntigravityModelFamily('gemini-pro', 'Gemini Pro'), 'google')
+  assert.equal(classifyAntigravityModelFamily('claude-sonnet-4.6-thinking'), 'claude')
+  assert.equal(classifyAntigravityModelFamily('claude-3-7-sonnet', 'Claude 3.7 Sonnet', 'anthropic'), 'claude')
+  assert.equal(classifyAntigravityModelFamily('gpt-oss-120b-medium'), 'openai')
+  assert.equal(classifyAntigravityModelFamily('gpt-4o', 'GPT-4o', 'openai'), 'openai')
+
+  // Group classification
+  assert.deepEqual(classifyAntigravityGroupFamilies('Gemini Models'), ['google'])
+  assert.deepEqual(classifyAntigravityGroupFamilies('Google Gemini'), ['google'])
+  assert.deepEqual(classifyAntigravityGroupFamilies('Claude Models'), ['claude'])
+  assert.deepEqual(classifyAntigravityGroupFamilies('Anthropic Claude'), ['claude'])
+  assert.deepEqual(classifyAntigravityGroupFamilies('OpenAI Models'), ['openai'])
+  assert.deepEqual(classifyAntigravityGroupFamilies('GPT Models'), ['openai'])
+  assert.deepEqual(classifyAntigravityGroupFamilies('Claude and GPT models'), ['claude', 'openai'])
+  assert.deepEqual(classifyAntigravityGroupFamilies('3p models'), ['claude', 'openai'])
+})
+
+await test('Antigravity three distinct shared pools (google, claude, openai) are completely isolated', async () => {
+  const store = new MockStore()
+  const acc = makeAntigravityAccount()
+  store.set(acc.metadata.id, acc)
+
+  const mockFetch = async (url) => {
+    if (url.endsWith(':loadCodeAssist')) {
+      return jsonResponse({ cloudaicompanionProject: 'p1' })
+    }
+    if (url.endsWith(':fetchAvailableModels')) {
+      return jsonResponse({
+        models: {
+          'gemini-3.8-flash-high': {
+            displayName: 'Gemini 3.8 Flash High',
+            quotaInfo: { remainingFraction: 1.0, resetTime: '2030-01-01T00:00:00Z' },
+          },
+          'claude-sonnet-4.6-thinking': {
+            displayName: 'Claude Sonnet 4.6 (Thinking)',
+            quotaInfo: { remainingFraction: 1.0, resetTime: '2030-01-01T00:00:00Z' },
+          },
+          'gpt-oss-120b-medium': {
+            displayName: 'GPT-OSS 120B (Medium)',
+            quotaInfo: { remainingFraction: 1.0, resetTime: '2030-01-01T00:00:00Z' },
+          },
+        },
+      })
+    }
+    if (url.endsWith(':retrieveUserQuotaSummary')) {
+      return jsonResponse({
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              { bucketId: 'g5h', window: '5h', remainingFraction: 0.7, resetTime: '2030-01-01T05:00:00Z' },
+              { bucketId: 'g_weekly', window: 'weekly', remainingFraction: 0.8, resetTime: '2030-01-07T00:00:00Z' },
+            ],
+          },
+          {
+            displayName: 'Claude Models',
+            buckets: [
+              { bucketId: 'c5h', window: '5h', remainingFraction: 0.0, resetTime: '2030-01-01T03:00:00Z' }, // Exhausted!
+              { bucketId: 'c_weekly', window: 'weekly', remainingFraction: 0.25, resetTime: '2030-01-07T00:00:00Z' },
+            ],
+          },
+          {
+            displayName: 'OpenAI Models',
+            buckets: [
+              { bucketId: 'o5h', window: '5h', remainingFraction: 0.9, resetTime: '2030-01-01T04:00:00Z' },
+              { bucketId: 'o_weekly', window: 'weekly', remainingFraction: 0.95, resetTime: '2030-01-07T00:00:00Z' },
+            ],
+          },
+        ],
+      })
+    }
+    throw new Error(`Unexpected URL: ${url}`)
+  }
+
+  const service = new AccountQuotaService({ store, fetch: mockFetch })
+  const snapshot = await service.refreshAccount(acc.metadata.id)
+
+  assert.equal(snapshot.status, 'ready')
+  assert.equal(snapshot.windows.length, 6)
+
+  // 1. Google (Gemini): 5h = 70%, weekly = 80%, family = 'google'
+  const g5h = snapshot.windows.find(w => w.id === 'gemini-3.8-flash-high' && w.period === 'five-hour')
+  const gWeekly = snapshot.windows.find(w => w.id === 'gemini-3.8-flash-high:weekly' && w.period === 'weekly')
+  assert.ok(g5h && gWeekly)
+  assert.equal(g5h.remainingPercent, 70)
+  assert.equal(g5h.family, 'google')
+  assert.equal(gWeekly.remainingPercent, 80)
+  assert.equal(gWeekly.family, 'google')
+
+  // 2. Claude: 5h = 0% (exhausted), weekly = 25%, family = 'claude'
+  const c5h = snapshot.windows.find(w => w.id === 'claude-sonnet-4.6-thinking' && w.period === 'five-hour')
+  const cWeekly = snapshot.windows.find(w => w.id === 'claude-sonnet-4.6-thinking:weekly' && w.period === 'weekly')
+  assert.ok(c5h && cWeekly)
+  assert.equal(c5h.remainingPercent, 0)
+  assert.equal(c5h.family, 'claude')
+  assert.equal(cWeekly.remainingPercent, 25)
+  assert.equal(cWeekly.family, 'claude')
+
+  // 3. OpenAI (GPT): 5h = 90%, weekly = 95%, family = 'openai'
+  // Claude's 0% exhaustion MUST NOT affect OpenAI!
+  const o5h = snapshot.windows.find(w => w.id === 'gpt-oss-120b-medium' && w.period === 'five-hour')
+  const oWeekly = snapshot.windows.find(w => w.id === 'gpt-oss-120b-medium:weekly' && w.period === 'weekly')
+  assert.ok(o5h && oWeekly)
+  assert.equal(o5h.remainingPercent, 90)
+  assert.equal(o5h.family, 'openai')
+  assert.equal(oWeekly.remainingPercent, 95)
+  assert.equal(oWeekly.family, 'openai')
+})
+
+await test('Antigravity retrieveUserQuotaSummary 403 project retry: retries without project and recovers quota summary', async () => {
+  const store = new MockStore()
+  const acc = makeAntigravityAccount()
+  store.set(acc.metadata.id, acc)
+
+  const requests = []
+  const mockFetch = async (url, init) => {
+    const body = init?.body ? JSON.parse(init.body) : null
+    requests.push({ url, body })
+
+    if (url.endsWith(':loadCodeAssist')) {
+      return jsonResponse({ cloudaicompanionProject: 'problematic-project' })
+    }
+    if (url.endsWith(':fetchAvailableModels')) {
+      // Models endpoint succeeds with project
+      return jsonResponse({
+        models: {
+          'gemini-3.8-flash-high': {
+            displayName: 'Gemini 3.8 Flash High',
+            quotaInfo: { remainingFraction: 1.0 }, // Falsely appears 100%
+          },
+        },
+      })
+    }
+    if (url.endsWith(':retrieveUserQuotaSummary')) {
+      if (body?.project === 'problematic-project') {
+        // First summary call with project returns 403!
+        return new Response('Forbidden', { status: 403 })
+      }
+      // Retry without project succeeds with authoritative consumed quota!
+      return jsonResponse({
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              {
+                bucketId: 'gemini_5h',
+                window: '5h',
+                remainingFraction: 0.4, // Real quota: 40% remaining (60% consumed)
+                resetTime: '2030-01-01T04:00:00Z',
+              },
+              {
+                bucketId: 'gemini_weekly',
+                window: 'weekly',
+                remainingFraction: 0.5,
+                resetTime: '2030-01-07T00:00:00Z',
+              },
+            ],
+          },
+        ],
+      })
+    }
+    throw new Error(`Unexpected URL: ${url}`)
+  }
+
+  const service = new AccountQuotaService({ store, fetch: mockFetch })
+  const snapshot = await service.refreshAccount(acc.metadata.id)
+
+  assert.equal(snapshot.status, 'ready')
+  // Crucial check: must NOT fall back to 100% from fetchAvailableModels;
+  // must recover the real 40% from the retrieveUserQuotaSummary retry!
+  const g5h = snapshot.windows.find(w => w.id === 'gemini-3.8-flash-high' && w.period === 'five-hour')
+  assert.ok(g5h)
+  assert.equal(g5h.remainingPercent, 40)
+  assert.equal(g5h.family, 'google')
+
+  const gWeekly = snapshot.windows.find(w => w.id === 'gemini-3.8-flash-high:weekly' && w.period === 'weekly')
+  assert.ok(gWeekly)
+  assert.equal(gWeekly.remainingPercent, 50)
+  assert.equal(gWeekly.family, 'google')
+
+  // Verify request sequence:
+  // 0: loadCodeAssist
+  // 1: fetchAvailableModels with { project: 'problematic-project' }
+  // 2: retrieveUserQuotaSummary with { project: 'problematic-project' } (failed 403)
+  // 3: retrieveUserQuotaSummary retry with {} (succeeded)
+  assert.equal(requests.length, 4)
+  assert.deepEqual(requests[1].body, { project: 'problematic-project' })
+  assert.deepEqual(requests[2].body, { project: 'problematic-project' })
+  assert.deepEqual(requests[3].body, {})
 })
 
 console.log(`\n========================================`)

@@ -28,8 +28,10 @@ import {
   type AccountQuotaStatus,
   type AccountQuotaWindow,
   type AccountTool,
+  type AntigravityModelFamily,
   type StoredAccountRecord,
   AccountError,
+  matchSupportedAntigravityModel,
   validateAccountId,
 } from '../../../packages/workflow-model/src/accounts.ts'
 import type { AccountStore } from './account-store.ts'
@@ -127,15 +129,18 @@ function safeEpochMs(val: unknown, isUnixSeconds: boolean): number | undefined {
   return undefined
 }
 
-type AntigravityModelFamily = 'gemini' | 'claude-gpt'
+export type { AntigravityModelFamily }
 
-interface AntigravityQuotaBucket {
+export interface AntigravityQuotaBucket {
   period: AccountQuotaPeriod
   remainingPercent?: number
   resetsAt?: number
 }
 
-type AntigravityQuotaSummary = Map<AntigravityModelFamily, Map<AccountQuotaPeriod, AntigravityQuotaBucket>>
+export type AntigravityQuotaSummary = Map<
+  AntigravityModelFamily | 'gemini',
+  Map<AccountQuotaPeriod, AntigravityQuotaBucket>
+>
 
 function normalizeQuotaText(values: unknown[]): string {
   return values
@@ -146,12 +151,45 @@ function normalizeQuotaText(values: unknown[]): string {
     .replace(/[_-]+/g, ' ')
 }
 
-function classifyAntigravityModelFamily(...values: unknown[]): AntigravityModelFamily | undefined {
+export function classifyAntigravityGroupFamilies(...values: unknown[]): AntigravityModelFamily[] {
+  const text = normalizeQuotaText(values)
+  if (!text) return []
+
+  const families: AntigravityModelFamily[] = []
+  if (/(?:gemini|google)/.test(text)) {
+    families.push('google')
+  }
+  if (/(?:claude|anthropic)/.test(text)) {
+    families.push('claude')
+  }
+  if (/(?:gpt|openai)/.test(text)) {
+    families.push('openai')
+  }
+  if (/(?:3p|third\s*party)/.test(text)) {
+    if (!families.includes('claude')) families.push('claude')
+    if (!families.includes('openai')) families.push('openai')
+  }
+  return families
+}
+
+export function classifyAntigravityModelFamily(...values: unknown[]): AntigravityModelFamily | undefined {
+  for (const val of values) {
+    if (typeof val === 'string') {
+      const matched = matchSupportedAntigravityModel(val)
+      if (matched?.family) return matched.family
+    }
+  }
+
   const text = normalizeQuotaText(values)
   if (!text) return undefined
 
-  if (/(?:gemini|google\s+gemini)/.test(text)) return 'gemini'
-  if (/(?:claude|gpt|anthropic|openai|3p)/.test(text)) return 'claude-gpt'
+  if (/(?:gemini|google)/.test(text)) return 'google'
+  const isClaude = /(?:claude|anthropic)/.test(text)
+  const isGpt = /(?:gpt|openai)/.test(text)
+  if (isClaude && !isGpt) return 'claude'
+  if (isGpt && !isClaude) return 'openai'
+  if (isClaude) return 'claude'
+  if (isGpt) return 'openai'
   return undefined
 }
 
@@ -253,21 +291,33 @@ function parseAntigravityQuotaSummary(body: unknown): AntigravityQuotaSummary {
   for (const rawGroup of groups.slice(0, MAX_MODELS_PER_ACCOUNT)) {
     if (!rawGroup || typeof rawGroup !== 'object' || Array.isArray(rawGroup)) continue
     const group = rawGroup as Record<string, any>
-    const family = classifyAntigravityModelFamily(group.displayName, group.description, group.groupId, group.id)
-    if (!family || !Array.isArray(group.buckets)) continue
+    const families = classifyAntigravityGroupFamilies(
+      group.displayName,
+      group.description,
+      group.groupId,
+      group.id
+    )
+    if (families.length === 0 || !Array.isArray(group.buckets)) continue
 
     for (const rawBucket of group.buckets.slice(0, 10)) {
       const bucket = parseAntigravityQuotaBucket(rawBucket)
       if (!bucket) continue
-      const familySummary = summary.get(family) ?? new Map<AccountQuotaPeriod, AntigravityQuotaBucket>()
-      const existing = familySummary.get(bucket.period)
-      if (!existing) {
-        familySummary.set(bucket.period, bucket)
-      } else {
-        familySummary.set(bucket.period, mergeAntigravityBucket(existing, bucket))
+      for (const family of families) {
+        const familySummary = summary.get(family) ?? new Map<AccountQuotaPeriod, AntigravityQuotaBucket>()
+        const existing = familySummary.get(bucket.period)
+        if (!existing) {
+          familySummary.set(bucket.period, bucket)
+        } else {
+          familySummary.set(bucket.period, mergeAntigravityBucket(existing, bucket))
+        }
+        summary.set(family, familySummary)
       }
-      summary.set(family, familySummary)
     }
+  }
+
+  const googleSummary = summary.get('google')
+  if (googleSummary && !summary.has('gemini')) {
+    summary.set('gemini', googleSummary)
   }
 
   return summary
@@ -667,18 +717,44 @@ async function queryAntigravityQuota(
   // A summary failure is intentionally best-effort: it must not hide a valid
   // per-model 5-hour result.
   let quotaSummary: AntigravityQuotaSummary | undefined
+  const summaryUrl = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary'
   try {
-    const summaryRes = await executeBoundedFetch(fetchFn, 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'User-Agent': 'antigravity-cli',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(project ? { project } : {}),
-    })
-    if (summaryRes.ok && summaryRes.json && typeof summaryRes.json === 'object') {
+    let summaryRes: { status: number; json: any; ok: boolean } | undefined
+    try {
+      summaryRes = await executeBoundedFetch(fetchFn, summaryUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'antigravity-cli',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(project ? { project } : {}),
+      })
+    } catch {
+      summaryRes = undefined
+    }
+
+    // If summary request failed or returned non-ok (e.g. 403 forbidden or network error with project), retry without project
+    if ((!summaryRes || !summaryRes.ok) && project) {
+      project = undefined
+      try {
+        summaryRes = await executeBoundedFetch(fetchFn, summaryUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'User-Agent': 'antigravity-cli',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({}),
+        })
+      } catch {
+        summaryRes = undefined
+      }
+    }
+
+    if (summaryRes && summaryRes.ok && summaryRes.json && typeof summaryRes.json === 'object') {
       quotaSummary = parseAntigravityQuotaSummary(summaryRes.json)
     }
   } catch {
@@ -753,6 +829,7 @@ async function queryAntigravityQuota(
       modelLabel: label,
       period: 'five-hour',
       durationSeconds: 18000,
+      ...(family ? { family } : {}),
       ...(fiveHourRemaining !== undefined ? { remainingPercent: fiveHourRemaining } : {}),
       ...(fiveHourResetsAt !== undefined ? { resetsAt: fiveHourResetsAt } : {}),
     })
@@ -765,6 +842,7 @@ async function queryAntigravityQuota(
         modelLabel: label,
         period: 'weekly',
         durationSeconds: 604800,
+        family,
         ...(weekly?.remainingPercent !== undefined ? { remainingPercent: weekly.remainingPercent } : {}),
         ...(weekly?.resetsAt !== undefined ? { resetsAt: weekly.resetsAt } : {}),
       })

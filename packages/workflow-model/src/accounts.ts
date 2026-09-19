@@ -103,6 +103,8 @@ export interface AccountMetadata {
 /** Provider usage windows. An absent percentage is unknown, never zero. */
 export type AccountQuotaPeriod = 'weekly' | 'five-hour'
 
+export type AntigravityModelFamily = 'google' | 'openai' | 'claude'
+
 export interface AccountQuotaWindow {
   id: string
   label: string
@@ -114,6 +116,8 @@ export interface AccountQuotaWindow {
   modelLabel?: string
   remainingPercent?: number
   resetsAt?: number
+  /** Model family for shared quota pools (e.g. Antigravity google/openai/claude). */
+  family?: AntigravityModelFamily
 }
 
 export type AccountQuotaStatus = 'ready' | 'unavailable' | 'expired' | 'forbidden' | 'rate-limited' | 'error'
@@ -122,6 +126,7 @@ export interface SupportedAntigravityModel {
   id: string
   label: string
   aliases: readonly string[]
+  family?: AntigravityModelFamily
 }
 
 export const SUPPORTED_ANTIGRAVITY_MODELS: readonly SupportedAntigravityModel[] = [
@@ -129,17 +134,19 @@ export const SUPPORTED_ANTIGRAVITY_MODELS: readonly SupportedAntigravityModel[] 
     id: 'gemini-3.8-flash-high',
     label: 'Gemini 3.8 Flash High',
     aliases: ['gemini-3.8-flash-tiered', 'gemini-3.8-flash'],
+    family: 'google',
   },
   {
     id: 'gemini-3.7-flash-medium',
     label: 'Gemini 3.7 Flash Medium',
     aliases: ['gemini-3.7-flash-tiered', 'gemini-3.7-flash'],
+    family: 'google',
   },
-  { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash Medium', aliases: ['gemini-3.6-flash'] },
-  { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro Low', aliases: ['gemini-3.1-pro'] },
-  { id: 'claude-sonnet-4.6-thinking', label: 'Claude Sonnet 4.6 (Thinking)', aliases: ['claude-sonnet-4.6'] },
-  { id: 'claude-opus-4.6-thinking', label: 'Claude Opus 4.6 (Thinking)', aliases: ['claude-opus-4.6'] },
-  { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', aliases: ['gpt-oss-120b'] },
+  { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash Medium', aliases: ['gemini-3.6-flash'], family: 'google' },
+  { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro Low', aliases: ['gemini-3.1-pro'], family: 'google' },
+  { id: 'claude-sonnet-4.6-thinking', label: 'Claude Sonnet 4.6 (Thinking)', aliases: ['claude-sonnet-4.6'], family: 'claude' },
+  { id: 'claude-opus-4.6-thinking', label: 'Claude Opus 4.6 (Thinking)', aliases: ['claude-opus-4.6'], family: 'claude' },
+  { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', aliases: ['gpt-oss-120b'], family: 'openai' },
 ]
 
 export function normalizeAntigravityModelName(value: string): string {

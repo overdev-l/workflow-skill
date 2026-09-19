@@ -4,7 +4,7 @@
  * Renders an individual AI developer account card within the auto-fit grid.
  * Displays username, email, active badge, real quota windows with remaining %
  * and reset time, honest status badges, last updated time, and one-click actions.
- * Antigravity windows are filtered to the visible model set and grouped by model.
+ * Antigravity windows are aggregated into three vendor shared pools (Google / OpenAI / Claude).
  *
  * Core Guarantees:
  * - Real quota windows: remaining % and reset time; unknown quota is NOT 0%
@@ -542,11 +542,11 @@ export function AccountQuotaCard({
             className={`account-quota-windows ${account.tool === 'antigravity' ? 'account-quota-windows--antigravity' : ''} ${isStale ? 'account-quota-windows--stale' : ''}`}
             tabIndex={0}
             role="region"
-            aria-label={`${account.name} · ${locale.startsWith('zh') ? '模型配额' : 'Model quotas'}${isStale ? ` · ${loc.quotaStatusStale}` : ''}`}
+            aria-label={`${account.name} · ${locale.startsWith('zh') ? '共享配额池' : 'Shared quota pools'}${isStale ? ` · ${loc.quotaStatusStale}` : ''}`}
           >
             {account.tool === 'antigravity'
-              ? antigravityModelGroups.map((group, index) => {
-                const titleId = `${account.id}-quota-model-${index}`
+              ? antigravityModelGroups.map((group) => {
+                const titleId = `${account.id}-quota-pool-${group.id}`
                 return (
                   <div key={group.id} className="account-quota-model-group" role="group" aria-labelledby={titleId}>
                     <div className="account-quota-model-group-header">

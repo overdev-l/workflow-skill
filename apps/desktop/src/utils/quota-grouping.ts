@@ -1,5 +1,6 @@
 import {
   type AccountQuotaWindow,
+  type AntigravityModelFamily,
   type SupportedAntigravityModel,
   SUPPORTED_ANTIGRAVITY_MODELS,
   matchSupportedAntigravityModel,
@@ -13,6 +14,38 @@ export interface AccountQuotaModelGroup {
   id: string
   label: string
   windows: AccountQuotaWindow[]
+  family?: AntigravityModelFamily
+}
+
+export const ANTIGRAVITY_FAMILY_ORDER: readonly AntigravityModelFamily[] = [
+  'google',
+  'openai',
+  'claude',
+]
+
+export const ANTIGRAVITY_FAMILY_CONFIG: Record<
+  AntigravityModelFamily,
+  {
+    id: AntigravityModelFamily
+    label: string
+    order: number
+  }
+> = {
+  google: {
+    id: 'google',
+    label: 'Google / Gemini',
+    order: 0,
+  },
+  openai: {
+    id: 'openai',
+    label: 'OpenAI / GPT',
+    order: 1,
+  },
+  claude: {
+    id: 'claude',
+    label: 'Claude',
+    order: 2,
+  },
 }
 
 const WEEKLY_WINDOW_SUFFIX = ':weekly'
@@ -25,10 +58,29 @@ function visibleModelForWindow(window: AccountQuotaWindow): SupportedAntigravity
   )
 }
 
-function modelIdForWindow(window: AccountQuotaWindow): string {
-  return window.id.endsWith(WEEKLY_WINDOW_SUFFIX)
-    ? window.id.slice(0, -WEEKLY_WINDOW_SUFFIX.length)
-    : window.id
+export function resolveAntigravityFamily(window: AccountQuotaWindow): AntigravityModelFamily | undefined {
+  if (window.family === 'google' || window.family === 'openai' || window.family === 'claude') {
+    return window.family
+  }
+  const visibleModel = visibleModelForWindow(window)
+  if (visibleModel?.family) {
+    return visibleModel.family
+  }
+  const text = `${window.id} ${window.label} ${window.modelLabel ?? ''}`.toLowerCase()
+  if (/(?:gemini|google)/.test(text)) return 'google'
+  if (/(?:claude|anthropic)/.test(text)) return 'claude'
+  if (/(?:gpt|openai)/.test(text)) return 'openai'
+  return undefined
+}
+
+function resolveWindowPeriod(window: AccountQuotaWindow): 'weekly' | 'five-hour' {
+  if (window.period === 'weekly' || window.id.endsWith(WEEKLY_WINDOW_SUFFIX)) {
+    return 'weekly'
+  }
+  if (window.durationSeconds === 604800) {
+    return 'weekly'
+  }
+  return 'five-hour'
 }
 
 function periodOrder(window: AccountQuotaWindow): number {
@@ -90,42 +142,59 @@ export function mergeQuotaWindows(current: AccountQuotaWindow, incoming: Account
   return merged
 }
 
-/** Groups only the visible Antigravity models so one model owns all of its periods. */
+/** Groups Antigravity model windows into the 3 shared vendor quota pools (Google / OpenAI / Claude). */
 export function groupAntigravityQuotaWindows(windows: AccountQuotaWindow[]): AccountQuotaModelGroup[] {
   if (!Array.isArray(windows)) return []
 
-  const groups = new Map<string, { order: number; group: AccountQuotaModelGroup }>()
-  for (const window of windows) {
-    const visibleModel = visibleModelForWindow(window)
-    if (!visibleModel) continue
+  const familyWindows = new Map<AntigravityModelFamily, Map<'weekly' | 'five-hour', AccountQuotaWindow>>()
 
-    const order = SUPPORTED_ANTIGRAVITY_MODELS.indexOf(visibleModel)
-    const existing = groups.get(visibleModel.id)
-    if (existing) {
-      if (existing.group.id !== visibleModel.id && modelIdForWindow(window) === visibleModel.id) {
-        existing.group.id = visibleModel.id
-      }
-      const samePeriod = window.period
-        ? existing.group.windows.findIndex((item) => item.period === window.period)
-        : -1
-      if (samePeriod >= 0) {
-        const current = existing.group.windows[samePeriod]
-        existing.group.windows[samePeriod] = mergeQuotaWindows(current, window)
-      } else {
-        existing.group.windows.push(window)
-      }
-      continue
+  for (const window of windows) {
+    const family = resolveAntigravityFamily(window)
+    if (!family) continue
+
+    const period = resolveWindowPeriod(window)
+    const config = ANTIGRAVITY_FAMILY_CONFIG[family]
+    if (!config) continue
+
+    let periodMap = familyWindows.get(family)
+    if (!periodMap) {
+      periodMap = new Map<'weekly' | 'five-hour', AccountQuotaWindow>()
+      familyWindows.set(family, periodMap)
     }
-    groups.set(visibleModel.id, {
-      order,
-      group: { id: modelIdForWindow(window), label: visibleModel.label, windows: [window] },
+
+    const normalizedWindow: AccountQuotaWindow = {
+      ...window,
+      id: period === 'weekly' ? `${family}:weekly` : family,
+      label: config.label,
+      modelLabel: config.label,
+      family,
+      period,
+      durationSeconds: window.durationSeconds ?? (period === 'weekly' ? 604800 : 18000),
+    }
+
+    const existing = periodMap.get(period)
+    if (existing) {
+      periodMap.set(period, mergeQuotaWindows(existing, normalizedWindow))
+    } else {
+      periodMap.set(period, normalizedWindow)
+    }
+  }
+
+  const result: AccountQuotaModelGroup[] = []
+  for (const family of ANTIGRAVITY_FAMILY_ORDER) {
+    const periodMap = familyWindows.get(family)
+    if (!periodMap || periodMap.size === 0) continue
+
+    const config = ANTIGRAVITY_FAMILY_CONFIG[family]
+    const sortedWindows = Array.from(periodMap.values()).sort((a, b) => periodOrder(a) - periodOrder(b))
+
+    result.push({
+      id: config.id,
+      label: config.label,
+      windows: sortedWindows,
+      family,
     })
   }
 
-  return Array.from(groups.values())
-    .sort((a, b) => a.order - b.order)
-    .map(({ group }) => ({
-      ...group,
-      windows: [...group.windows].sort((a, b) => periodOrder(a) - periodOrder(b)),
-    }))
+  return result
 }
