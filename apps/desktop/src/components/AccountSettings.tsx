@@ -2153,18 +2153,6 @@ export function AccountSettings({
                     </span>
                   </button>
                 )}
-                {canRollback && (
-                  <button
-                    type="button"
-                    className="account-btn account-btn--sm"
-                    onClick={handleRollback}
-                    disabled={isBusy || isOAuthPending}
-                    title={loc.rollbackBtn}
-                  >
-                    <RotateCcw size={11} />
-                    <span>{isBusy ? loc.rollingBackBtn : loc.rollbackBtn}</span>
-                  </button>
-                )}
                 <button
                   type="button"
                   className="account-btn account-btn--sm"
@@ -2431,19 +2419,6 @@ export function AccountSettings({
                 />
                 <span>{loc.refreshBtn}</span>
               </button>
-
-              {canRollback && (
-                <button
-                  type="button"
-                  className="account-btn account-btn--sm"
-                  onClick={handleRollback}
-                  disabled={isBusy || isOAuthPending}
-                  title={loc.rollbackBtn}
-                >
-                  <RotateCcw size={12} />
-                  <span>{isBusy ? loc.rollingBackBtn : loc.rollbackBtn}</span>
-                </button>
-              )}
 
               <button
                 type="button"
