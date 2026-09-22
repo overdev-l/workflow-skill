@@ -15,7 +15,7 @@
 /* Card Container (Used in Settings presentation) */
 .account-card {
   padding: 14px 16px;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   display: flex;
@@ -31,24 +31,24 @@
 }
 
 .account-title {
-  font-size: 0.8125rem;
-  font-weight: 650;
-  color: var(--color-ink, #ffffff);
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
   letter-spacing: -0.01em;
   margin: 0;
 }
 
 .account-desc {
-  font-size: 0.75rem;
-  line-height: 1.45;
-  color: var(--color-muted, rgba(255, 255, 255, 0.65));
+  font-size: var(--text-control);
+  line-height: var(--text-control-lh);
+  color: var(--color-muted);
   margin: 0;
 }
 
 .account-security-notice {
-  font-size: 0.6875rem;
-  line-height: 1.4;
-  color: var(--color-muted, rgba(255, 255, 255, 0.5));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+  color: var(--color-muted);
   margin: 0;
 }
 
@@ -58,27 +58,27 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-radius: var(--radius-md, 8px);
-  background: color-mix(in oklch, var(--color-accent) 12%, transparent);
-  border: 1px solid color-mix(in oklch, var(--color-accent) 25%, transparent);
-  font-size: 0.6875rem;
-  line-height: 1.4;
-  color: var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+  color: var(--color-ink);
 }
 
 .account-legacy-icon {
   flex-shrink: 0;
   margin-top: 1px;
-  color: var(--color-accent);
+  color: var(--color-muted);
 }
 
 .account-error-callout {
   padding: 8px 12px;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--color-danger-bg);
-  border: 1px solid color-mix(in oklch, var(--color-danger) 25%, transparent);
-  font-size: 0.6875rem;
-  color: var(--color-danger-ink);
+  border: 1px solid var(--color-danger-border);
+  font-size: var(--text-caption);
+  color: var(--color-danger);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -100,12 +100,12 @@
   align-items: flex-start;
   gap: 8px;
   padding: 8px 12px;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--color-danger-bg);
-  border: 1px solid color-mix(in oklch, var(--color-danger) 30%, transparent);
-  color: var(--color-danger-ink);
-  font-size: 0.6875rem;
-  line-height: 1.4;
+  border: 1px solid var(--color-danger-border);
+  color: var(--color-danger);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
 }
 
 .account-tool-error-icon {
@@ -121,8 +121,8 @@
 }
 
 .account-tool-error-body strong {
-  font-weight: 650;
-  color: var(--color-danger-ink);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-danger);
 }
 
 /* Recovery-Needed Banner */
@@ -132,9 +132,9 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--color-waiting-bg);
-  border: 1px solid color-mix(in oklch, var(--color-waiting) 30%, transparent);
+  border: 1px solid var(--color-waiting-border);
 }
 
 .account-recovery-info {
@@ -151,16 +151,16 @@
 
 .account-recovery-text strong {
   display: block;
-  font-size: 0.75rem;
-  font-weight: 650;
-  color: var(--color-waiting-ink);
+  font-size: var(--text-control);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-waiting);
 }
 
 .account-recovery-text p {
   margin: 2px 0 0 0;
-  font-size: 0.6875rem;
-  color: var(--color-waiting-ink);
-  line-height: 1.4;
+  font-size: var(--text-caption);
+  color: var(--color-waiting);
+  line-height: var(--text-caption-lh);
 }
 
 /* Settings Mode Tool Header & Identity Row */
@@ -171,7 +171,7 @@
   gap: 12px;
   flex-wrap: wrap;
   padding: 8px 12px;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--control-bg);
   border: 1px solid var(--control-border);
 }
@@ -184,8 +184,8 @@
 }
 
 .account-tool-identity-label {
-  font-size: 0.6875rem;
-  font-weight: 550;
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-medium);
   color: var(--color-muted);
   white-space: nowrap;
 }
@@ -194,13 +194,13 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-accent);
-  background: var(--color-accent-subtle);
-  border: 1px solid color-mix(in oklch, var(--color-accent) 25%, transparent);
+  font-size: var(--text-control);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
   padding: 2px 8px;
-  border-radius: var(--radius-pill, 9999px);
+  border-radius: var(--radius-pill);
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -209,9 +209,9 @@
 
 .account-tool-identity-chip--empty {
   color: var(--color-muted);
-  background: var(--glass-surface);
+  background: var(--color-surface);
   border-color: var(--color-border-subtle);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .account-tool-actions {
@@ -223,10 +223,10 @@
 
 /* Informative Session Hint */
 .account-sessions-hint {
-  font-size: 0.6875rem;
+  font-size: var(--text-caption);
   color: var(--color-muted);
   margin: 0;
-  line-height: 1.4;
+  line-height: var(--text-caption-lh);
 }
 
 /* Active Badge */
@@ -234,13 +234,13 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-semibold);
   padding: 1px 6px;
-  border-radius: var(--radius-pill, 9999px);
+  border-radius: var(--radius-pill);
   background: var(--color-success-bg);
-  border: 1px solid color-mix(in oklch, var(--color-success) 35%, transparent);
-  color: var(--color-success-ink);
+  border: 1px solid var(--color-success-border);
+  color: var(--color-success);
 }
 
 /* Compact Buttons (AGENTS.md: 24px standard, 22px small) */
@@ -249,19 +249,19 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  height: 24px;
-  min-height: 24px;
+  height: var(--height-btn);
+  min-height: var(--height-btn);
   padding: 0 10px;
-  border-radius: var(--radius-pill, 9999px);
-  font-size: 0.6875rem;
-  font-weight: 550;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-control);
+  font-weight: var(--font-weight-medium);
   border: 1px solid var(--color-border);
   background: var(--btn-secondary-bg);
   color: var(--btn-secondary-text);
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--motion-smooth),
-              border-color var(--motion-fast) var(--motion-smooth),
-              color var(--motion-fast) var(--motion-smooth);
+  transition: background-color var(--motion-fast) var(--motion-standard),
+              border-color var(--motion-fast) var(--motion-standard),
+              color var(--motion-fast) var(--motion-standard);
   user-select: none;
   white-space: nowrap;
   box-shadow: none;
@@ -275,7 +275,7 @@
 .account-btn:focus-visible {
   outline: 1.5px solid var(--focus-ring);
   outline-offset: 2px;
-  border-color: var(--color-primary);
+  border-color: var(--color-border-strong);
 }
 
 .account-btn:disabled {
@@ -285,61 +285,60 @@
 
 .account-btn--primary {
   background: var(--btn-primary-bg);
-  border-color: transparent;
-  color: var(--btn-primary-text) !important;
-  font-weight: 600;
+  border-color: var(--color-primary);
+  color: var(--btn-primary-text);
+  font-weight: var(--font-weight-semibold);
 }
 
 .account-btn--primary:hover:not(:disabled) {
   background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
 }
 
 .account-btn--sm {
-  height: 22px;
-  min-height: 22px;
+  height: var(--height-btn-sm);
+  min-height: var(--height-btn-sm);
   padding: 0 8px;
-  font-size: 0.6875rem;
+  font-size: var(--text-caption);
 }
 
 .account-btn--danger {
   background: var(--color-danger-bg);
-  border-color: var(--color-danger);
-  color: var(--color-danger-ink);
+  border-color: var(--color-danger-border);
+  color: var(--color-danger);
 }
 
 .account-btn--danger:hover:not(:disabled) {
   background: var(--color-danger-bg);
   border-color: var(--color-danger);
-  filter: brightness(1.1);
 }
 
 /* Compact Inputs (AGENTS.md: 28px standard) */
 .account-input {
-  height: 28px;
+  height: var(--height-input);
   padding: 0 10px;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--control-bg);
   border: 1px solid var(--control-border);
   color: var(--control-ink);
-  font-size: 0.75rem;
+  font-size: var(--text-control);
   font-family: inherit;
   outline: none;
   box-sizing: border-box;
-  transition: border-color var(--motion-fast) var(--motion-smooth),
-              background-color var(--motion-fast) var(--motion-smooth),
-              box-shadow var(--motion-fast) var(--motion-smooth);
+  transition: border-color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard);
   width: 100%;
 }
 
-.account-input:hover:not(:disabled) {
+.account-input:hover:not(:disabled, [aria-disabled="true"], [readonly], [aria-readonly="true"], :focus, :focus-visible, .is-error, [aria-invalid="true"]) {
   background: var(--control-bg-hover);
   border-color: var(--control-border-hover);
 }
 
-.account-input:focus {
+.account-input:focus:not(:disabled, [aria-disabled="true"], .is-error, [aria-invalid="true"]) {
   background: var(--control-bg-focus);
   border-color: var(--control-border-focus);
-  box-shadow: var(--control-focus-ring);
+  box-shadow: none;
 }
 
 .account-input::placeholder {
@@ -357,48 +356,48 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: transparent;
+  background: var(--color-transparent);
   border: none;
-  color: var(--color-muted, rgba(255, 255, 255, 0.6));
-  font-size: 0.6875rem;
+  color: var(--color-muted);
+  font-size: var(--text-caption);
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: var(--radius-sm, 4px);
-  transition: all 0.15s ease;
+  border-radius: var(--radius-sm);
+  transition: color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard);
 }
 
 .account-mask-toggle-btn:hover {
-  color: var(--color-ink, #ffffff);
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-ink);
+  background: var(--color-surface-raised);
 }
 
 .account-textarea {
   min-height: 80px;
   padding: 12px 16px;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--control-bg);
   border: 1px solid var(--control-border);
   color: var(--control-ink);
-  font-size: 0.75rem;
+  font-size: var(--text-mono);
   font-family: var(--font-mono);
   outline: none;
   box-sizing: border-box;
-  transition: border-color var(--motion-fast) var(--motion-smooth),
-              background-color var(--motion-fast) var(--motion-smooth),
-              box-shadow var(--motion-fast) var(--motion-smooth);
+  transition: border-color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard);
   width: 100%;
   resize: vertical;
 }
 
-.account-textarea:hover:not(:disabled) {
+.account-textarea:hover:not(:disabled, [aria-disabled="true"], [readonly], [aria-readonly="true"], :focus, :focus-visible, .is-error, [aria-invalid="true"]) {
   background: var(--control-bg-hover);
   border-color: var(--control-border-hover);
 }
 
-.account-textarea:focus {
+.account-textarea:focus:not(:disabled, [aria-disabled="true"], .is-error, [aria-invalid="true"]) {
   background: var(--control-bg-focus);
   border-color: var(--control-border-focus);
-  box-shadow: var(--control-focus-ring);
+  box-shadow: none;
 }
 
 .account-textarea::placeholder {
@@ -419,22 +418,22 @@
   padding: 32px 16px;
   text-align: center;
   gap: 8px;
-  border-radius: var(--radius-md, 10px);
-  background: rgba(0, 0, 0, 0.12);
-  border: 1px dashed var(--glass-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border-subtle);
 }
 
 .account-empty-title {
-  font-size: 0.8125rem;
-  font-weight: 650;
-  color: var(--color-ink, #ffffff);
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
 }
 
 .account-empty-desc {
-  font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.55));
+  font-size: var(--text-caption);
+  color: var(--color-muted);
   max-width: 420px;
-  line-height: 1.45;
+  line-height: var(--text-caption-lh);
 }
 
 .account-empty-actions {
@@ -451,9 +450,7 @@
 .account-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: var(--color-bg-overlay);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -465,10 +462,10 @@
   width: min(520px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 48px);
-  border-radius: var(--radius-md, 12px);
+  border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
-  box-shadow: none;
+  box-shadow: var(--elevation-overlay);
   padding: 18px;
   display: flex;
   flex-direction: column;
@@ -502,19 +499,19 @@
 }
 
 .account-modal-title {
-  font-size: 0.8125rem;
-  font-weight: 650;
-  color: var(--color-ink, #ffffff);
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
   margin: 0;
 }
 
 .account-modal-tabs {
   display: inline-flex;
   align-items: center;
-  background: rgba(0, 0, 0, 0.28);
+  background: var(--color-surface);
   padding: 2px;
-  border-radius: var(--radius-pill, 9999px);
-  border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-subtle);
   gap: 2px;
   align-self: flex-start;
   flex-shrink: 0;
@@ -525,34 +522,35 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  height: 22px;
+  height: var(--height-btn-sm);
   padding: 0 10px;
-  border-radius: var(--radius-pill, 9999px);
-  font-size: 0.6875rem;
-  font-weight: 550;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-medium);
   border: none;
-  background: transparent;
-  color: var(--color-muted, rgba(255, 255, 255, 0.6));
+  background: var(--color-transparent);
+  color: var(--color-muted);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard);
   user-select: none;
 }
 
 .account-modal-tab-btn:hover:not(:disabled) {
-  color: var(--color-ink, #ffffff);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-ink);
+  background: var(--color-surface-raised);
 }
 
 .account-modal-tab-btn--active {
-  background: var(--glass-surface-strong, rgba(255, 255, 255, 0.15)) !important;
-  color: var(--color-ink, #ffffff) !important;
-  font-weight: 600;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font-weight: var(--font-weight-semibold);
 }
 
 .account-modal-body {
-  font-size: 0.75rem;
-  line-height: 1.45;
-  color: var(--color-muted, rgba(255, 255, 255, 0.75));
+  font-size: var(--text-control);
+  line-height: var(--text-control-lh);
+  color: var(--color-muted);
   margin: 0;
   display: flex;
   flex-direction: column;
@@ -563,9 +561,9 @@
 }
 
 .account-modal-help {
-  font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.6));
-  line-height: 1.4;
+  font-size: var(--text-caption);
+  color: var(--color-muted);
+  line-height: var(--text-caption-lh);
 }
 
 .account-field-group {
@@ -575,9 +573,9 @@
 }
 
 .account-label {
-  font-size: 0.6875rem;
-  font-weight: 550;
-  color: var(--color-muted, rgba(255, 255, 255, 0.75));
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-muted);
 }
 
 .account-modal-actions {
@@ -598,10 +596,8 @@
   position: relative;
   height: 100vh;
   box-sizing: border-box;
-  overflow: hidden !important;
-  background: var(--glass-canvas, rgba(15, 15, 18, 0.6));
-  backdrop-filter: blur(40px) saturate(190%);
-  -webkit-backdrop-filter: blur(40px) saturate(190%);
+  overflow: hidden;
+  background: var(--color-canvas);
   padding: 38px 16px 24px 16px;
   display: flex;
   flex-direction: column;
@@ -635,12 +631,13 @@
 .account-tool-tabs {
   display: inline-flex;
   align-items: center;
-  background: rgba(0, 0, 0, 0.28);
+  background: var(--color-surface);
   padding: 0;
-  border-radius: var(--radius-pill, 9999px);
-  box-shadow: inset 0 0 0 1px var(--glass-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-subtle);
   gap: 2px;
-  height: 24px;
+  height: var(--height-tab);
+  box-shadow: none;
 }
 
 .account-tool-tab-btn {
@@ -648,35 +645,37 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 24px;
+  height: var(--height-tab);
   padding: 0 12px;
-  border-radius: var(--radius-pill, 9999px);
-  font-size: 0.6875rem;
-  font-weight: 550;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-medium);
   border: none;
-  background: transparent;
-  color: var(--color-muted, rgba(255, 255, 255, 0.65));
+  background: var(--color-transparent);
+  color: var(--color-muted);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard);
   user-select: none;
   white-space: nowrap;
   outline: none;
 }
 
 .account-tool-tab-btn:hover:not(:disabled) {
-  color: var(--color-ink, #ffffff);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-ink);
+  background: var(--color-surface-raised);
 }
 
 .account-tool-tab-btn:focus-visible {
-  box-shadow: 0 0 0 2px var(--color-accent, #3b82f6);
+  outline: 1.5px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .account-tool-tab-btn--active {
-  background: var(--glass-surface-strong, rgba(255, 255, 255, 0.14)) !important;
-  color: var(--color-ink, #ffffff) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  font-weight: 600;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  box-shadow: none;
+  font-weight: var(--font-weight-semibold);
 }
 
 .account-tool-tab-btn:disabled {
@@ -697,19 +696,19 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 24px;
-  min-height: 24px;
+  height: var(--height-btn);
+  min-height: var(--height-btn);
   padding: 0 7px 0 9px;
-  border-radius: var(--radius-pill, 9999px);
-  font-size: 0.6875rem;
-  font-weight: 550;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-medium);
   border: 1px solid var(--color-border);
   background: var(--btn-secondary-bg);
   color: var(--btn-secondary-text);
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--motion-smooth),
-              border-color var(--motion-fast) var(--motion-smooth),
-              color var(--motion-fast) var(--motion-smooth);
+  transition: background-color var(--motion-fast) var(--motion-standard),
+              border-color var(--motion-fast) var(--motion-standard),
+              color var(--motion-fast) var(--motion-standard);
   user-select: none;
   white-space: nowrap;
   box-shadow: none;
@@ -723,7 +722,7 @@
 .account-header-auto-switch:focus-visible {
   outline: 1.5px solid var(--focus-ring);
   outline-offset: 2px;
-  border-color: var(--color-primary);
+  border-color: var(--color-border-strong);
 }
 
 .account-header-auto-switch:disabled {
@@ -732,8 +731,8 @@
 }
 
 .account-header-auto-switch-label {
-  font-size: 0.6875rem;
-  font-weight: 550;
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-medium);
   color: var(--color-ink);
   line-height: 1;
 }
@@ -741,16 +740,16 @@
 .account-header-auto-switch-toggle {
   width: 24px;
   height: 14px;
-  border-radius: 7px;
-  background: var(--color-border, rgba(255, 255, 255, 0.2));
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
   position: relative;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--motion-fast) var(--motion-standard);
   flex-shrink: 0;
   pointer-events: none;
 }
 
 .account-header-auto-switch-toggle--active {
-  background: var(--color-accent, #3b82f6);
+  background: var(--color-ink);
 }
 
 .account-header-auto-switch-knob {
@@ -759,10 +758,10 @@
   left: 2px;
   width: 10px;
   height: 10px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  box-shadow: none;
+  transition: transform var(--motion-fast) var(--motion-standard);
 }
 
 .account-header-auto-switch-toggle--active .account-header-auto-switch-knob {
@@ -781,9 +780,9 @@
   align-items: center;
   gap: 8px;
   padding: 2px 8px;
-  border-radius: var(--radius-pill, 9999px);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.05));
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
 }
 
 .account-capability-strip-left {
@@ -795,57 +794,58 @@
 .account-capability-label {
   display: inline-flex;
   align-items: center;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-semibold);
   padding: 1px 6px;
-  border-radius: var(--radius-pill, 9999px);
+  border-radius: var(--radius-pill);
   line-height: 1.2;
 }
 
 .account-capability-label--ready {
   background: var(--color-success-bg);
-  border: 1px solid color-mix(in oklch, var(--color-success) 28%, transparent);
-  color: var(--color-success-ink);
+  border: 1px solid var(--color-success-border);
+  color: var(--color-success);
 }
 
 .account-capability-label--limited {
   background: var(--color-waiting-bg);
-  border: 1px solid color-mix(in oklch, var(--color-waiting) 28%, transparent);
-  color: var(--color-waiting-ink);
+  border: 1px solid var(--color-waiting-border);
+  color: var(--color-waiting);
 }
 
 .account-capability-reason {
-  font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.65));
+  font-size: var(--text-caption);
+  color: var(--color-muted);
 }
 
 .account-capability-details-toggle {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.55));
-  background: transparent;
+  font-size: var(--text-caption);
+  color: var(--color-muted);
+  background: var(--color-transparent);
   border: none;
   cursor: pointer;
   padding: 1px 4px;
-  border-radius: 3px;
-  transition: all 0.15s ease;
+  border-radius: var(--radius-sm);
+  transition: color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard);
 }
 
 .account-capability-details-toggle:hover {
-  color: var(--color-ink, #ffffff);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-ink);
+  background: var(--color-surface-raised);
 }
 
 .account-capability-details-panel {
   padding: 8px 12px;
-  border-radius: var(--radius-md, 6px);
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.06));
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.55));
+  font-size: var(--text-caption);
+  color: var(--color-muted);
   word-break: break-all;
 }
 
@@ -884,16 +884,16 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   box-shadow: none;
-  transition: border-color var(--motion-fast) var(--motion-smooth),
-              background-color var(--motion-fast) var(--motion-smooth);
+  transition: border-color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard);
 }
 
 .account-quota-card:hover {
-  background: var(--color-surface-hover);
+  background: var(--color-surface-raised);
   border-color: var(--color-border-strong);
   box-shadow: none;
 }
@@ -901,7 +901,7 @@
 .account-quota-card--active {
   border-color: var(--color-border-strong);
   background: var(--color-surface);
-  box-shadow: none !important;
+  box-shadow: none;
 }
 
 .account-quota-card--detail {
@@ -933,10 +933,10 @@
   justify-content: center;
   width: 26px;
   height: 26px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid var(--glass-border-subtle, rgba(255, 255, 255, 0.08));
-  color: var(--color-ink, #ffffff);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-ink);
   flex-shrink: 0;
   margin-top: 1px;
 }
@@ -956,9 +956,9 @@
 }
 
 .account-card-name {
-  font-size: 0.8125rem;
-  font-weight: 650;
-  color: var(--color-ink, #ffffff);
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -966,8 +966,8 @@
 }
 
 .account-card-email {
-  font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.55));
+  font-size: var(--text-caption);
+  color: var(--color-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -987,18 +987,20 @@
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 4px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--color-muted, rgba(255, 255, 255, 0.55));
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-transparent);
+  background: var(--color-transparent);
+  color: var(--color-muted);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard),
+              border-color var(--motion-fast) var(--motion-standard);
 }
 
 .account-icon-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-ink, #ffffff);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border-color: var(--color-border-subtle);
 }
 
 .account-icon-btn:disabled {
@@ -1008,8 +1010,8 @@
 
 .account-icon-btn--danger:hover:not(:disabled) {
   background: var(--color-danger-bg);
-  color: var(--color-danger-ink);
-  border-color: color-mix(in oklch, var(--color-danger) 25%, transparent);
+  color: var(--color-danger);
+  border-color: var(--color-danger-border);
 }
 
 /* Quota Section */
@@ -1021,7 +1023,7 @@
   gap: 8px;
   padding: 0;
   border-radius: 0;
-  background: transparent;
+  background: var(--color-transparent);
   border: none;
 }
 
@@ -1045,71 +1047,71 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.5625rem;
-  font-weight: 600;
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-semibold);
   padding: 1px 5px;
-  border-radius: var(--radius-pill, 9999px);
+  border-radius: var(--radius-pill);
 }
 
 .account-quota-status-badge--ready {
   background: var(--color-success-bg);
-  border: 1px solid color-mix(in oklch, var(--color-success) 28%, transparent);
-  color: var(--color-success-ink);
+  border: 1px solid var(--color-success-border);
+  color: var(--color-success);
 }
 
 .account-quota-status-badge--expired {
   background: var(--color-danger-bg);
-  border: 1px solid color-mix(in oklch, var(--color-danger) 28%, transparent);
-  color: var(--color-danger-ink);
+  border: 1px solid var(--color-danger-border);
+  color: var(--color-danger);
 }
 
 .account-quota-status-badge--forbidden {
   background: var(--color-danger-bg);
-  border: 1px solid color-mix(in oklch, var(--color-danger) 28%, transparent);
-  color: var(--color-danger-ink);
+  border: 1px solid var(--color-danger-border);
+  color: var(--color-danger);
 }
 
 .account-quota-status-badge--limited {
   background: var(--color-waiting-bg);
-  border: 1px solid color-mix(in oklch, var(--color-waiting) 28%, transparent);
-  color: var(--color-waiting-ink);
+  border: 1px solid var(--color-waiting-border);
+  color: var(--color-waiting);
 }
 
 .account-quota-status-badge--unavailable {
-  background: var(--glass-surface-subtle);
+  background: var(--color-surface-raised);
   border: 1px solid var(--color-border-subtle);
   color: var(--color-muted);
 }
 
 .account-quota-status-badge--error {
   background: var(--color-danger-bg);
-  border: 1px solid color-mix(in oklch, var(--color-danger) 28%, transparent);
-  color: var(--color-danger-ink);
+  border: 1px solid var(--color-danger-border);
+  color: var(--color-danger);
 }
 
 .account-quota-status-badge--stale {
   background: var(--color-waiting-bg);
-  border: 1px solid color-mix(in oklch, var(--color-waiting) 28%, transparent);
-  color: var(--color-waiting-ink);
+  border: 1px solid var(--color-waiting-border);
+  color: var(--color-waiting);
 }
 
 .account-quota-plan-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-semibold);
   padding: 1px 5px;
-  border-radius: var(--radius-pill, 9999px);
-  background: var(--color-accent-subtle);
-  border: 1px solid color-mix(in oklch, var(--color-accent) 28%, transparent);
-  color: var(--color-accent);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  color: var(--color-ink);
 }
 
 .account-quota-updated-time {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.45));
+  font-size: var(--text-caption);
+  color: var(--color-muted);
 }
 
 .account-quota-windows {
@@ -1126,9 +1128,9 @@
   flex-direction: column;
   gap: 6px;
   padding: 6px 7px 7px;
-  border: 1px solid color-mix(in oklch, var(--color-border-subtle) 82%, transparent);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--glass-surface-subtle) 74%, transparent);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
 }
 
 .account-quota-model-group-header {
@@ -1140,9 +1142,9 @@
 .account-quota-model-group-title {
   min-width: 0;
   overflow: hidden;
-  color: var(--color-ink, #ffffff);
-  font-size: 0.6875rem;
-  font-weight: 650;
+  color: var(--color-ink);
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.005em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1164,7 +1166,7 @@
 .account-quota-windows--antigravity .account-quota-model-group {
   gap: 4px;
   padding: 5px 8px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .account-quota-windows--antigravity .account-quota-model-group-title {
@@ -1205,7 +1207,7 @@
   min-width: 0;
   margin-top: 2px;
   overflow: hidden;
-  font-size: 0.625rem;
+  font-size: var(--text-caption);
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1218,7 +1220,7 @@
   width: 34px;
   height: 34px;
   place-items: center;
-  color: var(--color-ink, #ffffff);
+  color: var(--color-ink);
 }
 
 .account-quota-ring svg {
@@ -1236,21 +1238,20 @@
 }
 
 .account-quota-ring-track {
-  stroke: color-mix(in oklch, var(--color-border-subtle) 78%, transparent);
+  stroke: var(--color-border-subtle);
 }
 
 .account-quota-ring-fill {
-  stroke: var(--color-success);
+  stroke: var(--color-muted);
   stroke-linecap: round;
-  transition: stroke-dashoffset 0.3s ease;
 }
 
 .account-quota-ring--mid .account-quota-ring-fill {
-  stroke: var(--color-waiting);
+  stroke: var(--color-muted);
 }
 
 .account-quota-ring--low .account-quota-ring-fill {
-  stroke: var(--color-danger);
+  stroke: var(--color-muted);
 }
 
 .account-quota-ring--unknown .account-quota-ring-track {
@@ -1262,16 +1263,16 @@
   position: relative;
   z-index: 1;
   font-family: var(--font-mono);
-  font-size: 0.5625rem;
-  font-weight: 650;
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-semibold);
   line-height: 1;
 }
 
 .account-plan-notice {
   flex-shrink: 0;
   margin: 0;
-  font-size: 0.6875rem;
-  line-height: 1.4;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
   color: var(--color-muted);
 }
 
@@ -1280,8 +1281,8 @@
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  font-size: 0.6875rem;
-  line-height: 1.4;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
   color: var(--color-muted);
 }
 
@@ -1309,9 +1310,9 @@
 }
 
 .account-quota-window-label {
-  font-size: 0.6875rem;
-  font-weight: 550;
-  color: var(--color-ink, #ffffff);
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1320,35 +1321,35 @@
 .account-quota-window-value {
   flex-shrink: 0;
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  color: var(--color-ink, #ffffff);
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
 }
 
 .account-quota-bar-track {
   width: 100%;
   height: 4px;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
   overflow: hidden;
 }
 
 .account-quota-bar-fill {
   height: 100%;
-  border-radius: 9999px;
-  transition: width 0.3s ease;
+  border-radius: var(--radius-pill);
+  transition: width var(--motion-base) var(--motion-standard);
 }
 
 .account-quota-fill--high {
-  background: var(--color-success);
+  background: var(--color-muted);
 }
 
 .account-quota-fill--mid {
-  background: var(--color-waiting);
+  background: var(--color-muted);
 }
 
 .account-quota-fill--low {
-  background: var(--color-danger);
+  background: var(--color-muted);
 }
 
 .account-quota-window-reset {
@@ -1356,8 +1357,8 @@
   align-items: center;
   gap: 3px;
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.45));
+  font-size: var(--text-caption);
+  color: var(--color-muted);
 }
 
 .account-quota-loading-placeholder,
@@ -1367,8 +1368,8 @@
   justify-content: center;
   gap: 6px;
   padding: 10px 0;
-  font-size: 0.6875rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.45));
+  font-size: var(--text-caption);
+  color: var(--color-muted);
 }
 
 /* Card Footer */
@@ -1386,8 +1387,8 @@
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono);
-  font-size: 0.5625rem;
-  color: var(--color-muted, rgba(255, 255, 255, 0.45));
+  font-size: var(--text-caption);
+  color: var(--color-muted);
   flex-wrap: wrap;
 }
 
@@ -1396,37 +1397,10 @@
 }
 
 .account-card-switch-btn--active {
-  background: var(--color-success-bg) !important;
-  border-color: color-mix(in oklch, var(--color-success) 28%, transparent) !important;
-  color: var(--color-success-ink) !important;
+  background: var(--btn-saved-bg);
+  border-color: var(--btn-saved-border);
+  color: var(--btn-saved-text);
   cursor: default;
-}
-
-/* Semantic badges and dialogs retain contrast on the light glass surface. */
-[data-theme='light'] .account-card-quota-section,
-[data-theme='light'] .account-capability-details-panel,
-[data-theme='light'] .account-empty-state,
-[data-theme='light'] .account-tool-tabs,
-[data-theme='light'] .account-modal-tabs {
-  background: oklch(0.3 0.01 260 / 0.035);
-}
-
-[data-theme='light'] .account-modal-box {
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border);
-  box-shadow: none;
-  border-radius: 12px;
-}
-
-[data-theme='light'] .account-input,
-[data-theme='light'] .account-textarea {
-  background: var(--control-bg);
-  border-color: var(--control-border);
-  color: var(--control-ink);
-}
-
-[data-theme='light'] .account-quota-bar-track {
-  background: oklch(0.3 0.01 260 / 0.08);
 }
 
 .account-card-switch-btn--active:disabled {
@@ -1447,18 +1421,19 @@
 }
 
 .account-btn--oauth-signin {
-  height: 28px;
+  height: var(--height-btn);
   padding: 0 16px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: var(--text-control);
+  font-weight: var(--font-weight-semibold);
   gap: 8px;
-  background: var(--glass-surface-strong, rgba(255, 255, 255, 0.16));
-  border-color: var(--glass-border, rgba(255, 255, 255, 0.22));
+  background: var(--btn-secondary-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-ink);
 }
 
 .account-btn--oauth-signin:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.24);
-  border-color: rgba(255, 255, 255, 0.35);
+  background: var(--btn-secondary-hover);
+  border-color: var(--color-border-strong);
 }
 
 .account-oauth-status-box {
@@ -1469,27 +1444,27 @@
   gap: 8px;
   padding: 16px 12px;
   width: 100%;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   text-align: center;
 }
 
 .account-oauth-spinner {
-  color: var(--color-accent);
+  color: var(--color-muted);
 }
 
 .account-oauth-status-title {
-  font-size: 0.75rem;
-  font-weight: 650;
+  font-size: var(--text-control);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-ink);
 }
 
 .account-oauth-status-desc {
   margin: 0;
-  font-size: 0.6875rem;
+  font-size: var(--text-caption);
   color: var(--color-muted);
-  line-height: 1.45;
+  line-height: var(--text-caption-lh);
   max-width: 320px;
 }
 
@@ -1502,11 +1477,11 @@
 
 .account-modal-error-callout {
   padding: 8px 12px;
-  border-radius: var(--radius-md, 6px);
+  border-radius: var(--radius-sm);
   background: var(--color-danger-bg);
-  border: 1px solid color-mix(in oklch, var(--color-danger) 25%, transparent);
-  font-size: 0.6875rem;
-  color: var(--color-danger-ink);
+  border: 1px solid var(--color-danger-border);
+  font-size: var(--text-caption);
+  color: var(--color-danger);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1521,26 +1496,26 @@
   justify-content: space-between;
   gap: 8px;
   padding: 6px 10px;
-  border-radius: var(--radius-md, 6px);
-  font-size: 0.6875rem;
-  line-height: 1.35;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
   width: 100%;
 }
 
 .account-contextual-callout--expired {
   background: var(--color-waiting-bg);
-  border: 1px solid color-mix(in oklch, var(--color-waiting) 25%, transparent);
-  color: var(--color-waiting-ink);
+  border: 1px solid var(--color-waiting-border);
+  color: var(--color-waiting);
 }
 
 .account-contextual-callout--error {
   background: var(--color-danger-bg);
-  border: 1px solid color-mix(in oklch, var(--color-danger) 25%, transparent);
-  color: var(--color-danger-ink);
+  border: 1px solid var(--color-danger-border);
+  color: var(--color-danger);
 }
 
 .account-contextual-callout--unavailable {
-  background: var(--glass-surface-subtle);
+  background: var(--color-surface-raised);
   border: 1px solid var(--color-border-subtle);
   color: var(--color-muted);
 }
@@ -1562,39 +1537,19 @@
   justify-content: center;
   width: 18px;
   height: 18px;
-  border-radius: 4px;
-  background: transparent;
+  border-radius: var(--radius-sm);
+  background: var(--color-transparent);
   border: none;
   color: inherit;
   opacity: 0.7;
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--motion-fast) var(--motion-standard);
 }
 
 .account-contextual-callout-dismiss:hover {
   opacity: 1;
-}
-
-/* Light theme overrides */
-[data-theme='light'] .account-oauth-status-box {
-  background: var(--color-surface);
-  border-color: var(--color-border);
-}
-
-[data-theme='light'] .account-btn--oauth-signin {
-  background: var(--btn-secondary-bg);
-  border-color: var(--color-border);
-  color: var(--color-ink);
-}
-
-[data-theme='light'] .account-btn--oauth-signin:hover:not(:disabled) {
-  background: var(--btn-secondary-hover);
-}
-
-[data-theme='light'] .account-oauth-status-title {
-  color: var(--color-ink);
 }
 
 /* =========================================================================
@@ -1655,7 +1610,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 5px 12px;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   margin: 0 0 6px 0;
@@ -1678,22 +1633,22 @@
 }
 
 .account-auto-switch-label {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: var(--text-control);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-ink);
   white-space: nowrap;
 }
 
 .account-auto-switch-desc {
-  font-size: 0.6875rem;
+  font-size: var(--text-caption);
   color: var(--color-muted);
   margin: 0;
-  line-height: 1.35;
+  line-height: var(--text-caption-lh);
 }
 
 .account-auto-switch-status {
-  font-size: 0.6875rem;
-  color: var(--color-accent);
+  font-size: var(--text-caption);
+  color: var(--color-muted);
   margin-top: 0;
 }
 
@@ -1705,18 +1660,18 @@
 .account-toggle-btn {
   width: 32px;
   height: 18px;
-  border-radius: 10px;
-  background: var(--color-border, rgba(255, 255, 255, 0.2));
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
   position: relative;
   border: none;
   cursor: pointer;
   padding: 0;
-  transition: background 0.2s ease;
+  transition: background-color var(--motion-fast) var(--motion-standard);
   flex-shrink: 0;
 }
 
 .account-toggle-btn--active {
-  background: var(--color-accent, #3b82f6);
+  background: var(--color-ink);
 }
 
 .account-toggle-btn:disabled {
@@ -1730,10 +1685,10 @@
   left: 2px;
   width: 14px;
   height: 14px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  transition: transform 0.2s ease;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  box-shadow: none;
+  transition: transform var(--motion-fast) var(--motion-standard);
 }
 
 .account-toggle-btn--active .account-toggle-knob {

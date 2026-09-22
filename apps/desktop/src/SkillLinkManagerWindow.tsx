@@ -442,8 +442,8 @@ export function SkillLinkManagerWindow() {
     return (
       <div className="link-window-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
         <div style={{ textAlign: 'center', color: 'var(--color-muted)' }}>
-          <RefreshCw size={22} className="spin-slow" style={{ margin: '0 auto 8px auto', color: 'var(--color-accent)' }} />
-          <p style={{ fontSize: '0.8125rem' }}>正在加载 Skill 分发数据...</p>
+          <RefreshCw size={22} className="spin-slow" style={{ margin: '0 auto 8px auto', color: 'var(--color-muted)' }} />
+          <p style={{ fontSize: 'var(--text-body)' }}>正在加载 Skill 分发数据...</p>
         </div>
       </div>
     )
@@ -455,7 +455,7 @@ export function SkillLinkManagerWindow() {
       <div className="link-window-titlebar">
         <div className="titlebar-drag-region" />
         <div className="titlebar-center">
-          <Link2 size={13} style={{ color: 'var(--color-accent)' }} />
+          <Link2 size={13} style={{ color: 'var(--color-muted)' }} />
           <span className="titlebar-title">{currentSkill.name}</span>
         </div>
       </div>
@@ -516,8 +516,8 @@ export function SkillLinkManagerWindow() {
                     type="button"
                     disabled={!isReady}
                     aria-disabled={!isReady}
-                    className={`btn btn--capsule btn--sm ${!isReady ? 'btn--secondary' : isLinked ? 'btn--secondary' : status === 'external' ? 'btn--secondary' : 'btn--primary'}`}
-                    style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0, opacity: !isReady ? 0.6 : undefined }}
+                    className={`btn btn--capsule btn--sm ${!isReady ? 'btn--secondary' : isLinked ? 'btn--secondary' : status === 'external' ? 'btn--secondary' : 'btn--secondary'}`}
+                    style={{ pointerEvents: 'none', height: '22px', fontSize: 'var(--text-caption)', padding: '0 10px', flexShrink: 0, opacity: !isReady ? 0.6 : undefined }}
                   >
                     {!isReady ? (
                       <span>待挂载</span>
@@ -555,9 +555,9 @@ export function SkillLinkManagerWindow() {
 
                 return (
                   <div key={proj.path} className="env-tree-branch" style={{ marginBottom: 12 }}>
-                    <div className="env-tree-branch-header" style={{ padding: '6px 8px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '6px' }}>
+                    <div className="env-tree-branch-header" style={{ padding: '6px 8px', background: 'var(--control-bg)', borderRadius: '6px' }}>
                       <div className="branch-header-left">
-                        <Folder size={15} style={{ color: isProjectLinked ? 'var(--color-accent)' : 'var(--color-muted)' }} />
+                        <Folder size={15} style={{ color: isProjectLinked ? 'var(--color-ink)' : 'var(--color-muted)' }} />
                         <span className="branch-title">{proj.name}</span>
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                           {proj.sources.map((src) => {
@@ -584,7 +584,7 @@ export function SkillLinkManagerWindow() {
                           })}
                         </div>
                         {isProjectLinked ? (
-                          <span className="branch-badge font-mono" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                          <span className="branch-badge font-mono" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success-ink)' }}>
                             已关联
                           </span>
                         ) : null}
@@ -624,8 +624,8 @@ export function SkillLinkManagerWindow() {
 
                             <button
                               type="button"
-                              className={`btn btn--capsule btn--sm ${isLinked || status === 'external' ? 'btn--secondary' : 'btn--primary'}`}
-                              style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
+                              className={`btn btn--capsule btn--sm ${isLinked || status === 'external' ? 'btn--secondary' : 'btn--secondary'}`}
+                              style={{ pointerEvents: 'none', height: '22px', fontSize: 'var(--text-caption)', padding: '0 10px', flexShrink: 0 }}
                             >
                               {isLinked ? <Unlink size={11} /> : status === 'external' ? <Download size={11} /> : <Link2 size={11} />}
                               <span>{isLinked ? '断开' : status === 'external' ? '接管并连接' : status === 'conflict' ? '处理冲突' : status === 'broken' ? '修复链接' : '连接'}</span>
@@ -640,7 +640,7 @@ export function SkillLinkManagerWindow() {
             ) : (
               <div style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--color-muted)' }}>
                 <FolderOpen size={24} style={{ margin: '0 auto 8px auto', opacity: 0.5 }} />
-                <p style={{ fontSize: '0.8125rem', margin: 0 }}>暂未扫描到 AI 打开的项目</p>
+                <p style={{ fontSize: 'var(--text-body)', margin: 0 }}>暂未扫描到 AI 打开的项目</p>
                 <button
                   type="button"
                   className="btn btn--primary btn--capsule btn--sm"

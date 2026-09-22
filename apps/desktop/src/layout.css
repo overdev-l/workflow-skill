@@ -1,0 +1,239 @@
+/* =========================================================================
+   App Shell Grid Layout & macOS Top Drag Strip
+   ========================================================================= */
+
+.app-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: 160px var(--master-column-width, 210px) minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  min-width: 0;
+  background: transparent;
+  color: var(--color-ink);
+  user-select: none;
+  font-family: var(--font-sans);
+  letter-spacing: -0.012em;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum" 1;
+}
+
+.app-shell > * {
+  min-width: 0;
+}
+
+.master-column-resizer {
+  position: absolute;
+  z-index: 40;
+  top: 0;
+  bottom: 0;
+  left: calc(160px + var(--master-column-width, 210px) - 4px);
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+  -webkit-app-region: no-drag;
+}
+
+.master-column-resizer::after {
+  content: '';
+  position: absolute;
+  top: 32px;
+  bottom: 18px;
+  left: 3px;
+  width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  opacity: 0;
+  transform: scaleY(0.94);
+  transition: opacity var(--motion-fast) var(--motion-standard), transform var(--motion-fast) var(--motion-standard);
+  pointer-events: none;
+}
+
+.master-column-resizer:hover::after,
+.master-column-resizer:focus-visible::after,
+.master-column-resizer:active::after,
+body.is-resizing-master-column .master-column-resizer::after {
+  opacity: 0.82;
+  transform: scaleY(1);
+}
+
+body.is-resizing-master-column,
+body.is-resizing-master-column * {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.master-resizer-collapse-btn {
+  position: absolute;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  color: var(--color-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--motion-standard), color var(--motion-fast) var(--motion-standard), background-color var(--motion-fast) var(--motion-standard), transform var(--motion-fast) var(--motion-standard);
+  pointer-events: auto;
+  z-index: 45;
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+}
+
+.master-column-resizer:hover .master-resizer-collapse-btn,
+.master-column-resizer:focus-within .master-resizer-collapse-btn {
+  opacity: 0.92;
+}
+
+.master-resizer-collapse-btn:hover {
+  opacity: 1;
+  color: var(--color-ink);
+  background: var(--control-bg-hover);
+  border-color: var(--control-border-hover);
+  transform: translateX(-50%);
+}
+
+.master-expand-floating-trigger {
+  position: absolute;
+  top: 7px;
+  left: 172px;
+  z-index: 55;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-surface-strong);
+  border: 1px solid var(--glass-border-subtle);
+  color: var(--color-ink);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: none;
+  transition: color var(--motion-fast) var(--motion-standard), background-color var(--motion-fast) var(--motion-standard), border-color var(--motion-fast) var(--motion-standard), opacity var(--motion-fast) var(--motion-standard);
+  -webkit-app-region: no-drag;
+}
+
+.master-expand-floating-trigger:hover {
+  background: var(--glass-surface-hover);
+  border-color: var(--color-border);
+}
+
+.master-expand-floating-trigger kbd {
+  font-size: var(--text-caption);
+  font-family: var(--font-mono);
+  color: var(--color-muted);
+  background: var(--color-surface-raised);
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--glass-border-subtle);
+  line-height: 1.2;
+}
+
+.sidebar-shortcut-tag {
+  font-size: var(--text-caption);
+  font-family: var(--font-mono);
+  color: var(--color-muted);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--control-border);
+  padding: 1px 4px;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+
+.app-shell.is-settings,
+.app-shell.is-accounts {
+  grid-template-columns: 160px minmax(0, 1fr);
+}
+
+.app-shell.is-master-collapsed {
+  grid-template-columns: 160px minmax(0, 1fr);
+}
+
+.app-shell.is-master-collapsed .app-col-master {
+  display: none;
+}
+
+.app-shell.is-master-collapsed .master-column-resizer {
+  display: none;
+}
+
+.app-main-stage {
+  position: relative;
+  height: 100vh;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--glass-canvas);
+  padding: 38px 28px 40px 28px;
+  z-index: 10;
+  transition: background-color var(--motion-base) var(--motion-standard);
+  container-type: inline-size;
+}
+
+/* Global Top Drag Strip */
+.app-window-drag-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 38px;
+  -webkit-app-region: drag;
+  pointer-events: auto;
+  z-index: 1;
+}
+
+
+
+/* =========================================================================
+   Main Stage Canvas (Seamless Liquid Glass Surface)
+   ========================================================================= */
+
+
+
+/* =========================================================================
+   Responsive
+   ========================================================================= */
+
+@media (max-width: 860px) {
+  .clean-page {
+    width: calc(100% - 24px);
+    padding-top: 16px;
+  }
+
+  .card-main-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .detail-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .guarantees-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .capture-event-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .capture-listener-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .capture-listener-header > .btn {
+    align-self: flex-start;
+  }
+}
+

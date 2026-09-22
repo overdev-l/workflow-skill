@@ -1,7 +1,7 @@
 .update-sidebar { width: 100%; margin-bottom: 6px; }
 .update-action { position: relative; overflow: hidden; gap: 6px; }
 .update-action > svg, .update-action > span:not(.update-fill) { position: relative; z-index: 1; }
-.update-fill { position: absolute; inset: 0 auto 0 0; background: var(--color-success-bg); transition: width 0.2s var(--motion-smooth); }
+.update-fill { position: absolute; inset: 0 auto 0 0; background: var(--color-success-bg); transition: width var(--motion-base) var(--motion-standard); }
 .update-spinner { animation: update-spin 1s linear infinite; }
 .app-update-card {
   padding: 16px;
@@ -10,7 +10,7 @@
   gap: 10px;
   justify-items: start;
 }
-.app-update-card p, .update-error { font-size: 12px; opacity: 0.85; margin: 4px 0 0; overflow-wrap: anywhere; color: var(--color-ink); }
+.app-update-card p, .update-error { font-size: var(--text-control); opacity: 0.85; margin: 4px 0 0; overflow-wrap: anywhere; color: var(--color-ink); }
 .update-error { color: var(--color-danger); opacity: 1; }
 @keyframes update-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .update-spinner { animation: none; } .update-fill { transition: none; } }

@@ -524,7 +524,7 @@ export function RulesThreeColumn({
               <button
                 type="button"
                 className="btn btn--capsule btn--primary"
-                style={{ height: '24px', padding: '0 8px', fontSize: '0.75rem' }}
+                style={{ height: '24px', padding: '0 8px', fontSize: 'var(--text-control)' }}
                 onClick={handleNewRule}
                 title="新建规则"
               >
@@ -534,7 +534,7 @@ export function RulesThreeColumn({
               <button
                 type="button"
                 className="btn btn--capsule btn--primary"
-                style={{ height: '24px', padding: '0 8px', fontSize: '0.75rem' }}
+                style={{ height: '24px', padding: '0 8px', fontSize: 'var(--text-control)' }}
                 onClick={handleAddProject}
                 title="添加项目文件夹"
               >
@@ -549,7 +549,7 @@ export function RulesThreeColumn({
           {currentTab === 'rules' ? (
             filteredRules.length === 0 ? (
               <div className="master-empty-state">
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                <p style={{ fontSize: 'var(--text-control)', color: 'var(--color-muted)' }}>
                   {query ? '未匹配到规则' : '暂无公共规则'}
                 </p>
                 {query ? (
@@ -562,7 +562,7 @@ export function RulesThreeColumn({
                     清空搜索
                   </button>
                 ) : (
-                  <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', opacity: 0.7, marginTop: '4px' }}>
+                  <span style={{ fontSize: 'var(--text-caption)', color: 'var(--color-muted)', opacity: 0.7, marginTop: '4px' }}>
                     点击上方「+」新建规则
                   </span>
                 )}
@@ -594,7 +594,7 @@ export function RulesThreeColumn({
             )
           ) : filteredProjects.length === 0 ? (
             <div className="master-empty-state">
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              <p style={{ fontSize: 'var(--text-control)', color: 'var(--color-muted)' }}>
                 {query ? '未匹配到项目' : t.rules.noProjects}
               </p>
               {query ? (
@@ -607,7 +607,7 @@ export function RulesThreeColumn({
                   清空搜索
                 </button>
               ) : (
-                <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', opacity: 0.7, marginTop: '4px' }}>
+                <span style={{ fontSize: 'var(--text-caption)', color: 'var(--color-muted)', opacity: 0.7, marginTop: '4px' }}>
                   点击上方「+」添加项目
                 </span>
               )}
@@ -639,7 +639,7 @@ export function RulesThreeColumn({
                     </div>
                     <span className="master-item-sub font-mono">{p.path}</span>
                     {(p as any).status === 'missing' && (
-                      <span style={{ color: 'var(--color-danger)', fontSize: '0.625rem' }}>目录失效</span>
+                      <span style={{ color: 'var(--color-danger)', fontSize: 'var(--text-caption)' }}>目录失效</span>
                     )}
                   </div>
                 </button>
@@ -654,9 +654,9 @@ export function RulesThreeColumn({
         {currentTab === 'rules' ? (
           !selectedRuleId && !isCreatingNew ? (
             <div className="detail-stage-wrap rules-stage" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '300px' }}>
-              <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+              <div style={{ textAlign: 'center', color: 'var(--color-muted)' }}>
                 <FileText size={32} style={{ opacity: 0.35, marginBottom: '12px' }} />
-                <p style={{ margin: 0, fontSize: '0.875rem' }}>未选择规则，请在左侧选择或新建规则</p>
+                <p style={{ margin: 0, fontSize: 'var(--text-body)' }}>未选择规则，请在左侧选择或新建规则</p>
               </div>
             </div>
           ) : (
@@ -666,26 +666,26 @@ export function RulesThreeColumn({
               <div className="rules-detail-header" style={{ alignItems: 'flex-start' }}>
                 <div className="rules-detail-header__fields" style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label className="form-label rules-form-label" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <label className="form-label rules-form-label" style={{ fontSize: 'var(--text-control)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                       规则名称
                     </label>
                     <input
                       type="text"
                       className="dialog-capsule-input"
-                      style={{ fontSize: '0.8125rem', fontWeight: 600, width: '100%' }}
+                      style={{ fontSize: 'var(--text-body)', fontWeight: 600, width: '100%' }}
                       placeholder={t.rules.ruleNamePlaceholder}
                       value={formName}
                       onChange={(e) => updateFormName(e.target.value)}
                     />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label className="form-label rules-form-label" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <label className="form-label rules-form-label" style={{ fontSize: 'var(--text-control)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                       简短描述
                     </label>
                     <input
                       type="text"
                       className="dialog-capsule-input"
-                      style={{ fontSize: '0.75rem', width: '100%' }}
+                      style={{ fontSize: 'var(--text-control)', width: '100%' }}
                       placeholder={t.rules.ruleDescPlaceholder}
                       value={formDesc}
                       onChange={(e) => updateFormDesc(e.target.value)}
@@ -717,7 +717,7 @@ export function RulesThreeColumn({
 
               {/* Markdown Editor - Full Width */}
               <div className="rules-full-editor-pane" style={{ marginTop: '16px' }}>
-                <label className="form-label rules-form-label" style={{ marginBottom: '6px', display: 'block', fontSize: '12px' }}>
+                <label className="form-label rules-form-label" style={{ marginBottom: '6px', display: 'block', fontSize: 'var(--text-control)' }}>
                   Markdown 规则定义
                 </label>
                 <textarea
@@ -726,7 +726,7 @@ export function RulesThreeColumn({
                     width: '100%',
                     minHeight: '320px',
                     lineHeight: '1.6',
-                    fontSize: '0.8125rem',
+                    fontSize: 'var(--text-body)',
                     padding: '14px 16px',
                     borderRadius: '8px',
                     resize: 'vertical',
@@ -765,10 +765,10 @@ export function RulesThreeColumn({
                     }}
                   >
                     <FolderPlus size={15} style={{ opacity: 0.8 }} />
-                    <span style={{ fontSize: '15px', fontWeight: 600 }}>
+                    <span style={{ fontSize: 'var(--text-section)', fontWeight: 600 }}>
                       {t.rules.injectedProjectsTitle}
                     </span>
-                    <span className="badge badge--neutral" style={{ fontSize: '12px' }}>
+                    <span className="badge badge--neutral" style={{ fontSize: 'var(--text-control)' }}>
                       共 {projects.length} 个项目
                     </span>
                     {projectsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -786,7 +786,7 @@ export function RulesThreeColumn({
                 {projectsExpanded && (
                   <div className="rules-matrix-card" style={{ marginTop: '8px' }}>
                     {projects.length === 0 ? (
-                      <div style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                      <div style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--color-muted)', fontSize: 'var(--text-control)' }}>
                         暂未关联任何项目，点击上方「+」添加项目文件夹进行注入
                       </div>
                     ) : (
@@ -819,10 +819,10 @@ export function RulesThreeColumn({
               }}
             >
               <div>
-                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>
+                <h3 style={{ margin: 0, fontSize: 'var(--text-section)', fontWeight: 600 }}>
                   {currentProject?.name || '未选择项目'}
                 </h3>
-                <p className="font-mono" style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                <p className="font-mono" style={{ margin: '4px 0 0 0', fontSize: 'var(--text-control)', color: 'var(--color-muted)' }}>
                   {currentProjectPath || '请先在侧边栏选择或添加项目'}
                 </p>
               </div>
@@ -851,10 +851,10 @@ export function RulesThreeColumn({
               <div
                 style={{
                   padding: '8px 12px',
-                  background: 'rgba(255, 69, 58, 0.12)',
-                  border: '1px solid rgba(255, 69, 58, 0.28)',
+                  background: 'var(--color-danger-bg)',
+                  border: '1px solid var(--color-danger-border)',
                   borderRadius: '6px',
-                  fontSize: '12px',
+                  fontSize: 'var(--text-control)',
                   color: 'var(--color-danger)',
                   marginBottom: '12px',
                 }}
@@ -878,24 +878,24 @@ export function RulesThreeColumn({
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
                       <Link size={14} style={{ flexShrink: 0 }} />
-                      <span style={{ fontWeight: 600, fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>{t.rules.claudeLinkTitle}</span>
+                      <span style={{ fontWeight: 600, fontSize: 'var(--text-body)', whiteSpace: 'nowrap' }}>{t.rules.claudeLinkTitle}</span>
                       {claudeStatus?.isCorrect ? (
-                        <span className="badge badge--success" style={{ fontSize: '0.6875rem' }}>
+                        <span className="badge badge--success" style={{ fontSize: 'var(--text-caption)' }}>
                           <CheckCircle2 size={11} style={{ marginRight: '4px' }} />
                           {t.rules.claudeLinkedBadge}
                         </span>
                       ) : claudeStatus?.conflict ? (
-                        <span className="badge badge--danger" style={{ fontSize: '0.6875rem' }}>
+                        <span className="badge badge--danger" style={{ fontSize: 'var(--text-caption)' }}>
                           <AlertCircle size={11} style={{ marginRight: '4px' }} />
                           {t.rules.claudeConflictBadge}
                         </span>
                       ) : (
-                        <span className="badge badge--neutral" style={{ fontSize: '0.6875rem' }}>
+                        <span className="badge badge--neutral" style={{ fontSize: 'var(--text-caption)' }}>
                           {t.rules.claudeMissingBadge}
                         </span>
                       )}
                       {!claudeStatus?.isCorrect && (
-                        <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                        <span style={{ fontSize: 'var(--text-control)', color: 'var(--color-muted)' }}>
                           {claudeStatus?.reason || t.rules.claudeLinkDesc}
                         </span>
                       )}
@@ -914,7 +914,7 @@ export function RulesThreeColumn({
                     )}
                   </div>
                   {claudeStatus?.conflict && claudeStatus?.reason && (
-                    <p style={{ margin: '6px 0 0 0', fontSize: '0.75rem', color: 'var(--color-danger-ink)' }}>
+                    <p style={{ margin: '6px 0 0 0', fontSize: 'var(--text-control)', color: 'var(--color-danger-ink)' }}>
                       {claudeStatus.reason}
                     </p>
                   )}
@@ -931,8 +931,8 @@ export function RulesThreeColumn({
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <div>
-                      <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>{t.rules.projectRulesTitle}</span>
-                      <p style={{ margin: '2px 0 0 0', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                      <span style={{ fontWeight: 600, fontSize: 'var(--text-body)' }}>{t.rules.projectRulesTitle}</span>
+                      <p style={{ margin: '2px 0 0 0', fontSize: 'var(--text-body)', color: 'var(--color-muted)' }}>
                         {t.rules.projectRulesDesc}
                       </p>
                     </div>
@@ -947,7 +947,7 @@ export function RulesThreeColumn({
                               ? 'badge--danger'
                               : 'badge--warning'
                           }`}
-                          style={{ fontSize: '0.6875rem' }}
+                          style={{ fontSize: 'var(--text-caption)' }}
                         >
                           {projectAssoc.status === 'synced'
                             ? t.rules.statusSynced
@@ -970,7 +970,7 @@ export function RulesThreeColumn({
                   </div>
 
                   {rules.length === 0 ? (
-                    <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', textAlign: 'center', padding: '16px 0' }}>
+                    <p style={{ fontSize: 'var(--text-body)', color: 'var(--color-muted)', textAlign: 'center', padding: '16px 0' }}>
                       暂无公共规则，请先在「规则库」选项卡中创建规则。
                     </p>
                   ) : (
@@ -999,8 +999,8 @@ export function RulesThreeColumn({
                                 onChange={() => handleToggleProjectRuleItem(rule.id)}
                               />
                               <div>
-                                <span style={{ fontWeight: 500, fontSize: '0.8125rem' }}>{rule.name}</span>
-                                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                <span style={{ fontWeight: 500, fontSize: 'var(--text-body)' }}>{rule.name}</span>
+                                <span style={{ marginLeft: '8px', fontSize: 'var(--text-control)', color: 'var(--color-muted)' }}>
                                   #{index + 1}
                                 </span>
                               </div>
@@ -1053,7 +1053,7 @@ export function RulesThreeColumn({
                                 checked={false}
                                 onChange={() => handleToggleProjectRuleItem(rule.id)}
                               />
-                              <span style={{ fontSize: '0.8125rem' }}>{rule.name}</span>
+                              <span style={{ fontSize: 'var(--text-body)' }}>{rule.name}</span>
                             </label>
                           </div>
                         ))}
@@ -1089,7 +1089,7 @@ export function RulesThreeColumn({
                       <label className="form-label rules-form-label" style={{ margin: 0, cursor: 'pointer' }}>
                         {t.rules.previewTitle}
                       </label>
-                      <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
+                      <span style={{ fontSize: 'var(--text-caption)', color: 'var(--color-muted)' }}>
                         ({previewContent.split('\n').length} 行)
                       </span>
                     </div>
@@ -1105,7 +1105,7 @@ export function RulesThreeColumn({
                         height: '240px',
                         resize: 'vertical',
                         lineHeight: '1.5',
-                        fontSize: '0.75rem',
+                        fontSize: 'var(--text-control)',
                         padding: '12px 16px',
                         borderRadius: '8px',
                         background: 'var(--control-bg)',
@@ -1117,7 +1117,7 @@ export function RulesThreeColumn({
                 </div>
               </div>
             ) : (
-              <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
+              <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--color-muted)' }}>
                 {t.rules.noProjects}
               </div>
             )}
@@ -1178,8 +1178,8 @@ function ProjectRuleMatrixRow({
       }}
     >
       <div style={{ overflow: 'hidden', marginRight: '8px' }}>
-        <div style={{ fontWeight: 500, fontSize: '0.8125rem' }}>{project.name}</div>
-        <div className="font-mono" style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
+        <div style={{ fontWeight: 500, fontSize: 'var(--text-body)' }}>{project.name}</div>
+        <div className="font-mono" style={{ fontSize: 'var(--text-caption)', color: 'var(--color-muted)' }}>
           {project.path}
         </div>
       </div>
@@ -1188,12 +1188,12 @@ function ProjectRuleMatrixRow({
         {injected ? (
           <span
             className={`badge ${status === 'synced' ? 'badge--success' : status === 'failed' ? 'badge--danger' : 'badge--neutral'}`}
-            style={{ fontSize: '0.6875rem' }}
+            style={{ fontSize: 'var(--text-caption)' }}
           >
             {status === 'synced' ? '已注入 (已同步)' : status === 'failed' ? '同步失败' : '已注入 (待同步)'}
           </span>
         ) : (
-          <span className="badge badge--neutral" style={{ fontSize: '0.6875rem' }}>
+          <span className="badge badge--neutral" style={{ fontSize: 'var(--text-caption)' }}>
             未注入
           </span>
         )}

@@ -396,7 +396,7 @@ export function SkillDistributionBoard({
       {/* Header with Title, Count pill and Scope Switcher */}
       <div className="skill-dist-header">
         <div className="skill-dist-header__left">
-          <Link2 size={14} style={{ color: 'var(--color-accent)' }} />
+          <Link2 size={14} style={{ color: 'var(--color-muted)' }} />
           <h3 className="skill-dist-title">{t.skills.distributionTitle}</h3>
           <span className="skill-dist-count-pill font-mono">
             {currentScope === 'global'

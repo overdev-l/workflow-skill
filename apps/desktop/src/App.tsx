@@ -728,13 +728,13 @@ function SafeDeleteSkillModal({
 
   return (
     <div
-      className="modal-glass-backdrop safe-delete-backdrop view-enter"
+      className="modal-backdrop safe-delete-backdrop view-enter"
       onMouseDown={() => {
         if (!deleting) onClose()
       }}
     >
       <div
-        className="glass-dialog-box safe-delete-dialog modal-pop"
+        className="dialog-surface safe-delete-dialog modal-pop"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="safe-delete-title"
@@ -863,9 +863,9 @@ function SkillAdoptionDialog({
   const failedItems = result?.failedCount || 0
 
   return (
-    <div className="modal-glass-backdrop" onMouseDown={() => { if (!busy) onClose() }}>
+    <div className="modal-backdrop" onMouseDown={() => { if (!busy) onClose() }}>
       <div
-        className="glass-dialog-box skill-adoption-dialog modal-pop"
+        className="dialog-surface skill-adoption-dialog modal-pop"
         role="dialog"
         aria-modal="true"
         aria-labelledby="skill-adoption-title"
@@ -1191,16 +1191,16 @@ function ManageSkillLinksModal({
   }
 
   return (
-    <div className="modal-glass-backdrop view-enter" onClick={onClose}>
+    <div className="modal-backdrop view-enter" onClick={onClose}>
       <div
-        className="glass-dialog-box modal-pop env-link-tree-dialog"
+        className="dialog-surface modal-pop env-link-tree-dialog"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Dialog Header */}
         <div className="dialog-header-row env-tree-dialog-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Link2 size={15} style={{ color: 'var(--color-accent)' }} />
-            <h3 className="glass-dialog-title" style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 650 }}>
+            <Link2 size={15} style={{ color: 'var(--color-ink)' }} />
+            <h3 className="dialog-title" style={{ margin: 0, fontSize: 'var(--text-section)', fontWeight: 650 }}>
               {currentSkill.name}
             </h3>
           </div>
@@ -1250,7 +1250,7 @@ function ManageSkillLinksModal({
                           {linkedCount}/{group.tools.length}
                         </span>
                       ) : hasLinked ? (
-                        <span className="branch-badge font-mono" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                        <span className="branch-badge font-mono" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)', borderColor: 'var(--color-success-border)' }}>
                           已注入
                         </span>
                       ) : null}
@@ -1297,8 +1297,8 @@ function ManageSkillLinksModal({
 
                           <button
                             type="button"
-                            className={`btn btn--capsule btn--sm ${isLinked ? 'btn--primary' : 'btn--capsule-ghost'}`}
-                            style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
+                            className={`btn btn--capsule btn--sm ${isLinked ? 'btn--secondary' : 'btn--capsule-ghost'}`}
+                            style={{ pointerEvents: 'none', height: '22px', fontSize: 'var(--text-caption)', padding: '0 10px', flexShrink: 0 }}
                           >
                             {isLinked ? <Check size={11} /> : <Link2 size={11} />}
                             <span>{isLinked ? '已注入' : '未注入'}</span>
@@ -1313,8 +1313,8 @@ function ManageSkillLinksModal({
           ) : projects.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--color-muted)' }}>
               <Folder size={24} style={{ margin: '0 auto 8px', opacity: 0.4 }} />
-              <p style={{ fontSize: '0.8125rem', margin: 0 }}>暂无已登记的项目工作区</p>
-              <p style={{ fontSize: '0.75rem', margin: '4px 0 0', opacity: 0.7 }}>
+              <p style={{ fontSize: 'var(--text-body)', margin: 0 }}>暂无已登记的项目工作区</p>
+              <p style={{ fontSize: 'var(--text-control)', margin: '4px 0 0', opacity: 0.7 }}>
                 请先在 MCP 页面或系统设置中添加本地项目文件夹
               </p>
             </div>
@@ -1333,10 +1333,10 @@ function ManageSkillLinksModal({
                 <div key={proj.id} className="env-tree-branch">
                   <div className="env-tree-branch-header">
                     <div className="branch-header-left">
-                      <Folder size={15} style={{ color: 'var(--color-accent)' }} />
+                      <Folder size={15} style={{ color: 'var(--color-ink)' }} />
                       <span className="branch-title">{proj.name}</span>
                       {isProjectLinked ? (
-                        <span className="branch-badge font-mono" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                        <span className="branch-badge font-mono" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)', borderColor: 'var(--color-success-border)' }}>
                           已关联
                         </span>
                       ) : null}
@@ -1386,8 +1386,8 @@ function ManageSkillLinksModal({
 
                           <button
                             type="button"
-                            className={`btn btn--capsule btn--sm ${isNodeLinked ? 'btn--primary' : 'btn--capsule-ghost'}`}
-                            style={{ pointerEvents: 'none', height: '22px', fontSize: '0.6875rem', padding: '0 10px', flexShrink: 0 }}
+                            className={`btn btn--capsule btn--sm ${isNodeLinked ? 'btn--secondary' : 'btn--capsule-ghost'}`}
+                            style={{ pointerEvents: 'none', height: '22px', fontSize: 'var(--text-caption)', padding: '0 10px', flexShrink: 0 }}
                           >
                             {isOp ? (
                               <RefreshCw size={11} className="spin" />
@@ -1410,7 +1410,7 @@ function ManageSkillLinksModal({
 
         {/* Dialog Footer */}
         <div className="dialog-footer-row env-tree-dialog-footer">
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+          <div style={{ fontSize: 'var(--text-control)', color: 'var(--color-muted)' }}>
             当前已注入到 <strong>{totalLinkedCount}</strong> 个环境与工作区
           </div>
           <button type="button" className="btn btn--primary btn--capsule btn--sm" onClick={onClose}>
@@ -1426,7 +1426,7 @@ function ExpandableSkillDesc({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false)
   const isLong = text.length > 100
   return (
-    <div style={{ marginTop: '6px', fontSize: '0.8125rem', color: 'var(--color-muted)', lineHeight: 1.5 }}>
+    <div style={{ marginTop: '6px', fontSize: 'var(--text-body)', color: 'var(--color-muted)', lineHeight: 1.5 }}>
       <p style={{ margin: 0, display: expanded || !isLong ? 'block' : '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
         {text}
       </p>
@@ -1434,7 +1434,7 @@ function ExpandableSkillDesc({ text }: { text: string }) {
         <button
           type="button"
           className="btn btn--capsule-ghost btn--sm"
-          style={{ padding: 0, height: '18px', fontSize: '0.6875rem', marginTop: '2px', color: 'var(--color-accent)', cursor: 'pointer' }}
+          style={{ padding: 0, height: '18px', fontSize: 'var(--text-caption)', marginTop: '2px', color: 'var(--color-ink)', cursor: 'pointer' }}
           onClick={() => setExpanded(!expanded)}
         >
           {expanded ? '收起描述' : '展开描述'}
@@ -1937,8 +1937,8 @@ function SkillsThreeColumn({
               <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
                 <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                    <Folder size={20} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
-                    <h1 className="detail-hero-name" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>
+                    <Folder size={20} style={{ color: 'var(--color-ink)', flexShrink: 0 }} />
+                    <h1 className="detail-hero-name" style={{ margin: 0, fontSize: 'var(--text-title)', fontWeight: 600, lineHeight: 1.3 }}>
                       {activeLocalSkill.name}
                     </h1>
                   </div>
@@ -2034,7 +2034,7 @@ function SkillsThreeColumn({
               <div className="skill-doc-wrap">
                 <div className="skill-doc-meta-bar font-mono">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <FileText size={12} style={{ color: 'var(--color-accent)' }} />
+                    <FileText size={12} style={{ color: 'var(--color-ink)' }} />
                     <span title={activeLocalSkill.skillPath}>{activeLocalSkill.projectSource
                       ? `${activeLocalSkill.projectSource.relativePaths.join(' · ')} / SKILL.md` : 'SKILL.md'}</span>
                   </div>
@@ -2539,12 +2539,12 @@ function WorkflowsThreeColumn({
                 onClick={() => onSelectWorkflowId(wf.id)}
               >
                 <div className="master-item-logo">
-                  <WorkflowIcon size={16} style={{ color: 'var(--color-accent)' }} />
+                  <WorkflowIcon size={16} style={{ color: 'var(--color-ink)' }} />
                 </div>
                 <div className="master-item-content">
                   <div className="master-item-title-row">
                     <span className="master-item-title">{wf.name}</span>
-                    {isSaved ? <Bookmark size={11} style={{ color: '#10b981' }} /> : null}
+                    {isSaved ? <Bookmark size={11} style={{ color: 'var(--color-success)' }} /> : null}
                   </div>
                   <span className="master-item-sub">{wf.summary || '已捕获操作流'}</span>
                   <div className="master-item-meta-row">
@@ -2760,10 +2760,10 @@ function WorkflowsThreeColumn({
             <header className="detail-hero-header" style={{ marginBottom: '14px' }}>
               <div className="detail-hero-header__row1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', minHeight: '28px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                  <div className="detail-hero-header__icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-accent)' }}>
+                  <div className="detail-hero-header__icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-ink)' }}>
                     <WorkflowIcon size={20} />
                   </div>
-                  <h1 className="detail-hero-header__title" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.3 }}>
+                  <h1 className="detail-hero-header__title" style={{ margin: 0, fontSize: 'var(--text-title)', fontWeight: 600, lineHeight: 1.3 }}>
                     {draft.name}
                   </h1>
                 </div>
@@ -2803,7 +2803,7 @@ function WorkflowsThreeColumn({
                 </div>
               </div>
 
-              <div className="detail-hero-header__row2" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+              <div className="detail-hero-header__row2" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px', color: 'var(--color-muted)', fontSize: 'var(--text-body)' }}>
                 {draft.summary ? (
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '600px' }}>
                     {draft.summary}
@@ -3102,7 +3102,7 @@ function WorkflowDetailPage({
       </header>
 
       {/* Main Floating Glass Flow Section */}
-      <section className="detail-glass-stage">
+      <section className="detail-stage-surface">
         <div className="section-capsule-head">
           <span className="section-capsule-title">工作流拓扑步骤图 (点击节点查看执行审计与通路点亮)</span>
         </div>
@@ -4050,9 +4050,9 @@ function AppCommandPalette({
   if (!open) return null
 
   return (
-    <div className="modal-glass-backdrop" onMouseDown={onClose}>
+    <div className="modal-backdrop" onMouseDown={onClose}>
       <div
-        className="command-glass-box modal-pop"
+        className="command-panel modal-pop"
         role="dialog"
         aria-modal="true"
         onMouseDown={(e) => e.stopPropagation()}
@@ -4180,9 +4180,9 @@ end tell
   }
 
   return (
-    <div className="modal-glass-backdrop" onMouseDown={onClose}>
+    <div className="modal-backdrop" onMouseDown={onClose}>
       <div
-        className="glass-dialog-box modal-pop"
+        className="dialog-surface modal-pop"
         role="dialog"
         aria-modal="true"
         onMouseDown={(e) => e.stopPropagation()}
@@ -4221,7 +4221,7 @@ end tell
           </button>
         </div>
 
-        <div className="code-glass-frame dialog-body">
+        <div className="code-frame dialog-body">
           <pre>
             <code>{code}</code>
           </pre>
@@ -4285,7 +4285,7 @@ function NewSkillDialog({
     <dialog ref={dialogRef} className="skill-create-dialog" aria-label={t.skills.createDialogTitle}
       onCancel={event => { event.preventDefault(); if (!busy) closeRef.current() }}>
       <form
-        className="glass-dialog-box glass-dialog-box--small modal-pop"
+        className="dialog-surface dialog-surface--small modal-pop"
         onSubmit={(e) => {
           e.preventDefault()
           const finalName = name.trim() || t.skills.newSkill
@@ -4359,9 +4359,9 @@ function BrowserCaptureDialog({
   if (!open) return null
 
   return (
-    <div className="modal-glass-backdrop" onMouseDown={starting ? undefined : onClose}>
+    <div className="modal-backdrop" onMouseDown={starting ? undefined : onClose}>
       <form
-        className="glass-dialog-box modal-pop browser-capture-dialog"
+        className="dialog-surface modal-pop browser-capture-dialog"
         onSubmit={(event) => {
           event.preventDefault()
           void onStart(url).then((started) => {

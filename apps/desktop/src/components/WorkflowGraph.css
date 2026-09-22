@@ -21,7 +21,7 @@
 
 .flow-canvas-hint {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 
 .flow-canvas-actions {
@@ -34,7 +34,7 @@
 .flow-canvas-scale {
   min-width: 40px;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 
 .flow-graph-container .flow-graph__scroll {

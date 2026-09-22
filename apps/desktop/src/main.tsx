@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot, type Root as ReactRoot } from 'react-dom/client'
-import '@workflow-skill/ui/styles.css'
+import '@workflow-skill/ui/index.css'
 import './app.css'
 import { App } from './App'
 import { PermisoOverlayView } from './PermisoOverlay'

@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./styles.css": "./src/styles.css"
+    "./styles.css": "./src/styles.css",
+    "./index.css": "./src/index.css"
   },
   "scripts": {
     "build": "tsc --noEmit",

@@ -64,11 +64,11 @@ export function ConflictResolutionDialog({
 
   return (
     <div
-      className="modal-glass-backdrop conflict-resolution-backdrop view-enter"
+      className="modal-backdrop conflict-resolution-backdrop view-enter"
       onMouseDown={() => { if (!busy) onClose() }}
     >
       <div
-        className="glass-dialog-box conflict-resolution-dialog modal-pop"
+        className="dialog-surface conflict-resolution-dialog modal-pop"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="conflict-resolution-title"

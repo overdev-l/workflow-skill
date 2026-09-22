@@ -1,47 +1,80 @@
 # Trace 设计规范
 
-本文件是桌面 UI 的验收基线。延续当前配色与紧凑 macOS Pro 方向，解决组件之间的样式漂移。对应需求 OPC-60。共享实现入口为 `packages/ui/src/styles.css`，桌面布局为 `apps/desktop/src/app.css`，模块样式为 `accounts.css`、`mcp.css`、`updates.css`。
+本文件是桌面 UI 的验收基线。采用视觉语言 v2 规范（参考源提案 [docs/design-visual-language-v2.md](docs/design-visual-language-v2.md)，由需求 [OPC-212](https://linear.app/overdev-0/issue/OPC-212) 授权实施）。延续紧凑 macOS Pro 方向，解决组件之间的样式漂移与过度彩调。桌面实现基于 `packages/ui/src/` 四层架构与 `apps/desktop/src/` 模块结构；官网 `apps/web` 保持旧样式表不变。
 
 ## 1. 设计方向与范围
 
-面向长期管理 Skill、工作流和 AI 环境的专业用户。界面安静、紧凑、可检查，突出当前工作内容。保留深浅双主题、原生字体、钴蓝主操作和天蓝辅助强调，保留模块导航与业务能力；按第8节优化页面内部信息层级和操作位置，不改变业务语义。
+面向长期管理 Skill、工作流和 AI 环境的专业用户。界面安静、紧凑、可检查，突出当前工作内容。
+采用**中性色去彩（Chroma = 0 OKLCH）**，消除淡蓝铸调。色彩仅表状态，chrome 层仅保留**唯一一个有彩 token `--color-primary`**，专用于单屏至多一个的主操作按钮填充；选中态、焦点、hover、链接、徽章、导航一律无彩。
 
-毛玻璃只用于窗口结构表面，采用 `blur(40px) saturate(180%)`；内容面板用明确明度层次和微弱 1px 边界。禁止装饰渐变、发光、厚阴影和重复嵌套卡片。品牌 Logo 保留官方颜色，不随语义 token 强制重染。
+深度由**明度台阶 + 1px 边框**表达，废弃通用阴影。毛玻璃仅收敛至 4 处窗口结构表面（`.app-shell` 根窗口、`.app-sidebar` 导航栏、弹窗遮罩层、独立子窗口），其余全面退为实色。禁止装饰渐变、发光、厚阴影与重复嵌套卡片。品牌 Logo 保留官方颜色，不随语义 token 强制重染。
+
+第 8 节全页面布局方案（三栏业务工作台、账号双栏例外、设置双栏等）与信息架构保持完全不变。
 
 ## 2. 主题与语义色
 
-以下 OKLCH 值来自当前共享主题，不使用不准确的十六进制近似。组件必须引用语义变量，禁止单独硬编码深色背景、白色文字或红黄绿状态色。
+系统色彩严格使用 OKLCH 规范定义，hex 仅供参考。组件必须引用语义变量，禁止单独硬编码深色背景、白色文字或红黄绿状态色。
+
+### 2.1 中性色（chroma = 0）
+
+| Token | 深色 | hex | 浅色 | hex |
+| --- | --- | --- | --- | --- |
+| `--color-bg` | `oklch(0.120 0 0)` | `#060606` | `oklch(0.985 0 0)` | `#fafafa` |
+| `--color-canvas` | `oklch(0.150 0 0)` | `#0b0b0b` | `oklch(1 0 0)` | `#ffffff` |
+| `--color-surface` | `oklch(0.190 0 0)` | `#141414` | `oklch(0.965 0 0)` | `#f3f3f3` |
+| `--color-surface-raised` | `oklch(0.230 0 0)` | `#1d1d1d` | `oklch(0.930 0 0)` | `#e8e8e8` |
+| `--color-rail` | `oklch(0.165 0 0)` | `#0e0e0e` | `oklch(0.945 0 0)` | `#ededed` |
+| `--color-ink` | `oklch(0.965 0 0)` | `#f3f3f3` | `oklch(0.180 0 0)` | `#121212` |
+| `--color-muted` | `oklch(0.680 0 0)` | `#989898` | `oklch(0.470 0 0)` | `#5b5b5b` |
+| `--color-subtle` | `oklch(0.520 0 0)` | `#696969` | `oklch(0.615 0 0)` | `#868686` |
+| `--color-border` | `oklch(0.285 0 0)` | `#2a2a2a` | `oklch(0.885 0 0)` | `#d9d9d9` |
+| `--color-border-subtle` | `oklch(0.225 0 0)` | — | `oklch(0.925 0 0)` | — |
+| `--color-border-strong` | `oklch(0.360 0 0)` | — | `oklch(0.800 0 0)` | — |
+
+- `--color-subtle` 经对比度校准（深色 0.520，浅色 0.615），确保在对应表面上满足 ≥ 3:1 非文本/装饰对比度门槛。
+- `--color-subtle` 严禁用于正文、表单标签或占位文字。正文和占位文字必须满足 ≥ 4.5:1 对比度。
+
+### 2.2 主操作色（唯一有彩 token）
 
 | Token | 深色 | 浅色 |
 | --- | --- | --- |
-| `--color-bg` | `oklch(0.120 0.004 250)` | `oklch(0.985 0.002 250)` |
-| `--color-canvas` | `oklch(0.145 0.005 250)` | `oklch(1 0 0)` |
-| `--color-surface` | `oklch(0.175 0.006 250)` | `oklch(0.965 0.004 250)` |
-| `--color-surface-raised` | `oklch(0.215 0.008 250)` | `oklch(0.925 0.007 250)` |
-| `--color-rail` | `oklch(0.160 0.006 250)` | `oklch(0.940 0.005 250)` |
-| `--color-ink` | `oklch(0.960 0.003 250)` | `oklch(0.160 0.010 250)` |
-| `--color-muted` | `oklch(0.620 0.010 250)` | `oklch(0.480 0.015 250)` |
-| `--color-subtle` | `oklch(0.440 0.010 250)` | `oklch(0.640 0.010 250)` |
-| `--color-border` | `oklch(0.260 0.007 250)` | `oklch(0.890 0.006 250)` |
-| `--color-primary` | `oklch(0.580 0.200 250)` | `oklch(0.520 0.210 250)` |
-| `--color-accent` | `oklch(0.780 0.130 210)` | `oklch(0.580 0.160 215)` |
-| `--color-success` | `oklch(0.760 0.160 155)` | `oklch(0.420 0.140 155)` |
-| `--color-waiting` | `oklch(0.780 0.150 75)` | `oklch(0.460 0.140 75)` |
-| `--color-danger` | `oklch(0.650 0.220 25)` | `oklch(0.550 0.200 25)` |
-| `--control-bg` | `oklch(0.110 0.004 250)` | `oklch(0.910 0.008 250)` |
-| `--control-bg-hover` | `oklch(0.125 0.005 250)` | `oklch(0.890 0.010 250)` |
-| `--control-bg-focus` | `oklch(0.095 0.004 250)` | `oklch(0.925 0.007 250)` |
-| `--control-border` | `oklch(0.260 0.007 250)` | `oklch(0.830 0.010 250)` |
-| `--control-placeholder` | `oklch(0.580 0.010 250)` | `oklch(0.460 0.015 250)` |
+| `--color-primary` | `oklch(0.545 0.170 255)` (`#136ed0`) | `oklch(0.520 0.190 255)` (`#0065d2`) |
+| `--btn-primary-text` | `#ffffff` (5.02:1) | `#ffffff` (5.56:1) |
+| `--btn-primary-hover` | `oklch(0.570 0.175 255)` | `oklch(0.470 0.195 255)` |
 
-- 主操作使用 `--btn-primary-*`；次操作使用 `--btn-secondary-*`。蓝色只用于操作、选择和焦点。
-- 成功/等待/危险提示成组使用 `--color-<state>-bg`、`--color-<state>-ink`；边界使用相应语义色的低透明度版本。
-- `--color-subtle` 只用于非必要装饰，不用于正文、表单标签或占位文字。正文和占位文字对比度目标 4.5:1；大字与必要非文字状态目标 3:1。表内既有值若不达标，只调整对应语义文字 token 的明度并同步此表，不更换色相方向。
-- 新的兼容别名必须指向已有语义 token，不建立第二套色板。官网继承共享主题，需检查兼容性，但不纳入本次页面重设计。
+**使用边界（强制）**：仅用于当前视图的**单个主操作按钮填充**（每屏至多一个）。选中态、焦点、hover、链接、徽章、导航激活态一律使用中性色。旧系统的 `--color-accent` / `--color-accent-subtle` / `--color-primary-subtle` 完全废除。
 
-## 3. 布局
+### 2.3 状态色三元组
 
-- 业务工作台基线为 `160px 210px minmax(0, 1fr)`。Sidebar 固定 160px，Master 默认 210px；保留当前已实现的用户拖拽列宽及持久化行为，不因视觉修复删除功能。
+所有语义状态统一定义为三元组 `--color-<state>` (文本/图标)、`--color-<state>-bg` (半透明底色)、`--color-<state>-border` (边界)。
+
+| 状态 | 深色前景色 | 深色背景透明度 / 边界透明度 | 浅色前景色 | 浅色背景透明度 / 边界透明度 |
+| --- | --- | --- | --- | --- |
+| Success | `oklch(0.760 0.140 155)` | alpha 0.15 / alpha 0.35 | `oklch(0.430 0.130 155)` | alpha 0.12 / alpha 0.30 |
+| Waiting | `oklch(0.790 0.135 80)` | alpha 0.15 / alpha 0.35 | `oklch(0.470 0.120 80)` | alpha 0.12 / alpha 0.30 |
+| Danger | `oklch(0.680 0.190 25)` | alpha 0.12 / alpha 0.35 | `oklch(0.490 0.180 25)` | alpha 0.12 / alpha 0.30 |
+
+- 深色 Danger 背景校准为 alpha 0.12，确保文字在 tinted 表面上达到 4.62:1 满足可读性。
+- 状态表达必须遵循无障碍规范，同时附带文字或矢量图标，禁止仅依赖颜色区分状态。
+
+### 2.4 控件色（同明度边框方案）
+
+| Token | 深色 | 浅色 |
+| --- | --- | --- |
+| `--control-bg` | `var(--color-surface)` | `var(--color-surface)` |
+| `--control-bg-hover` | `oklch(0.215 0 0)` | `oklch(0.945 0 0)` |
+| `--control-bg-focus` | `oklch(0.205 0 0)` | `oklch(0.955 0 0)` |
+| `--control-border` | `oklch(0.520 0 0)` | `oklch(0.610 0 0)` |
+| `--control-border-hover` | `oklch(0.600 0 0)` | `oklch(0.540 0 0)` |
+| `--control-border-focus` | `oklch(0.680 0 0)` | `oklch(0.420 0 0)` |
+| `--control-placeholder` | `oklch(0.620 0 0)` | `oklch(0.510 0 0)` |
+
+- 采用原生 macOS「同明度 + 边框」质感，取消凹陷式深色底色。
+- `--control-border` 经 WCAG 1.4.11 实测：深色 3.07:1，浅色 3.08:1，严格满足 ≥ 3:1 非文本对比度要求。
+
+## 3. 布局与表面深度
+
+- 业务工作台实际保留架构为 Sidebar 固定 160px，Master 实际默认 280px（可拖拽范围 240–360px，带持久化与重置行为）；历史规范中的 210px 宽度不再处于激活状态（系统当前最小支持 240px，不支持 210px）。保留现有交互行为，不因视觉修复删除功能。
 - 账号管理是业务布局的明确例外：`160px minmax(0, 1fr)`，左侧导航加全宽账号卡片工作台，不设 Master 或列宽拖拽。
 - 设置模式为 `160px minmax(0, 1fr)`，隐藏 Master，主舞台全宽承载设置内容。保留已有设置导航项。
 - 主舞台常规水平内边距 16px，设置页面 28px；顶部保留当前 38px 窗口拖拽安全区，底部 24px，设置底部 40px。
@@ -56,7 +89,23 @@
 - 实现统一使用 `scrollbar-width: none`，并为 Chromium/WebKit 的 `::-webkit-scrollbar` 设置 `display: none; width: 0; height: 0`；不使用 `scrollbar-gutter: stable` 预留空槽。第三方组件自行绘制的轨道与滑块也必须关闭。
 - 滚动容器仍须可通过键盘到达；长列表、长文档和图谱的末尾内容必须可访问。保持既有滚动位置、选择、光标与窗口拖拽行为。
 
-## 4. 尺寸与间距
+### 3.2 表面深度与毛玻璃白名单
+
+深度通过**明度差 + 1px 边框**呈现，严禁使用卡片实体阴影。三级深度定义如下：
+
+| 层级 | 阴影声明 | 用途与表现 |
+| --- | --- | --- |
+| `--elevation-flat` | `none` | 列表行、字段组、内容分区，仅靠 1px `--color-border` 分隔 |
+| `--elevation-raised` | `none` | hover、选中态，仅由 `--color-surface` 切换至 `--color-surface-raised` |
+| `--elevation-overlay` | 深色 `0 8px 24px oklch(0 0 0 / 0.40)`，浅色 `0 8px 24px oklch(0 0 0 / 0.14)`（通过独立 1px `--color-border` 边框组合，token 内无额外 shadow ring） | **全系统唯一允许使用阴影的层级**：弹窗、下拉菜单、命令面板、Toast 浮层 |
+
+**毛玻璃限制（强制）**：全系统 `backdrop-filter: blur(40px) saturate(180%)` 仅收敛于以下 4 类窗口结构表面，其余所有界面卡片一律退为实色：
+1. `.app-shell`（桌面窗口根容器，承接系统 vibrancy）
+2. `.app-sidebar`（导航 rail）
+3. 弹窗遮罩层（dialog backdrop overlay）
+4. 独立任务子窗口根容器（`SkillLinkManagerWindow`、`PermisoOverlay`）
+
+## 4. 尺寸、间距与紧凑节奏
 
 | 项目 | 标准 |
 | --- | --- |
@@ -81,28 +130,57 @@
 - 单选下拉框保持原生 select 的键盘、选择与禁用行为；箭头使用 12px 盒子，垂直居中，距离右边缘 10px，文字左侧 12px、右侧预留 32px，长名称省略且不覆盖箭头。箭头在默认、hover、focus 和深浅主题下保持可见；多选/列表框不套用单选箭头。
 - 验收覆盖深浅主题、Master 210px/360px、全局/项目切换、长项目名、键盘选择与聚焦。检查填充子项等宽、末项与外框右缘吻合、箭头内缩居中、搜索及添加图标不变形；输入继续遵循第6节。
 
-## 5. 字体
+## 5. 字体与字阶（硬性 6 档）
 
-使用共享 `--font-sans` 原生系统栈；代码、路径内容、编辑器使用 `--font-mono`。固定字号：辅助 11px、控件/说明 12px、正文/列表标题 13px、分组标题 15px、详情标题 20px。正文 1.45–1.55 行高，代码编辑 1.65；控件垂直居中。常规字重 400、标签 500、标题 600；数字使用等宽数字。避免 9px 状态文字承担关键信息。
+系统严格固定 6 档字阶，全部以 `px` 为基准 token 化，彻底杜绝 `rem`/`px` 混用与低于 11px 的字号：
 
-## 6. 输入与键盘焦点（强制）
+| Token | 字号 | 行高 | 用途 |
+| --- | --- | --- | --- |
+| `--text-caption` | 11px | 1.45 | 元信息、状态、次级路径标签（**系统硬下限，严禁低于 11px**） |
+| `--text-control` | 12px | 1.45 | 按钮、表单标签、说明文字 |
+| `--text-body` | 13px | 1.50 | 正文、列表标题 |
+| `--text-section` | 15px | 1.40 | 分组标题 |
+| `--text-title` | 20px | 1.30 | 详情标题 |
+| `--text-mono` | 12px | 1.65 | 代码、路径内容、编辑器 |
 
-**所有可输入区域不要 outline，也不要用内侧或外扩 box-shadow、聚焦高亮边框模拟 outline。**
+- 字重规范：常规 400、标签 500、标题 600。
+- 全局数值：`font-variant-numeric: tabular-nums lining-nums`。
+- **11px 硬下限（强制）**：禁止任何 9px / 9.5px / 10px 的关键信息显示；所有旧 10px 按钮与控件标签提升为 12px（`--text-control`），与 macOS 原生小型控件规范对齐。
 
-覆盖 input（含 number/url/tel 等类型）、textarea、select、可编辑 contenteditable、role=textbox 的实际输入节点，以及其 focus、focus-visible、focus-within 状态。
+## 6. 输入与键盘焦点（同明度与中性高对比）
 
-- 默认和聚焦均 `outline: none`。输入底色使用 `--control-bg`，比所在表面更深。
-- Hover 使用 `--control-bg-hover` 和 `--control-border-hover`。
-- Focus 通过 `--control-bg-focus` 底色与输入光标反馈；`--control-border-focus` 与默认 `--control-border` 相同，`--control-focus-ring: none`。禁止蓝色或其他高亮焦点描边、内侧阴影、外扩环和光晕。不得引发布局位移。
-- 带搜索图标的复合输入，由外壳统一呈现底色、边界和 focus-within；内部 input 背景透明、无独立边界或阴影，避免双层输入框。
-- 错误态保留危险边框和文本说明，焦点不能覆盖错误含义。禁用态不能响应 hover/focus 装饰。
-- 这条规则不删除按钮、链接、Tab、拖拽分隔条的键盘焦点。非输入控件保留清晰的 focus-visible 指示。禁止全局 `* { outline: none }`。
+**所有可输入区域不要 outline，也不要用内侧或外扩 box-shadow、彩色光晕模拟 outline。**
+覆盖 input（含 text/number/url/tel）、textarea、select、可编辑 contenteditable、role=textbox 节点，以及 focus / focus-visible / focus-within。
 
-## 7. 组件状态与动效
+1. **同明度底色与边框提档**：
+   - 默认输入底色采用 `--control-bg`（等于宿主表面色 `var(--color-surface)`），配合 1px `--control-border`。
+   - 获得焦点时，边框维持 1px 宽度不变，颜色提升至中性高对比度 `--control-border-focus`（深色提至 `0.680`，浅色提至 `0.420`），底色切换为 `--control-bg-focus` 并依靠闪烁光标清晰反馈。
+   - **绝对禁止蓝色描边、彩色外扩环、内侧阴影或任何引发布局抖动 (Layout Shift) 的尺寸变化**。
+2. **复合输入容器**：带搜索图标或前置动作的复合输入框，由外层容器统一承载边框与 focus-within；内部 input 背景透明、无边界与阴影，严禁双层边框。
+3. **错误态保留（最高优先级）**：验证失败或错误状态必须显示危险色边框（`--control-border-error` / `--color-danger`）并伴随明确的文字提示；**获得焦点不得覆盖或隐藏错误红框**。
+4. **非输入控件焦点可见**：非输入控件（按钮、链接、分段 Tab、列表行、拖拽分隔条）在键盘导航时保留清晰可见的中性 `focus-visible` 指示（`--focus-ring`）；**严禁全局 `* { outline: none }`**。
 
-所有交互组件覆盖 default、hover、focus-visible、active/selected、disabled；异步操作延续现有 loading/error/success 反馈。选择态使用低饱和蓝色底与文字/图标，状态不能只依赖颜色。按钮不因 hover 缩放或弹跳。
+## 7. 组件状态、过渡与 CSS 架构
 
-统一快速反馈 160ms、常规切换 220ms，使用已有缓出曲线。遵循 prefers-reduced-motion。错误提示、账户恢复、MCP 开关与更新状态在双主题下共用语义样式。
+### 7.1 动效与受限过渡
+
+- 节奏：快速反馈 `--motion-fast: 160ms`、常规切换 `--motion-base: 220ms`，缓出曲线 `--motion-standard: cubic-bezier(0.2, 0, 0, 1)`。遵循 `prefers-reduced-motion`（减弱动效时置为 0ms）。
+- **过渡属性白名单（强制）**：仅允许对 `color`、`background-color`、`border-color`、`opacity`、`transform` 属性设置 CSS transition。
+- **严禁布局属性动画**：严禁对 `width`、`height`、`padding`、`margin` 设置过渡动画（进度条实际进度等业务明确状态反馈除外），避免触发重排导致丢帧与抖动。
+- 按钮在 hover 时严禁使用缩放或弹跳动效。
+
+### 7.2 四层 CSS 架构规范
+
+为根除样式漂移与样式覆盖，全库强制采用四层 CSS 组织架构，禁止在文件末尾追加 `!important` 补丁（全库 `!important` 归零）：
+
+```
+1. packages/ui/src/tokens.css     :root / [data-theme] 变量，双主题色彩、字阶、尺寸、动效唯一源
+2. packages/ui/src/primitives.css 基础控件（按钮、输入框、Tab、下拉、基础行骨架）标准样式
+3. apps/desktop/src/layout.css    三栏与双栏结构、Master 列表栏、详情舞台外壳布局
+4. apps/desktop/src/modules/*.css 各业务模块私有排版与场景差异（不得重复声明 token 或基础控件）
+```
+
+
 
 ## 8. 全页面布局方案（2026-09-15）
 

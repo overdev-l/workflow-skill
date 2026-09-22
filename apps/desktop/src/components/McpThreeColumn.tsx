@@ -965,7 +965,7 @@ export function McpThreeColumn({
                   alignItems: 'center',
                   gap: '6px',
                   padding: '2px 8px',
-                  fontSize: '0.6875rem',
+                  fontSize: 'var(--text-caption)',
                   color: 'var(--color-muted)',
                   background: 'var(--control-bg)',
                   borderRadius: 'var(--radius-pill)',
@@ -979,14 +979,14 @@ export function McpThreeColumn({
                   {effectiveProject.name}
                 </span>
                 {(effectiveProject as any).status === 'missing' && (
-                  <span style={{ color: 'var(--color-danger)', flexShrink: 0, fontSize: '0.625rem' }}>(失效)</span>
+                  <span style={{ color: 'var(--color-danger)', flexShrink: 0, fontSize: 'var(--text-caption)' }}>(失效)</span>
                 )}
               </div>
             ) : (
               <div
                 style={{
                   padding: '4px 8px',
-                  fontSize: '0.6875rem',
+                  fontSize: 'var(--text-caption)',
                   color: 'var(--color-muted)',
                   marginTop: '4px',
                 }}
@@ -1004,16 +1004,16 @@ export function McpThreeColumn({
             style={{
               margin: '8px 10px',
               padding: '8px 10px',
-              background: 'rgba(255, 69, 58, 0.12)',
-              border: '1px solid rgba(255, 69, 58, 0.28)',
+              background: 'var(--color-danger-bg)',
+              border: '1px solid var(--color-danger-border)',
               borderRadius: '6px',
-              fontSize: '11px',
+              fontSize: 'var(--text-caption)',
               display: 'flex',
               flexDirection: 'column',
               gap: '6px',
             }}
           >
-            <span style={{ color: 'var(--color-danger, #ff453a)', wordBreak: 'break-word', lineHeight: '1.4' }}>
+            <span style={{ color: 'var(--color-danger)', wordBreak: 'break-word', lineHeight: '1.4' }}>
               {loadError}
             </span>
             <button
@@ -1040,7 +1040,7 @@ export function McpThreeColumn({
               <span>
                 中央资产库暂无 MCP 服务
               </span>
-              <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textAlign: 'center', margin: '4px 0 0' }}>
+              <p style={{ fontSize: 'var(--text-control)', color: 'var(--color-muted)', textAlign: 'center', margin: '4px 0 0' }}>
                 点击下方「新建 MCP Server」添加中央资产，随后可在右侧选择注入范围与 AI 工具。
               </p>
             </div>
@@ -1060,13 +1060,13 @@ export function McpThreeColumn({
                 >
                   <div className="mcp-master-row__left">
                     <div className="mcp-master-row__logo">
-                      <Layers size={15} style={{ color: 'var(--color-accent)' }} />
+                      <Layers size={15} style={{ color: 'var(--color-muted)' }} />
                     </div>
                     <div className="mcp-master-row__info">
                       <span className="mcp-master-row__name">{server.name}</span>
                     </div>
                   </div>
-                  <span className={`mcp-badge ${badgeClass}`} style={{ fontSize: '0.625rem', padding: '1px 5px', height: 'auto', flexShrink: 0, marginLeft: 'auto' }}>
+                  <span className={`mcp-badge ${badgeClass}`} style={{ fontSize: 'var(--text-caption)', padding: '1px 5px', height: 'auto', flexShrink: 0, marginLeft: 'auto' }}>
                     {badgeText}
                   </span>
                 </button>
@@ -1096,12 +1096,12 @@ export function McpThreeColumn({
         {!selectedServer ? (
           <div className="detail-empty-wrap" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px' }}>
             <Server size={32} style={{ color: 'var(--color-muted)', opacity: 0.5 }} />
-            <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-ink)', margin: 0 }}>
+            <h2 style={{ fontSize: 'var(--text-section)', fontWeight: 600, color: 'var(--color-ink)', margin: 0 }}>
               {filteredServers.length === 0
                 ? '暂无 MCP 资产'
                 : t.mcp.emptyDetailTitle}
             </h2>
-            <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', maxWidth: 360, textAlign: 'center', margin: 0 }}>
+            <p style={{ fontSize: 'var(--text-body)', color: 'var(--color-muted)', maxWidth: 360, textAlign: 'center', margin: 0 }}>
               在左侧列表中选择一个 MCP 资产以编辑配置，或在右侧按范围选择要注入的 AI 工具。
             </p>
             <button
@@ -1121,7 +1121,7 @@ export function McpThreeColumn({
             <div className="mcp-hero-header">
               <div className="mcp-hero-left">
                 <div className="mcp-hero-logo-box">
-                  <Layers size={20} style={{ color: 'var(--color-accent)' }} />
+                  <Layers size={20} style={{ color: 'var(--color-muted)' }} />
                 </div>
                 <div className="mcp-hero-titles">
                   <div className="mcp-hero-title-row">
@@ -1325,7 +1325,7 @@ export function McpThreeColumn({
                         <button
                           type="button"
                           className="btn btn--capsule-ghost btn--sm"
-                          style={{ height: '22px', padding: '0 6px', fontSize: '0.6875rem' }}
+                          style={{ height: '22px', padding: '0 6px', fontSize: 'var(--text-caption)' }}
                           onClick={() => setFormArgs([...formArgs, ''])}
                         >
                           <Plus size={10} />
@@ -1377,7 +1377,7 @@ export function McpThreeColumn({
                         <button
                           type="button"
                           className="btn btn--capsule-ghost btn--sm"
-                          style={{ height: '22px', padding: '0 6px', fontSize: '0.6875rem' }}
+                          style={{ height: '22px', padding: '0 6px', fontSize: 'var(--text-caption)' }}
                           onClick={() => setFormEnvPairs([...formEnvPairs, { key: '', value: '' }])}
                         >
                           <Plus size={10} />
@@ -1441,7 +1441,7 @@ export function McpThreeColumn({
                         <button
                           type="button"
                           className="btn btn--capsule-ghost btn--sm"
-                          style={{ height: '22px', padding: '0 6px', fontSize: '0.6875rem' }}
+                          style={{ height: '22px', padding: '0 6px', fontSize: 'var(--text-caption)' }}
                           onClick={() => setFormHeaderPairs([...formHeaderPairs, { key: '', value: '' }])}
                         >
                           <Plus size={10} />
@@ -1492,7 +1492,7 @@ export function McpThreeColumn({
                         <button
                           type="button"
                           className="btn btn--capsule-ghost btn--sm"
-                          style={{ height: '22px', padding: '0 6px', fontSize: '0.6875rem' }}
+                          style={{ height: '22px', padding: '0 6px', fontSize: 'var(--text-caption)' }}
                           onClick={() => setFormEnvHeaderPairs([...formEnvHeaderPairs, { key: '', value: '' }])}
                         >
                           <Plus size={10} />
@@ -1537,7 +1537,7 @@ export function McpThreeColumn({
                     </div>
                   </>
                 )}
-                <div className="mcp-footnote-hint" style={{ marginTop: '14px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.6875rem', color: 'var(--color-muted)' }}>
+                <div className="mcp-footnote-hint" style={{ marginTop: '14px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-caption)', color: 'var(--color-muted)' }}>
                   <AlertCircle size={12} />
                   <span>{t.mcp.restartNotice}</span>
                 </div>
@@ -1761,10 +1761,10 @@ export function McpThreeColumn({
 
       {/* Unsaved Changes Dialog */}
       {unsavedModalOpen && (
-        <div className="modal-glass-backdrop view-enter" onClick={() => setUnsavedModalOpen(false)}>
-          <div className="glass-dialog-box modal-pop" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop view-enter" onClick={() => setUnsavedModalOpen(false)}>
+          <div className="dialog-surface modal-pop" onClick={(e) => e.stopPropagation()}>
             <div className="dialog-header-row">
-              <h3 className="glass-dialog-title">{t.mcp.unsavedTitle}</h3>
+              <h3 className="dialog-title">{t.mcp.unsavedTitle}</h3>
               <button type="button" className="clear-search-btn" onClick={() => setUnsavedModalOpen(false)}>
                 <X size={14} />
               </button>
@@ -1792,10 +1792,10 @@ export function McpThreeColumn({
 
       {/* Delete Confirmation Dialog */}
       {deleteConfirmOpen && selectedServer && (
-        <div className="modal-glass-backdrop view-enter" onClick={() => setDeleteConfirmOpen(false)}>
-          <div className="glass-dialog-box modal-pop" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop view-enter" onClick={() => setDeleteConfirmOpen(false)}>
+          <div className="dialog-surface modal-pop" onClick={(e) => e.stopPropagation()}>
             <div className="dialog-header-row">
-              <h3 className="glass-dialog-title">{t.mcp.deleteConfirmTitle}</h3>
+              <h3 className="dialog-title">{t.mcp.deleteConfirmTitle}</h3>
               <button type="button" className="clear-search-btn" onClick={() => setDeleteConfirmOpen(false)}>
                 <X size={14} />
               </button>
@@ -1845,10 +1845,10 @@ export function McpThreeColumn({
 
       {/* Create New Server Modal */}
       {createModalOpen && (
-        <div className="modal-glass-backdrop view-enter" onClick={() => setCreateModalOpen(false)}>
-          <div className="glass-dialog-box modal-pop" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <div className="modal-backdrop view-enter" onClick={() => setCreateModalOpen(false)}>
+          <div className="dialog-surface modal-pop" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
             <div className="dialog-header-row">
-              <h3 className="glass-dialog-title">{t.mcp.createTitle}</h3>
+              <h3 className="dialog-title">{t.mcp.createTitle}</h3>
               <button type="button" className="clear-search-btn" onClick={() => setCreateModalOpen(false)}>
                 <X size={14} />
               </button>

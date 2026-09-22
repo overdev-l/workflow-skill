@@ -2059,7 +2059,7 @@ export function AccountSettings({
             <div className="account-empty-actions">
               <button
                 type="button"
-                className="account-btn account-btn--primary"
+                className="account-btn"
                 onClick={() => openAddAccount('oauth')}
                 disabled={isBusy || isOAuthPending}
               >

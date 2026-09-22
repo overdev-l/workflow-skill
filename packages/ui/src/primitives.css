@@ -1,0 +1,512 @@
+/* Reset, Body, and Scrollbar Standards */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+html {
+  font-family: var(--font-sans);
+  font-kerning: normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: var(--font-variant-numeric);
+  background-color: var(--color-transparent);
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-transparent);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--text-body-lh);
+}
+
+/* Links & Text Selection (Neutral) */
+a {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--motion-fast) var(--motion-standard);
+}
+
+a:hover {
+  color: var(--color-muted);
+}
+
+::selection {
+  background-color: var(--color-surface-raised);
+  color: var(--color-ink);
+}
+
+/* Non-Input Keyboard Focus Ring (Avoid universal outline removal) */
+:focus-visible:not(input):not(textarea):not(select):not([contenteditable="true"]):not([contenteditable]:not([contenteditable="false"])):not([role="textbox"]) {
+  outline: 1.5px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Input, Select, and Editable Surface Primitive Skeleton */
+:where(
+  input,
+  textarea,
+  select,
+  .input,
+  .dialog-capsule-input,
+  [contenteditable="true"],
+  [contenteditable]:not([contenteditable="false"]),
+  [role="textbox"]
+) {
+  outline: none;
+  background-color: var(--control-bg);
+  border: 1px solid var(--control-border);
+  color: var(--control-ink);
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-control);
+  line-height: var(--text-control-lh);
+  box-sizing: border-box;
+  box-shadow: none;
+  transition: color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard),
+              border-color var(--motion-fast) var(--motion-standard);
+}
+
+:where(
+  input[type="text"],
+  input[type="search"],
+  input[type="password"],
+  input[type="email"],
+  input[type="number"],
+  input[type="url"],
+  input[type="tel"],
+  input:not([type]),
+  select,
+  .input,
+  .dialog-capsule-input
+) {
+  height: var(--height-input);
+  padding: 0 var(--space-2);
+}
+
+:where(textarea) {
+  padding: var(--space-3) var(--space-4);
+}
+
+:where(input, textarea, .dialog-capsule-input)::placeholder {
+  color: var(--control-placeholder);
+  opacity: 1;
+}
+
+/* Interactive Hover (Excludes disabled, readonly, focused, and error states) */
+:where(
+  input,
+  textarea,
+  select,
+  .input,
+  .dialog-capsule-input,
+  [contenteditable="true"],
+  [contenteditable]:not([contenteditable="false"]),
+  [role="textbox"]
+):hover:not(:disabled, [readonly], :focus, :focus-visible, .is-error, [aria-invalid="true"], [aria-disabled="true"], [aria-readonly="true"]) {
+  background-color: var(--control-bg-hover);
+  border-color: var(--control-border-hover);
+}
+
+/* Focus States (Excludes disabled and error states) */
+:where(
+  input,
+  textarea,
+  select,
+  .input,
+  .dialog-capsule-input,
+  [contenteditable="true"],
+  [contenteditable]:not([contenteditable="false"]),
+  [role="textbox"]
+):focus:not(:disabled, [aria-disabled="true"], .is-error, [aria-invalid="true"]),
+:where(
+  input,
+  textarea,
+  select,
+  .input,
+  .dialog-capsule-input,
+  [contenteditable="true"],
+  [contenteditable]:not([contenteditable="false"]),
+  [role="textbox"]
+):focus-visible:not(:disabled, [aria-disabled="true"], .is-error, [aria-invalid="true"]) {
+  outline: none;
+  background-color: var(--control-bg-focus);
+  border-color: var(--control-border-focus);
+  box-shadow: none;
+}
+
+/* Disabled & Readonly Surfaces */
+:where(
+  input,
+  textarea,
+  select,
+  .input,
+  [role="textbox"],
+  [contenteditable]
+):disabled,
+:where(
+  input,
+  textarea,
+  select,
+  .input,
+  [role="textbox"],
+  [contenteditable]
+)[aria-disabled="true"] {
+  background-color: var(--control-bg-disabled);
+  border-color: var(--control-border);
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Error States (Survive hover and focus with higher specificity; inert when disabled) */
+:is(input, textarea, select, .input, .dialog-capsule-input, [role="textbox"], [contenteditable]):is(.is-error, [aria-invalid="true"]):not(:disabled, [aria-disabled="true"]) {
+  border-color: var(--control-border-error);
+}
+
+:is(input, textarea, select, .input, .dialog-capsule-input, [role="textbox"], [contenteditable]):is(.is-error, [aria-invalid="true"]):hover:not(:disabled, [aria-disabled="true"]) {
+  border-color: var(--control-border-error);
+  background-color: var(--control-bg-hover);
+}
+
+:is(input, textarea, select, .input, .dialog-capsule-input, [role="textbox"], [contenteditable]):is(.is-error, [aria-invalid="true"]):focus:not(:disabled, [aria-disabled="true"]),
+:is(input, textarea, select, .input, .dialog-capsule-input, [role="textbox"], [contenteditable]):is(.is-error, [aria-invalid="true"]):focus-visible:not(:disabled, [aria-disabled="true"]) {
+  outline: none;
+  background-color: var(--control-bg-focus);
+  border-color: var(--control-border-error);
+  box-shadow: none;
+}
+
+/* Button Primitives (Heights: standard 24px, sm 22px; primary color allowed only on primary button) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--height-btn);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: var(--text-control);
+  line-height: var(--text-control-lh);
+  font-weight: var(--font-weight-medium);
+  border: 1px solid var(--color-border);
+  background-color: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  text-decoration: none;
+  box-shadow: none;
+  transition: color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard),
+              border-color var(--motion-fast) var(--motion-standard),
+              opacity var(--motion-fast) var(--motion-standard),
+              transform var(--motion-fast) var(--motion-standard);
+}
+
+.btn:hover:not(:disabled) {
+  background-color: var(--btn-secondary-hover);
+  border-color: var(--color-border-strong);
+}
+
+.btn:active:not(:disabled) {
+  opacity: 0.85;
+}
+
+.btn:disabled {
+  opacity: 0.50;
+  cursor: not-allowed;
+}
+
+.btn.btn--sm {
+  height: var(--height-btn-sm);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+  padding: 0 var(--space-1);
+}
+
+.btn--primary {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--btn-primary-text);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background-color: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
+  color: var(--btn-primary-text);
+}
+
+.btn--secondary {
+  background-color: var(--btn-secondary-bg);
+  border-color: var(--color-border);
+  color: var(--btn-secondary-text);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background-color: var(--btn-secondary-hover);
+  border-color: var(--color-border-strong);
+}
+
+.btn--saved {
+  background-color: var(--btn-saved-bg);
+  border-color: var(--btn-saved-border);
+  color: var(--btn-saved-text);
+}
+
+.btn--ghost,
+.btn--capsule-ghost {
+  background-color: var(--color-transparent);
+  border-color: var(--color-transparent);
+  color: var(--color-muted);
+}
+
+.btn--ghost:hover:not(:disabled),
+.btn--capsule-ghost:hover:not(:disabled) {
+  background-color: var(--color-surface-raised);
+  border-color: var(--color-border);
+  color: var(--color-ink);
+}
+
+.btn--capsule-ghost.icon-only {
+  padding: 0 var(--space-2);
+  min-width: 28px;
+}
+
+.btn-check-icon.is-animating {
+  animation: popCheck var(--motion-base) var(--motion-standard);
+}
+
+/* Nav & Tab Primitives (nav 26px, tab 24px, neutral) */
+.nav-pill-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--height-nav);
+  height: var(--height-nav);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-sans);
+  font-size: var(--text-control);
+  line-height: var(--text-control-lh);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.01em;
+  color: var(--color-muted);
+  background-color: var(--color-transparent);
+  border: 1px solid var(--color-transparent);
+  cursor: pointer;
+  user-select: none;
+  text-decoration: none;
+  box-sizing: border-box;
+  transition: color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard),
+              border-color var(--motion-fast) var(--motion-standard);
+}
+
+.nav-pill-btn:hover:not(:disabled) {
+  color: var(--color-ink);
+  background-color: var(--color-surface-raised);
+}
+
+.nav-pill-btn:active:not(:disabled) {
+  background-color: var(--color-surface-raised);
+}
+
+.nav-pill-btn.is-active {
+  color: var(--color-ink);
+  background-color: var(--color-surface-raised);
+  border-color: var(--color-border);
+  font-weight: var(--font-weight-medium);
+}
+
+.master-tab-segmented {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: var(--height-tab);
+  background-color: var(--control-bg);
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 0;
+  gap: 2px;
+  box-shadow: none;
+}
+
+.master-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  white-space: nowrap;
+  height: var(--height-tab);
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-sans);
+  font-size: var(--text-control);
+  line-height: var(--text-control-lh);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-muted);
+  background-color: var(--color-transparent);
+  border: 0;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: none;
+  transition: color var(--motion-fast) var(--motion-standard),
+              background-color var(--motion-fast) var(--motion-standard);
+}
+
+.master-tab-btn:hover:not(:disabled) {
+  color: var(--color-ink);
+}
+
+.master-tab-btn.is-active {
+  color: var(--color-ink);
+  background-color: var(--color-surface-raised);
+  font-weight: var(--font-weight-medium);
+  box-shadow: none;
+  border: 0;
+}
+
+/* List Row Primitive */
+.list-row {
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-transparent);
+  border: 1px solid var(--color-transparent);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: var(--text-body-lh);
+  transition: background-color var(--motion-fast) var(--motion-standard),
+              border-color var(--motion-fast) var(--motion-standard);
+}
+
+.list-row:hover {
+  background-color: var(--color-surface-raised);
+}
+
+.list-row.is-selected {
+  background-color: var(--color-surface-raised);
+  border-color: var(--color-border);
+}
+
+/* Badge Primitives (Neutral by default, semantic status fg/bg/border) */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption-lh);
+  font-weight: var(--font-weight-medium);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  color: var(--color-muted);
+}
+
+.badge--neutral {
+  border-color: var(--color-border);
+  background-color: var(--color-surface);
+  color: var(--color-muted);
+}
+
+.badge--success {
+  border-color: var(--color-success-border);
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.badge--waiting,
+.badge--warning {
+  border-color: var(--color-waiting-border);
+  background-color: var(--color-waiting-bg);
+  color: var(--color-waiting);
+}
+
+.badge--danger,
+.badge--error {
+  border-color: var(--color-danger-border);
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+/* Dialog Primitive Skeleton (Overlay elevation is only permitted shadow) */
+.dialog-backdrop,
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: var(--color-bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog-container,
+.dialog-box,
+.dialog-surface {
+  background-color: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-overlay);
+  color: var(--color-ink);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dialog-title {
+  font-size: var(--text-section);
+  line-height: var(--text-section-lh);
+  font-weight: var(--font-weight-semibold);
+  margin: 0;
+}
+
+.dialog-body {
+  padding: var(--space-4);
+}
+
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Reduced Motion Cascade (Zero important declarations) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+    scroll-behavior: auto;
+  }
+}

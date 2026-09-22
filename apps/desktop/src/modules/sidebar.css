@@ -1,0 +1,205 @@
+/* =========================================================================
+   Sidebar Rail (Seamless Liquid Frosted Glass Pane)
+   ========================================================================= */
+
+.app-sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 160px;
+  min-width: 160px;
+  max-width: 160px;
+  margin: 0;
+  border-radius: 0;
+  background: var(--glass-rail);
+  padding: 38px 12px 14px 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  gap: 16px;
+  z-index: 10;
+  border-right: 1px solid var(--color-border);
+  transition: background-color var(--motion-base) var(--motion-standard);
+}
+
+[data-theme='light'] .app-sidebar {
+  background: var(--glass-rail);
+  border-right: 1px solid var(--color-border);
+}
+
+.sidebar-drag-handle {
+  display: none;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+}
+
+.brand-name {
+  font-size: var(--text-section);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--color-ink);
+  transition: transform var(--motion-base) var(--motion-standard);
+}
+
+.sidebar-brand:hover .brand-name {
+  transform: translateX(2px);
+}
+
+
+.settings-sidebar-mode,
+.app-sidebar-mode {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 16px;
+}
+
+.back-to-app-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-muted);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--motion-standard), color var(--motion-fast) var(--motion-standard);
+  margin-bottom: 2px;
+}
+
+.back-to-app-btn:hover {
+  background: var(--glass-surface);
+  color: var(--color-ink);
+}
+
+.back-to-app-btn:active {
+  background: var(--glass-surface-strong);
+}
+
+/* Sidebar Workspace Context Section */
+.sidebar-workspace-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sidebar-scope-segmented {
+  width: 100%;
+  display: flex;
+  background: var(--control-bg);
+}
+
+.sidebar-scope-segmented .master-tab-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 4px;
+  gap: 4px;
+  font-size: var(--text-caption);
+  height: 24px;
+}
+
+.sidebar-scope-icon {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.sidebar-project-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebar-project-select-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.sidebar-project-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 26px;
+  padding: 0 22px 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--control-bg);
+  border: 0;
+  box-shadow: none;
+  color: var(--color-ink);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background-color var(--motion-fast) var(--motion-standard);
+}
+
+.sidebar-project-select:hover {
+  background: var(--control-bg-hover, var(--color-surface-raised));
+}
+
+.sidebar-project-select:focus {
+  box-shadow: none;
+}
+
+.sidebar-project-select-arrow {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--color-muted);
+}
+
+.sidebar-project-status-warn {
+  font-size: var(--text-caption);
+  color: var(--color-danger);
+  line-height: 1.2;
+  padding: 0 4px;
+}
+
+/* Navigation List (Capsule Pills) */
+.sidebar-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.nav-pill-btn__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-icon {
+  transition: transform var(--motion-base) var(--motion-standard);
+}
+
+/* Sidebar Footer: Settings Entry */
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  padding-top: 12px;
+  gap: 4px;
+}
+
+.settings-entry-btn {
+  width: 100%;
+}
+
