@@ -29,6 +29,15 @@ import type {
   MCPServerInput,
   MCPSourceTool,
   ManagedProjectRecord,
+  OnboardingMcpCandidate,
+  OnboardingMcpMigrationResult,
+  OnboardingSkillCandidate,
+  OnboardingSkillMigrationRequest,
+  OnboardingSkillMigrationResult,
+  OnboardingState,
+  OnboardingStepCounts,
+  OnboardingStepId,
+  OnboardingStepOutcome,
   ProjectRecord,
   ProjectRuleAssociation,
   ProjectSkillPathStatus,
@@ -203,6 +212,23 @@ declare global {
       adoptAllSkills?: () => Promise<BatchSkillAdoptionResult>
       resolveSkillConflict?: (input: ResolveSkillConflictInput) => Promise<ResolveSkillConflictResult>
       onSkillsChanged?: (listener: () => void) => () => void
+
+      // --- Onboarding (OPC-214) ---
+      getOnboardingState?: () => Promise<OnboardingState>
+      scanGlobalSkillCandidates?: () => Promise<OnboardingSkillCandidate[]>
+      scanGlobalMcpCandidates?: () => Promise<OnboardingMcpCandidate[]>
+      scanProjectSkillCandidates?: (projectPath: string) => Promise<OnboardingSkillCandidate[]>
+      scanProjectMcpCandidates?: (projectPath: string) => Promise<OnboardingMcpCandidate[]>
+      migrateOnboardingSkills?: (requests: OnboardingSkillMigrationRequest[]) => Promise<OnboardingSkillMigrationResult[]>
+      migrateOnboardingMcp?: (serverIds: string[]) => Promise<OnboardingMcpMigrationResult[]>
+      selectOnboardingProject?: (folderPath?: string) => Promise<ProjectRecord | null>
+      setOnboardingStep?: (
+        stepId: OnboardingStepId,
+        outcome: OnboardingStepOutcome,
+        counts?: OnboardingStepCounts
+      ) => Promise<OnboardingState>
+      completeOnboarding?: () => Promise<OnboardingState>
+      resetOnboarding?: () => Promise<OnboardingState>
     }
   }
 }

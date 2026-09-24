@@ -1,7 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import type { ManagedProjectRecord, ProjectRecord, ProjectSkillPathStatus } from '@workflow-skill/workflow-model'
+import {
+  createInitialOnboardingState,
+  ONBOARDING_STATE_VERSION,
+  type ManagedProjectRecord,
+  type OnboardingState,
+  type ProjectRecord,
+  type ProjectSkillPathStatus,
+} from '@workflow-skill/workflow-model'
 
 export const SUPPORTED_PROJECT_SKILL_PATHS: Array<{ id: string; name: string; relPath: string }> = [
   { id: 'agents', name: '.agents 通用规范', relPath: path.join('.agents', 'skills') },
@@ -21,6 +28,7 @@ interface StoredConfig {
   projects?: ProjectRecord[]
   activeProjectId?: string | null
   projectWorkspace?: string | null
+  onboarding?: OnboardingState
   [key: string]: unknown
 }
 
@@ -68,6 +76,22 @@ function writeConfig(traceHome: string, config: StoredConfig): void {
   }
   const configPath = path.join(traceHome, 'config.json')
   writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8')
+}
+
+export function readOnboardingState(customTraceHome?: string): OnboardingState {
+  const traceHome = getEffectiveTraceHome(customTraceHome)
+  const config = readConfig(traceHome)
+  if (!config.onboarding || config.onboarding.version !== ONBOARDING_STATE_VERSION) {
+    return createInitialOnboardingState()
+  }
+  return config.onboarding
+}
+
+export function writeOnboardingState(state: OnboardingState, customTraceHome?: string): void {
+  const traceHome = getEffectiveTraceHome(customTraceHome)
+  const config = readConfig(traceHome)
+  config.onboarding = state
+  writeConfig(traceHome, config)
 }
 
 export function listProjects(customTraceHome?: string): ProjectRecord[] {

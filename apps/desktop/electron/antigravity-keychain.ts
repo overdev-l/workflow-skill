@@ -55,7 +55,7 @@ export interface AntigravityKeychain {
 /**
  * Validates that target path points to a regular, non-symlink executable file.
  */
-function isValidExecutable(filePath: string): boolean {
+export function isValidExecutable(filePath: string): boolean {
   try {
     const lstat = lstatSync(filePath)
     if (lstat.isSymbolicLink() || !lstat.isFile()) {

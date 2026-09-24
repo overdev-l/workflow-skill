@@ -28,6 +28,15 @@ import type {
   MCPServerInput,
   MCPSourceTool,
   ManagedProjectRecord,
+  OnboardingMcpCandidate,
+  OnboardingMcpMigrationResult,
+  OnboardingSkillCandidate,
+  OnboardingSkillMigrationRequest,
+  OnboardingSkillMigrationResult,
+  OnboardingState,
+  OnboardingStepCounts,
+  OnboardingStepId,
+  OnboardingStepOutcome,
   ProjectRecord,
   ProjectRuleAssociation,
   ProjectSkillPathStatus,
@@ -327,4 +336,32 @@ contextBridge.exposeInMainWorld('workflowSkill', {
     ipcRenderer.on('skills:changed', handler)
     return () => ipcRenderer.removeListener('skills:changed', handler)
   },
+
+  // --- Onboarding (OPC-214) ---
+  getOnboardingState: () =>
+    ipcRenderer.invoke('onboarding:get-state') as Promise<OnboardingState>,
+  scanGlobalSkillCandidates: () =>
+    ipcRenderer.invoke('onboarding:scan-global-skills') as Promise<OnboardingSkillCandidate[]>,
+  scanGlobalMcpCandidates: () =>
+    ipcRenderer.invoke('onboarding:scan-global-mcp') as Promise<OnboardingMcpCandidate[]>,
+  scanProjectSkillCandidates: (projectPath: string) =>
+    ipcRenderer.invoke('onboarding:scan-project-skills', projectPath) as Promise<OnboardingSkillCandidate[]>,
+  scanProjectMcpCandidates: (projectPath: string) =>
+    ipcRenderer.invoke('onboarding:scan-project-mcp', projectPath) as Promise<OnboardingMcpCandidate[]>,
+  migrateOnboardingSkills: (requests: OnboardingSkillMigrationRequest[]) =>
+    ipcRenderer.invoke('onboarding:migrate-skills', requests) as Promise<OnboardingSkillMigrationResult[]>,
+  migrateOnboardingMcp: (serverIds: string[]) =>
+    ipcRenderer.invoke('onboarding:migrate-mcp', serverIds) as Promise<OnboardingMcpMigrationResult[]>,
+  selectOnboardingProject: (folderPath?: string) =>
+    ipcRenderer.invoke('onboarding:select-project', folderPath) as Promise<ProjectRecord | null>,
+  setOnboardingStep: (
+    stepId: OnboardingStepId,
+    outcome: OnboardingStepOutcome,
+    counts?: OnboardingStepCounts
+  ) =>
+    ipcRenderer.invoke('onboarding:set-step', stepId, outcome, counts) as Promise<OnboardingState>,
+  completeOnboarding: () =>
+    ipcRenderer.invoke('onboarding:complete') as Promise<OnboardingState>,
+  resetOnboarding: () =>
+    ipcRenderer.invoke('onboarding:reset') as Promise<OnboardingState>,
 })

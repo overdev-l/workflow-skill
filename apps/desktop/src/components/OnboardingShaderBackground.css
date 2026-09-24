@@ -1,0 +1,42 @@
+.onboarding-shader-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.onboarding-shader-bg__fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(ellipse 70% 50% at 20% 20%, var(--color-primary-subtle, oklch(0.580 0.200 250 / 0.15)), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 80% 80%, var(--color-accent-subtle, oklch(0.780 0.130 210 / 0.15)), transparent 70%),
+    radial-gradient(ellipse 80% 60% at 50% 50%, var(--color-surface, oklch(0.175 0.006 250)), transparent 80%),
+    linear-gradient(180deg, var(--color-bg, oklch(0.120 0.004 250)) 0%, var(--color-canvas, oklch(0.145 0.005 250)) 100%);
+  background-color: var(--color-bg, oklch(0.120 0.004 250));
+}
+
+.onboarding-shader-bg__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.onboarding-shader-bg__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  background-color: var(--surface-overlay, oklch(0.120 0.004 250 / 0.75));
+  opacity: 0.45;
+  pointer-events: none;
+}

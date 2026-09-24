@@ -1,6 +1,7 @@
 import { ProjectsThreeColumn } from './components/ProjectsThreeColumn'
 import { AppUpdate, useUpdateBlocker } from './components/AppUpdate'
 import { SkillDiagnosticWorkbench } from './components/SkillDiagnosticWorkbench'
+import { OnboardingWizard } from './components/OnboardingWizard'
 import {
   useCallback,
   useEffect,
@@ -3490,6 +3491,7 @@ function SettingsMainPage({
   onRequestPermissions,
   onShowToast,
   onNavigateToAccounts,
+  onRerunOnboarding,
 }: {
   tab: SettingsTab
   themeMode: ThemeMode
@@ -3501,11 +3503,31 @@ function SettingsMainPage({
   onRequestPermissions: (type?: 'accessibility' | 'screenRecording' | 'all', e?: React.MouseEvent) => void
   onShowToast?: (msg: string) => void
   onNavigateToAccounts?: () => void
+  onRerunOnboarding?: () => void
 }) {
   const { t, locale, setLocale, resolvedLocale } = useI18n()
   const [storagePath, setStoragePath] = useState<string>('')
   const [projectWorkspace, setProjectWorkspace] = useState<string>('')
   const [migrating, setMigrating] = useState<boolean>(false)
+  const [resettingOnboarding, setResettingOnboarding] = useState<boolean>(false)
+
+  const handleRerunOnboarding = async () => {
+    if (resettingOnboarding) return
+    if (!window.workflowSkill?.resetOnboarding) {
+      onShowToast?.('当前环境不支持重置引导')
+      return
+    }
+
+    setResettingOnboarding(true)
+    try {
+      await window.workflowSkill.resetOnboarding()
+      onRerunOnboarding?.()
+    } catch (err: any) {
+      onShowToast?.(`重置引导失败: ${err?.message || String(err)}`)
+    } finally {
+      setResettingOnboarding(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -3773,6 +3795,36 @@ function SettingsMainPage({
                   >
                     <Users size={12} />
                     <span>前往账号管理</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 4: 首启与引导 */}
+          <div className="settings-section-block stagger-item" style={{ marginTop: '16px' }}>
+            <span className="settings-section-label">首启与引导</span>
+            <div className="flat-settings-card">
+              <div className="flat-setting-row">
+                <div className="flat-setting-info">
+                  <strong className="flat-setting-title">重新运行引导</strong>
+                  <p className="flat-setting-desc">
+                    重新走一遍 Skill / MCP / 项目接入流程，快速导入并同步环境资产。
+                  </p>
+                </div>
+                <div className="flat-setting-control">
+                  <button
+                    type="button"
+                    className="btn btn--capsule btn--secondary"
+                    onClick={handleRerunOnboarding}
+                    disabled={resettingOnboarding}
+                  >
+                    {resettingOnboarding ? (
+                      <RefreshCw size={12} className="spin-slow" />
+                    ) : (
+                      <Sparkles size={12} />
+                    )}
+                    <span>重新运行引导</span>
                   </button>
                 </div>
               </div>
@@ -4626,6 +4678,7 @@ export function App() {
     skillName: string
     workflow: Workflow | null
   }>({ open: false, skillName: '', workflow: null })
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(false)
 
   const [masterCollapsed, setMasterCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -4783,6 +4836,42 @@ export function App() {
       unsubscribeSkills?.()
     }
   }, [refreshAiTools, refreshSkills])
+
+  // OPC-214: 首启检测与挂载
+  useEffect(() => {
+    let active = true
+    const checkOnboarding = async () => {
+      try {
+        if (!window.workflowSkill?.getOnboardingState) {
+          return
+        }
+        const state = await window.workflowSkill.getOnboardingState()
+        if (active && state && state.completed === false) {
+          setShowOnboarding(true)
+        }
+      } catch {
+        // 状态读取失败（IPC 异常或 API 不可用）时不要阻塞应用：吞掉错误并按「已完成」处理，正常进主界面
+      }
+    }
+    void checkOnboarding()
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const handleOnboardingFinished = useCallback(() => {
+    setShowOnboarding(false)
+    setInSettings(false)
+    void refreshSkills()
+    void refreshAiTools()
+    void refreshWorkspaceProjects()
+    window.dispatchEvent(new CustomEvent('workflow-skill:workspace-changed'))
+  }, [refreshSkills, refreshAiTools, refreshWorkspaceProjects])
+
+  const handleRerunOnboarding = useCallback(() => {
+    setInSettings(false)
+    setShowOnboarding(true)
+  }, [])
 
   const handleToggleLinkTarget = async (skill: Skill, targetId: string) => {
     const isCurrentlyLinked = Boolean(skill.targetTools?.includes(targetId))
@@ -5304,6 +5393,7 @@ export function App() {
               setInSettings(false)
               setView('accounts')
             }}
+            onRerunOnboarding={handleRerunOnboarding}
           />
         </main>
       ) : view === 'projects' ? (
@@ -5412,6 +5502,11 @@ export function App() {
         onClose={() => setExportState({ open: false, skillName: '', workflow: null })}
         notify={setToast}
       />
+
+      {/* Onboarding Wizard (OPC-214) */}
+      {showOnboarding ? (
+        <OnboardingWizard onFinished={handleOnboardingFinished} />
+      ) : null}
 
       {/* Floating Capsule Toast */}
       {toast ? (

@@ -1044,6 +1044,7 @@ export interface CentralMCPServer {
     configPath: string
   }
   sourceRaw?: Record<string, unknown>
+  secretRefs?: Record<string, McpSecretRef>
 }
 
 export interface AdoptSkillResult {
@@ -1158,6 +1159,14 @@ export interface ResolveSkillConflictTarget {
   projectPath?: string
   relPath?: string
   targetPath?: string
+  /**
+   * On-disk directory name of the target, when it differs from the central
+   * skill id. The central id is normalized (lowercased, non `[a-z0-9_-]`
+   * folded to `-`), so a directory such as `Code.Review` is stored centrally as
+   * `code-review`. Defaults to `skillId`, which is the case for already
+   * normalized names.
+   */
+  targetDirName?: string
 }
 
 export interface ResolveSkillConflictInput {
@@ -1192,3 +1201,108 @@ export interface ResolveMCPConflictResult {
   backupPath?: string
   error?: string
 }
+
+// --- Onboarding Types & State ---
+
+export type OnboardingStepId = 'global-skills' | 'global-mcp' | 'select-project' | 'project-assets'
+
+export type OnboardingStepOutcome = 'pending' | 'migrated' | 'skipped' | 'partial'
+
+export interface OnboardingStepCounts {
+  migratedCount?: number
+  skippedCount?: number
+  failedCount?: number
+}
+
+export interface OnboardingStepState {
+  id: OnboardingStepId
+  outcome: OnboardingStepOutcome
+  completedAt?: string
+  migratedCount?: number
+  skippedCount?: number
+  failedCount?: number
+}
+
+export interface OnboardingState {
+  version: number
+  completed: boolean
+  completedAt?: string
+  currentStep: OnboardingStepId
+  steps: OnboardingStepState[]
+}
+
+export const ONBOARDING_STATE_VERSION = 1
+
+export const ONBOARDING_STEP_ORDER: readonly OnboardingStepId[] = [
+  'global-skills',
+  'global-mcp',
+  'select-project',
+  'project-assets',
+]
+
+export function createInitialOnboardingState(): OnboardingState {
+  return {
+    version: ONBOARDING_STATE_VERSION,
+    completed: false,
+    currentStep: ONBOARDING_STEP_ORDER[0],
+    steps: ONBOARDING_STEP_ORDER.map((id) => ({
+      id,
+      outcome: 'pending',
+    })),
+  }
+}
+
+export const ONBOARDING_GLOBAL_SKILL_SOURCE_TOOL_IDS: readonly string[] = [
+  'agents-global',
+  'codex-global',
+  'claude-global',
+]
+
+export type McpSecretLocation = 'keychain' | 'plaintext'
+
+export interface McpSecretRef {
+  location: McpSecretLocation
+  keychainAccount?: string
+  /** 仅 plaintext 时保留原值 */
+  value?: string
+}
+
+export interface OnboardingMcpCandidate {
+  serverId: string
+  serverName: string
+  sourceToolId: string
+  transport: string
+  hasSecrets: boolean
+  secretFieldPaths: string[]
+  alreadyManaged: boolean
+}
+
+export interface OnboardingSkillCandidate {
+  sourceToolId: string
+  sourceLabel: string
+  skillName: string
+  absolutePath: string
+  alreadyLinked: boolean
+  conflictsWithCentralId?: string
+}
+
+export interface OnboardingSkillMigrationRequest {
+  absolutePath: string
+  conflictStrategy?: 'use_app' | 'use_target' | 'keep_external' | 'rename'
+}
+
+export interface OnboardingSkillMigrationResult {
+  absolutePath: string
+  ok: boolean
+  centralId?: string
+  error?: string
+}
+
+export interface OnboardingMcpMigrationResult {
+  serverId: string
+  ok: boolean
+  secretsStored: number
+  error?: string
+}
+
+

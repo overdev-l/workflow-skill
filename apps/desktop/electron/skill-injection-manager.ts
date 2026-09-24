@@ -86,7 +86,7 @@ export function getSkillDirectoryFingerprint(directory: string): string {
   return hash.digest('hex')
 }
 
-function tryGetSkillDirectoryFingerprint(directory: string): string | undefined {
+export function tryGetSkillDirectoryFingerprint(directory: string): string | undefined {
   try {
     return getSkillDirectoryFingerprint(directory)
   } catch {
@@ -94,7 +94,7 @@ function tryGetSkillDirectoryFingerprint(directory: string): string | undefined 
   }
 }
 
-function resolveGlobalSkillDirectory(tool: (typeof DEFAULT_AI_TOOLS)[number], homeDir: string): string {
+export function resolveGlobalSkillDirectory(tool: (typeof DEFAULT_AI_TOOLS)[number], homeDir: string): string {
   if (tool.id === 'gemini-global') {
     const candidates = [
       path.join(homeDir, '.gemini', 'antigravity', 'skills'),
@@ -931,7 +931,7 @@ export function adoptSkillAsset(
   return { success: true, skill: skillRecord, linkPath: sourcePath }
 }
 
-function isPathInside(parent: string, candidate: string): boolean {
+export function isPathInside(parent: string, candidate: string): boolean {
   const normalizeExistingPath = (value: string) => {
     try { return realpathSync(value) } catch { return path.resolve(value) }
   }
@@ -959,7 +959,7 @@ function isDirectCentralLink(targetPath: string, centralFolder: string): boolean
   }
 }
 
-function normalizeSkillId(value: string): string {
+export function normalizeSkillId(value: string): string {
   return value
     .trim()
     .toLowerCase()
@@ -977,7 +977,7 @@ function resolveGlobalTool(targetId: string) {
   )
 }
 
-function readExistingCentralHash(centralSkillsDir: string, suggestedSkillId: string): string | undefined {
+export function readExistingCentralHash(centralSkillsDir: string, suggestedSkillId: string): string | undefined {
   const folder = path.join(centralSkillsDir, suggestedSkillId)
   const record = path.join(centralSkillsDir, `${suggestedSkillId}.json`)
   if (!existsSync(folder) || !existsSync(record)) return undefined
@@ -1493,6 +1493,14 @@ export function resolveSkillConflict(
     return { success: false, error: '技能标识无效，拒绝执行操作' }
   }
 
+  // The on-disk directory may be named differently from the normalized central id
+  // (e.g. `Code.Review` is stored centrally as `code-review`). It stays confined to
+  // the supported skills directory: only a plain basename is accepted.
+  const targetDirName = input.target.targetDirName || input.skillId
+  if (path.basename(targetDirName) !== targetDirName || targetDirName.includes('..')) {
+    return { success: false, error: '目标目录名无效，拒绝执行操作' }
+  }
+
   const traceHome = getEffectiveTraceHome(options?.traceHome)
   const skillsDir = path.join(traceHome, 'skills')
   const filePath = path.join(skillsDir, `${input.skillId}.json`)
@@ -1532,7 +1540,7 @@ export function resolveSkillConflict(
       return { success: false, error: `未找到全局 AI 工具: ${input.target.toolId}` }
     }
     const toolDir = resolveGlobalSkillDirectory(tool, effectiveHome)
-    targetLink = path.resolve(toolDir, input.skillId)
+    targetLink = path.resolve(toolDir, targetDirName)
   } else if (input.target.scope === 'project') {
     const projectPath = input.target.projectPath || options?.defaultProjectWorkspace
     if (!projectPath) {
@@ -1552,7 +1560,7 @@ export function resolveSkillConflict(
       return { success: false, error: relValidation.error || '无效的项目技能相对路径' }
     }
     validatedRelPath = relValidation.normalized
-    targetLink = path.resolve(resolvedProject, validatedRelPath, input.skillId)
+    targetLink = path.resolve(resolvedProject, validatedRelPath, targetDirName)
   } else {
     return { success: false, error: `未知的目标作用域: ${(input.target as any)?.scope}` }
   }

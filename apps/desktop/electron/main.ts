@@ -13,7 +13,26 @@ import type {
   RecorderCommand,
   RecorderEnvelope,
 } from '@workflow-skill/capture-protocol'
-import { DEFAULT_AI_TOOLS, type AIProjectItem, type AIToolTarget, type DeleteSkillMode, type Skill, type Workflow } from '@workflow-skill/workflow-model'
+import {
+  DEFAULT_AI_TOOLS,
+  createInitialOnboardingState,
+  ONBOARDING_STEP_ORDER,
+  type AIProjectItem,
+  type AIToolTarget,
+  type DeleteSkillMode,
+  type OnboardingMcpCandidate,
+  type OnboardingMcpMigrationResult,
+  type OnboardingSkillCandidate,
+  type OnboardingSkillMigrationRequest,
+  type OnboardingSkillMigrationResult,
+  type OnboardingState,
+  type OnboardingStepCounts,
+  type OnboardingStepId,
+  type OnboardingStepOutcome,
+  type OnboardingStepState,
+  type Skill,
+  type Workflow,
+} from '@workflow-skill/workflow-model'
 import { CaptureRepository } from './capture-repository'
 import { BrowserCaptureManager } from './browser-capture-manager'
 import { NativeRecorderManager } from './recorder-manager'
@@ -46,7 +65,17 @@ import {
   scanProjectSkillPaths,
   getStoredProjectWorkspace as getStoredProjectWorkspaceFromManager,
   SUPPORTED_PROJECT_SKILL_PATHS,
+  readOnboardingState,
+  writeOnboardingState,
 } from './project-manager'
+import {
+  scanGlobalSkillCandidates,
+  scanProjectSkillCandidates,
+  migrateSkillCandidates,
+  scanGlobalMcpCandidates,
+  scanProjectMcpCandidates,
+  migrateMcpCandidates,
+} from './onboarding-manager'
 import {
   listRules,
   getRule,
@@ -1717,6 +1746,174 @@ ${skill.description || ''}
       return res
     }
   )
+
+  // --- Onboarding IPC (OPC-214) ---
+  ipcMain.handle('onboarding:get-state', () => {
+    try {
+      return readOnboardingState(getStoredTraceHome())
+    } catch (err: any) {
+      throw new Error(`获取引导状态失败: ${err?.message || String(err)}`)
+    }
+  })
+
+  ipcMain.handle('onboarding:scan-global-skills', () => {
+    try {
+      return scanGlobalSkillCandidates({
+        traceHome: getStoredTraceHome(),
+        homeDir: os.homedir(),
+      })
+    } catch (err: any) {
+      throw new Error(`扫描全局技能失败: ${err?.message || String(err)}`)
+    }
+  })
+
+  ipcMain.handle('onboarding:scan-global-mcp', () => {
+    try {
+      return scanGlobalMcpCandidates(getMCPOptions())
+    } catch (err: any) {
+      throw new Error(`扫描全局 MCP 失败: ${err?.message || String(err)}`)
+    }
+  })
+
+  ipcMain.handle('onboarding:scan-project-skills', (_event, projectPath: string) => {
+    try {
+      if (typeof projectPath !== 'string' || !projectPath.trim()) {
+        return []
+      }
+      return scanProjectSkillCandidates(projectPath.trim(), {
+        traceHome: getStoredTraceHome(),
+        homeDir: os.homedir(),
+      })
+    } catch (err: any) {
+      throw new Error(`扫描项目技能失败: ${err?.message || String(err)}`)
+    }
+  })
+
+  ipcMain.handle('onboarding:scan-project-mcp', (_event, projectPath: string) => {
+    try {
+      if (typeof projectPath !== 'string' || !projectPath.trim()) {
+        return []
+      }
+      return scanProjectMcpCandidates(projectPath.trim(), getMCPOptions())
+    } catch (err: any) {
+      throw new Error(`扫描项目 MCP 失败: ${err?.message || String(err)}`)
+    }
+  })
+
+  ipcMain.handle('onboarding:migrate-skills', async (_event, requests: OnboardingSkillMigrationRequest[]) => {
+    try {
+      const list = Array.isArray(requests) ? requests : []
+      const results = await migrateSkillCandidates(list, {
+        traceHome: getStoredTraceHome(),
+        homeDir: os.homedir(),
+      })
+      notifySkillsChanged()
+      return results
+    } catch (err: any) {
+      throw new Error(`迁移技能失败: ${err?.message || String(err)}`)
+    }
+  })
+
+  ipcMain.handle('onboarding:migrate-mcp', async (_event, serverIds: string[]) => {
+    try {
+      const list = Array.isArray(serverIds) ? serverIds : []
+      const results = await migrateMcpCandidates(list, getMCPOptions())
+      notifyMCPChanged()
+      return results
+    } catch (err: any) {
+      throw new Error(`迁移 MCP 服务失败: ${err?.message || String(err)}`)
+    }
+  })
+
+  ipcMain.handle('onboarding:select-project', async (_event, folderPath?: string) => {
+    try {
+      let chosen = folderPath
+      if (!chosen) {
+        const res = await dialog.showOpenDialog({
+          title: '选择项目工作区根目录',
+          properties: ['openDirectory', 'createDirectory'],
+        })
+        if (res.canceled || res.filePaths.length === 0) {
+          return null
+        }
+        chosen = res.filePaths[0]
+      }
+      const res = addProject(chosen, getStoredTraceHome())
+      if (!res.success || !res.project) {
+        throw new Error(res.error || '添加项目失败')
+      }
+      notifyProjectsChanged()
+      return res.project
+    } catch (err: any) {
+      throw new Error(`选择项目失败: ${err?.message || String(err)}`)
+    }
+  })
+
+  ipcMain.handle(
+    'onboarding:set-step',
+    (
+      _event,
+      stepId: OnboardingStepId,
+      outcome: OnboardingStepOutcome,
+      counts?: OnboardingStepCounts
+    ) => {
+      try {
+        const traceHome = getStoredTraceHome()
+        const state = readOnboardingState(traceHome)
+        const now = new Date().toISOString()
+        const stepIndex = state.steps.findIndex((s) => s.id === stepId)
+        const updatedStep: OnboardingStepState = {
+          id: stepId,
+          outcome,
+          completedAt: outcome !== 'pending' ? now : undefined,
+          ...(counts?.migratedCount !== undefined ? { migratedCount: counts.migratedCount } : {}),
+          ...(counts?.skippedCount !== undefined ? { skippedCount: counts.skippedCount } : {}),
+          ...(counts?.failedCount !== undefined ? { failedCount: counts.failedCount } : {}),
+        }
+        if (stepIndex >= 0) {
+          state.steps[stepIndex] = { ...state.steps[stepIndex], ...updatedStep }
+        } else {
+          state.steps.push(updatedStep)
+        }
+
+        const orderIdx = ONBOARDING_STEP_ORDER.indexOf(stepId)
+        if (outcome !== 'pending' && orderIdx >= 0 && orderIdx + 1 < ONBOARDING_STEP_ORDER.length) {
+          state.currentStep = ONBOARDING_STEP_ORDER[orderIdx + 1]
+        } else {
+          state.currentStep = stepId
+        }
+
+        writeOnboardingState(state, traceHome)
+        return state
+      } catch (err: any) {
+        throw new Error(`更新引导步骤失败: ${err?.message || String(err)}`)
+      }
+    }
+  )
+
+  ipcMain.handle('onboarding:complete', () => {
+    try {
+      const traceHome = getStoredTraceHome()
+      const state = readOnboardingState(traceHome)
+      state.completed = true
+      state.completedAt = new Date().toISOString()
+      writeOnboardingState(state, traceHome)
+      return state
+    } catch (err: any) {
+      throw new Error(`完成引导流程失败: ${err?.message || String(err)}`)
+    }
+  })
+
+  ipcMain.handle('onboarding:reset', () => {
+    try {
+      const traceHome = getStoredTraceHome()
+      const state = createInitialOnboardingState()
+      writeOnboardingState(state, traceHome)
+      return state
+    } catch (err: any) {
+      throw new Error(`重置引导流程失败: ${err?.message || String(err)}`)
+    }
+  })
 
   let accountManager: AccountManager | undefined
   let accountStorageRoot = ''
