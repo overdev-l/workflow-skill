@@ -16,3 +16,16 @@ recorders/windows/**/obj
 apps/desktop/native-bin/
 
 apps/desktop/release-resources/
+
+# Trace skill mount points. Trace links adopted skills back into each AI tool's
+# skills directory using an absolute path into the machine's central library
+# (~/.trace/skills, ~/.codex/skills), so these entries are local to one machine:
+# committing them leaves a dangling link in every other clone and writes the
+# author's home path into history. Only the skills/ subdirectories are ignored,
+# so .github/workflows and similar real content stays tracked.
+**/.agents/skills/
+**/.claude/skills/
+**/.cursor/skills/
+**/.gemini/skills/
+**/.github/skills/
+**/.trae/skills/
