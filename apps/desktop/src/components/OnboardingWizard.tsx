@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import {
-  AlertCircle,
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  Check,
   CheckCircle2,
+  Cpu,
   Folder,
   FolderOpen,
   Key,
   Layers,
+  Lock,
   RefreshCw,
   Server,
+  ShieldCheck,
   Sparkles,
+  Terminal,
   X,
 } from 'lucide-react'
 import {
-  ONBOARDING_STEP_ORDER,
   type OnboardingMcpCandidate,
   type OnboardingMcpMigrationResult,
   type OnboardingSkillCandidate,
@@ -40,12 +41,6 @@ interface StepFeedback {
   failures: Array<{ label: string; error: string }>
 }
 
-/**
- * Strategy semantics follow the shared adoption engine (see ConflictResolutionDialog):
- * - use_app    keep the central library version, target becomes a symlink to it
- * - use_target overwrite the central library with the version found on disk
- * - rename     import alongside under a suffixed central id
- */
 type ConflictStrategy = 'use_app' | 'use_target' | 'rename'
 
 const DEFAULT_CONFLICT_STRATEGY: ConflictStrategy = 'use_app'
@@ -56,10 +51,18 @@ const CONFLICT_STRATEGY_OPTIONS: Array<{ id: ConflictStrategy; label: string; hi
   { id: 'rename', label: '重命名导入', hint: '两个版本都保留，本次导入使用带后缀的新标识' },
 ]
 
+export type WizardStage =
+  | 'value-1' // Card 1: Every workflow. One central hub.
+  | 'value-2' // Card 2: All your Skills & MCPs, everywhere you code.
+  | 'value-3' // Card 3: 100% Local-first. Your secrets stay yours.
+  | 'setup-skills' // Step 4: 全局技能扫描与接管
+  | 'setup-mcp' // Step 5: 全局 MCP 发现与接管
+  | 'setup-project' // Step 6: 本地工作区项目接入
+  | 'setup-project-assets' // Step 7: 项目级技能/MCP
+  | 'ready' // Step 8: Trace is ready 🥳
+
 export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Element {
-  // Step state (0: global-skills, 1: global-mcp, 2: select-project, 3: project-assets)
-  const [currentStepIndex, setCurrentStepIndex] = useState<number>(0)
-  const [completedSteps, setCompletedSteps] = useState<Set<OnboardingStepId>>(new Set())
+  const [stage, setStage] = useState<WizardStage>('value-1')
   const [busy, setBusy] = useState<boolean>(false)
   const [globalError, setGlobalError] = useState<string | null>(null)
 
@@ -76,7 +79,6 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
 
   // Step 3: Project Selection State
   const [selectedProject, setSelectedProject] = useState<ProjectRecord | null>(null)
-  const [projectStepSkipped, setProjectStepSkipped] = useState<boolean>(false)
 
   // Step 4: Project Assets State
   const [projectAssetsTab, setProjectAssetsTab] = useState<'skills' | 'mcp'>('skills')
@@ -88,7 +90,9 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
   const [projectAssetsFeedback, setProjectAssetsFeedback] = useState<StepFeedback | null>(null)
   const [projectAssetsScanned, setProjectAssetsScanned] = useState<boolean>(false)
 
-  const currentStepId = ONBOARDING_STEP_ORDER[currentStepIndex]
+  // Total migration statistics for the Ready screen
+  const [totalMigratedSkills, setTotalMigratedSkills] = useState<number>(0)
+  const [totalMigratedMcps, setTotalMigratedMcps] = useState<number>(0)
 
   // Safe helper to persist step outcomes
   const recordStepOutcome = async (
@@ -100,7 +104,6 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
       if (window.workflowSkill?.setOnboardingStep) {
         await window.workflowSkill.setOnboardingStep(stepId, outcome, counts)
       }
-      setCompletedSteps((prev) => new Set([...prev, stepId]))
     } catch (err: any) {
       setGlobalError(err?.message || `持久化步骤 ${stepId} 状态失败`)
     }
@@ -110,17 +113,12 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
   useEffect(() => {
     let active = true
     const scanGlobalSkills = async () => {
-      setBusy(true)
-      setGlobalError(null)
       try {
-        if (!window.workflowSkill?.scanGlobalSkillCandidates) {
-          throw new Error('当前环境未暴露 scanGlobalSkillCandidates API')
-        }
+        if (!window.workflowSkill?.scanGlobalSkillCandidates) return
         const candidates = await window.workflowSkill.scanGlobalSkillCandidates()
         if (!active) return
         setGlobalSkills(candidates)
 
-        // Select all candidates that are not already linked by default
         const initialSelected = new Set<string>()
         const initialConflicts: Record<string, ConflictStrategy> = {}
         for (const c of candidates) {
@@ -135,8 +133,6 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
         setGlobalSkillConflicts(initialConflicts)
       } catch (err: any) {
         if (active) setGlobalError(err?.message || '扫描全局技能候选失败')
-      } finally {
-        if (active) setBusy(false)
       }
     }
 
@@ -146,22 +142,19 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
     }
   }, [])
 
-  // 2. Scan Global MCP when moving to step 1
+  // 2. Scan Global MCP when entering setup-mcp
   useEffect(() => {
-    if (currentStepIndex !== 1 || globalMcps.length > 0) return
+    if (stage !== 'setup-mcp' || globalMcps.length > 0) return
     let active = true
     const scanGlobalMcp = async () => {
       setBusy(true)
       setGlobalError(null)
       try {
-        if (!window.workflowSkill?.scanGlobalMcpCandidates) {
-          throw new Error('当前环境未暴露 scanGlobalMcpCandidates API')
-        }
+        if (!window.workflowSkill?.scanGlobalMcpCandidates) return
         const candidates = await window.workflowSkill.scanGlobalMcpCandidates()
         if (!active) return
         setGlobalMcps(candidates)
 
-        // Select all unmanaged candidates by default
         const initialSelected = new Set<string>()
         for (const m of candidates) {
           if (!m.alreadyManaged) {
@@ -180,11 +173,11 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
     return () => {
       active = false
     }
-  }, [currentStepIndex, globalMcps.length])
+  }, [stage, globalMcps.length])
 
-  // 4. Scan Project Assets when moving to step 3 (if project is selected)
+  // 3. Scan Project Assets when entering setup-project-assets
   useEffect(() => {
-    if (currentStepIndex !== 3 || projectStepSkipped || !selectedProject || projectAssetsScanned) return
+    if (stage !== 'setup-project-assets' || !selectedProject || projectAssetsScanned) return
     let active = true
     const scanProjectAssets = async () => {
       setBusy(true)
@@ -234,7 +227,7 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
     return () => {
       active = false
     }
-  }, [currentStepIndex, projectStepSkipped, selectedProject, projectAssetsScanned])
+  }, [stage, selectedProject, projectAssetsScanned])
 
   // Group global skills by sourceLabel
   const globalSkillGroups = useMemo(() => {
@@ -247,7 +240,7 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
     return Object.entries(map)
   }, [globalSkills])
 
-  // Handlers for Step 1: Global Skills
+  // Global Skills Handlers
   const handleToggleGlobalSkill = (path: string) => {
     setSelectedGlobalSkillPaths((prev) => {
       const next = new Set(prev)
@@ -270,7 +263,7 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
       await recordStepOutcome('global-skills', 'skipped', {
         skippedCount: globalSkills.length,
       })
-      setCurrentStepIndex(1)
+      setStage('setup-mcp')
     } finally {
       setBusy(false)
     }
@@ -318,12 +311,12 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
       }
 
       const failedCount = failures.length
-      const feedback: StepFeedback = {
+      setGlobalSkillFeedback({
         migratedCount,
         failedCount,
         failures,
-      }
-      setGlobalSkillFeedback(feedback)
+      })
+      setTotalMigratedSkills((prev) => prev + migratedCount)
 
       const outcome: OnboardingStepOutcome = failedCount > 0 ? 'partial' : 'migrated'
       await recordStepOutcome('global-skills', outcome, {
@@ -332,9 +325,8 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
         skippedCount: globalSkills.length - requests.length,
       })
 
-      // If all selected migrated without any failure, advance to step 2 automatically
       if (failedCount === 0) {
-        setCurrentStepIndex(1)
+        setStage('setup-mcp')
       }
     } catch (err: any) {
       setGlobalError(err?.message || '执行全局技能迁移失败')
@@ -343,7 +335,7 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
     }
   }
 
-  // Handlers for Step 2: Global MCP
+  // Global MCP Handlers
   const handleToggleGlobalMcp = (serverId: string) => {
     setSelectedGlobalMcpIds((prev) => {
       const next = new Set(prev)
@@ -359,7 +351,7 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
       await recordStepOutcome('global-mcp', 'skipped', {
         skippedCount: globalMcps.length,
       })
-      setCurrentStepIndex(2)
+      setStage('setup-project')
     } finally {
       setBusy(false)
     }
@@ -395,12 +387,12 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
       }
 
       const failedCount = failures.length
-      const feedback: StepFeedback = {
+      setGlobalMcpFeedback({
         migratedCount,
         failedCount,
         failures,
-      }
-      setGlobalMcpFeedback(feedback)
+      })
+      setTotalMigratedMcps((prev) => prev + migratedCount)
 
       const outcome: OnboardingStepOutcome = failedCount > 0 ? 'partial' : 'migrated'
       await recordStepOutcome('global-mcp', outcome, {
@@ -410,7 +402,7 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
       })
 
       if (failedCount === 0) {
-        setCurrentStepIndex(2)
+        setStage('setup-project')
       }
     } catch (err: any) {
       setGlobalError(err?.message || '执行全局 MCP 迁移失败')
@@ -419,7 +411,7 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
     }
   }
 
-  // Handlers for Step 3: Select Project
+  // Select Project Handlers
   const handleSelectProjectFolder = async () => {
     setBusy(true)
     setGlobalError(null)
@@ -430,10 +422,8 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
       const project = await window.workflowSkill.selectOnboardingProject()
       if (project) {
         setSelectedProject(project)
-        setProjectStepSkipped(false)
         setProjectAssetsScanned(false)
       }
-      // If project is null, user cancelled dialog, stay on current step.
     } catch (err: any) {
       setGlobalError(err?.message || '选择项目失败')
     } finally {
@@ -445,9 +435,9 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
     setBusy(true)
     try {
       setSelectedProject(null)
-      setProjectStepSkipped(true)
       await recordStepOutcome('select-project', 'skipped')
-      setCurrentStepIndex(3)
+      await recordStepOutcome('project-assets', 'skipped')
+      setStage('ready')
     } finally {
       setBusy(false)
     }
@@ -458,13 +448,14 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
     setBusy(true)
     try {
       await recordStepOutcome('select-project', 'migrated')
-      setCurrentStepIndex(3)
+      // Advance to project assets inspection
+      setStage('setup-project-assets')
     } finally {
       setBusy(false)
     }
   }
 
-  // Handlers for Step 4: Project Assets
+  // Project Assets Handlers
   const handleToggleProjectSkill = (path: string) => {
     setSelectedProjectSkillPaths((prev) => {
       const next = new Set(prev)
@@ -490,25 +481,16 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
     })
   }
 
-  const handleFinishAll = async (stepOutcome: OnboardingStepOutcome, counts?: OnboardingStepCounts) => {
+  const handleSkipProjectAssets = async () => {
     setBusy(true)
     try {
-      await recordStepOutcome('project-assets', stepOutcome, counts)
-      if (window.workflowSkill?.completeOnboarding) {
-        await window.workflowSkill.completeOnboarding()
-      }
-      onFinished()
-    } catch (err: any) {
-      setGlobalError(err?.message || '完成引导流程失败')
+      await recordStepOutcome('project-assets', 'skipped', {
+        skippedCount: projectSkills.length + projectMcps.length,
+      })
+      setStage('ready')
     } finally {
       setBusy(false)
     }
-  }
-
-  const handleSkipProjectAssets = async () => {
-    await handleFinishAll('skipped', {
-      skippedCount: projectSkills.length + projectMcps.length,
-    })
   }
 
   const handleMigrateProjectAssets = async () => {
@@ -518,7 +500,6 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
       const failures: Array<{ label: string; error: string }> = []
       let migratedCount = 0
 
-      // Migrate project skills
       if (selectedProjectSkillPaths.size > 0 && window.workflowSkill?.migrateOnboardingSkills) {
         const skillReqs: OnboardingSkillMigrationRequest[] = Array.from(selectedProjectSkillPaths).map(
           (path) => {
@@ -546,7 +527,6 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
         }
       }
 
-      // Migrate project MCPs
       if (selectedProjectMcpIds.size > 0 && window.workflowSkill?.migrateOnboardingMcp) {
         const mcpResults = await window.workflowSkill.migrateOnboardingMcp(
           Array.from(selectedProjectMcpIds)
@@ -565,27 +545,26 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
       }
 
       const failedCount = failures.length
-      const feedback: StepFeedback = {
+      setProjectAssetsFeedback({
         migratedCount,
         failedCount,
         failures,
-      }
-      setProjectAssetsFeedback(feedback)
+      })
+      setTotalMigratedSkills((prev) => prev + migratedCount)
 
       const outcome: OnboardingStepOutcome = failedCount > 0 ? 'partial' : 'migrated'
       const counts: OnboardingStepCounts = {
         migratedCount,
         failedCount,
         skippedCount:
-          projectSkills.length + projectMcps.length - (selectedProjectSkillPaths.size + selectedProjectMcpIds.size),
+          projectSkills.length +
+          projectMcps.length -
+          (selectedProjectSkillPaths.size + selectedProjectMcpIds.size),
       }
 
-      // If no failures, finish immediately
+      await recordStepOutcome('project-assets', outcome, counts)
       if (failedCount === 0) {
-        await handleFinishAll(outcome, counts)
-      } else {
-        // If failures exist, persist step outcome so far and let user review before clicking complete
-        await recordStepOutcome('project-assets', outcome, counts)
+        setStage('ready')
       }
     } catch (err: any) {
       setGlobalError(err?.message || '迁移项目资产失败')
@@ -594,56 +573,82 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
     }
   }
 
-  // Navigation: Go back to previous step
-  const handlePrevStep = () => {
-    if (currentStepIndex > 0) {
-      setGlobalError(null)
-      setCurrentStepIndex(currentStepIndex - 1)
+  // Completion Handler
+  const handleCompleteAll = async () => {
+    setBusy(true)
+    try {
+      if (window.workflowSkill?.completeOnboarding) {
+        await window.workflowSkill.completeOnboarding()
+      }
+      onFinished()
+    } catch (err: any) {
+      setGlobalError(err?.message || '完成引导流程失败')
+    } finally {
+      setBusy(false)
     }
   }
 
-  // Step names for stepper
-  const stepTitles = ['全局技能', '全局 MCP', '选择项目', '项目资产']
+  // Navigation Back
+  const handlePrev = () => {
+    setGlobalError(null)
+    if (stage === 'value-2') setStage('value-1')
+    else if (stage === 'value-3') setStage('value-2')
+    else if (stage === 'setup-skills') setStage('value-3')
+    else if (stage === 'setup-mcp') setStage('setup-skills')
+    else if (stage === 'setup-project') setStage('setup-mcp')
+    else if (stage === 'setup-project-assets') setStage('setup-project')
+    else if (stage === 'ready') setStage('setup-project')
+  }
+
+  // Segmented Bar Progress Configuration (6 Main Milestone Bars)
+  const STAGE_ORDER: WizardStage[] = [
+    'value-1',
+    'value-2',
+    'value-3',
+    'setup-skills',
+    'setup-mcp',
+    'setup-project',
+  ]
+  const currentProgressIndex = (() => {
+    if (stage === 'ready') return 5
+    if (stage === 'setup-project-assets') return 5
+    const idx = STAGE_ORDER.indexOf(stage)
+    return idx >= 0 ? idx : 0
+  })()
+
+  const isValueCard = stage === 'value-1' || stage === 'value-2' || stage === 'value-3'
 
   return (
     <div className="onboarding-wizard-container">
-      {/* Background Shader Layer */}
+      {/* Background WebGL Shader Layer */}
       <OnboardingShaderBackground />
 
-      {/* Content Surface Layer */}
+      {/* Main Glass Dialog */}
       <div className="onboarding-wizard-dialog" role="dialog" aria-modal="true">
-        {/* Top Header & 4-Step Stepper */}
-        <header className="onboarding-header">
-          <div className="onboarding-header__top">
-            <div className="onboarding-header__title-wrap">
-              <div className="onboarding-header__logo">
-                <Sparkles size={16} />
-              </div>
-              <h2 className="onboarding-header__title">初始化配置向导</h2>
-            </div>
+        {/* macOS Top Window Bar */}
+        <header className="onboarding-top-bar">
+          <div className="onboarding-traffic-lights" aria-hidden="true">
+            <span className="onboarding-traffic-dot onboarding-traffic-dot--close" />
+            <span className="onboarding-traffic-dot onboarding-traffic-dot--min" />
+            <span className="onboarding-traffic-dot onboarding-traffic-dot--max" />
           </div>
 
-          {/* Stepper Navigation */}
-          <div className="onboarding-stepper">
-            {stepTitles.map((title, idx) => {
-              const stepId = ONBOARDING_STEP_ORDER[idx]
-              const isActive = idx === currentStepIndex
-              const isCompleted = completedSteps.has(stepId) || idx < currentStepIndex
-              return (
-                <div
-                  key={stepId}
-                  className={`onboarding-step-item ${isActive ? 'is-active' : ''} ${
-                    isCompleted ? 'is-completed' : ''
-                  }`}
-                >
-                  <div className="onboarding-step-indicator">
-                    {isCompleted && !isActive ? <Check size={11} /> : idx + 1}
-                  </div>
-                  <span className="onboarding-step-label">{title}</span>
-                  {idx < stepTitles.length - 1 && <div className="onboarding-step-line" />}
-                </div>
-              )
-            })}
+          <div className="onboarding-top-bar__brand">
+            <Sparkles size={13} />
+            <span>Trace Workflow & Skill</span>
+          </div>
+
+          {/* Quick Skip for Value Cards */}
+          <div>
+            {isValueCard && (
+              <button
+                type="button"
+                className="onboarding-skip-btn"
+                onClick={() => setStage('setup-skills')}
+              >
+                跳过介绍
+              </button>
+            )}
           </div>
         </header>
 
@@ -656,56 +661,220 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
             </div>
             <button
               type="button"
-              className="btn btn--sm btn--ghost"
+              className="onboarding-skip-btn"
               onClick={() => setGlobalError(null)}
-              aria-label="关闭错误提示"
+              aria-label="关闭提示"
             >
               <X size={12} />
             </button>
           </div>
         )}
 
-        {/* Wizard Main Body */}
+        {/* Wizard Main Content Body */}
         <main className="onboarding-body">
-          {/* STEP 1: Global Skills */}
-          {currentStepIndex === 0 && (
-            <>
-              <div className="onboarding-step-lead">
-                <h3 className="onboarding-step-title">迁移全局 AI 技能资产</h3>
-                <p className="onboarding-step-desc">
-                  从已安装的全局 AI 工具（Agents / Codex / Claude）扫描可纳管技能并导入中央资产库。
+          {/* ================= CARD 1: VALUE HERO ================= */}
+          {stage === 'value-1' && (
+            <div className="onboarding-value-stage">
+              <div className="onboarding-value-hero">
+                <div className="onboarding-value-tag">
+                  <Sparkles size={11} />
+                  <span>自动化资产中枢</span>
+                </div>
+                <h1 className="onboarding-value-title">
+                  Every workflow.<br />
+                  <span>One central hub.</span>
+                </h1>
+                <p className="onboarding-value-desc">
+                  捕获你的日常浏览器与桌面操作流，自动沉淀为高复用价值的 Skill 与 MCP 工具。跨开发环境无缝调度，让经验化为资产。
                 </p>
               </div>
 
-              {/* Feedback Summary if available */}
+              <div className="onboarding-value-mock-container">
+                <div className="mock-window-card">
+                  <div className="mock-header">
+                    <div className="onboarding-traffic-lights">
+                      <span className="onboarding-traffic-dot onboarding-traffic-dot--close" />
+                      <span className="onboarding-traffic-dot onboarding-traffic-dot--min" />
+                      <span className="onboarding-traffic-dot onboarding-traffic-dot--max" />
+                    </div>
+                    <span className="mock-badge mock-badge--rec">
+                      <span className="mock-pulse-dot" />
+                      <span>LIVE CAPTURE</span>
+                    </span>
+                  </div>
+
+                  <div className="mock-step-list">
+                    <div className="mock-step-row">
+                      <span className="mock-step-num">01</span>
+                      <span>cdp.navigate("github.com/trending")</span>
+                    </div>
+                    <div className="mock-step-row">
+                      <span className="mock-step-num">02</span>
+                      <span>page.extract_feed(items: 10)</span>
+                    </div>
+                    <div className="mock-step-row">
+                      <span className="mock-step-num">03</span>
+                      <span>synthesize_skill("daily-digest")</span>
+                    </div>
+                  </div>
+
+                  <div className="mock-skill-result">
+                    <div className="mock-skill-title">
+                      <Sparkles size={13} style={{ color: 'var(--color-primary)' }} />
+                      <span>github-daily-digest</span>
+                    </div>
+                    <span className="onboarding-badge onboarding-badge--success">3 步骤 · 已验证</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= CARD 2: ECOSYSTEM ================= */}
+          {stage === 'value-2' && (
+            <div className="onboarding-value-stage">
+              <div className="onboarding-value-hero">
+                <div className="onboarding-value-tag">
+                  <Cpu size={11} />
+                  <span>多环境生态分发</span>
+                </div>
+                <h1 className="onboarding-value-title">
+                  All your Skills & MCPs.<br />
+                  <span>Everywhere you code.</span>
+                </h1>
+                <p className="onboarding-value-desc">
+                  一次录制与沉淀，跨开发环境自动分发。让 Claude Code、Codex、Cursor 与 Gemini 即刻掌握你的专属能力。
+                </p>
+              </div>
+
+              <div className="onboarding-value-mock-container">
+                <div className="mock-window-card">
+                  <div className="mock-header">
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-ink)' }}>
+                      分发就绪矩阵
+                    </span>
+                    <span className="onboarding-badge onboarding-badge--key">4 个工具就绪</span>
+                  </div>
+
+                  <div className="mock-ecosystem-grid">
+                    <div className="mock-eco-row">
+                      <div className="mock-eco-left">
+                        <Terminal size={14} style={{ color: 'var(--color-primary)' }} />
+                        <span>Claude Code</span>
+                      </div>
+                      <span className="mock-eco-status">
+                        <CheckCircle2 size={12} />
+                        <span>~/.claude/skills</span>
+                      </span>
+                    </div>
+
+                    <div className="mock-eco-row">
+                      <div className="mock-eco-left">
+                        <Layers size={14} style={{ color: 'var(--color-accent)' }} />
+                        <span>Cursor IDE</span>
+                      </div>
+                      <span className="mock-eco-status">
+                        <CheckCircle2 size={12} />
+                        <span>自动软链生效</span>
+                      </span>
+                    </div>
+
+                    <div className="mock-eco-row">
+                      <div className="mock-eco-left">
+                        <Cpu size={14} style={{ color: 'var(--color-ink)' }} />
+                        <span>Codex CLI</span>
+                      </div>
+                      <span className="mock-eco-status">
+                        <CheckCircle2 size={12} />
+                        <span>中心库直连</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= CARD 3: LOCAL-FIRST & PRIVACY ================= */}
+          {stage === 'value-3' && (
+            <div className="onboarding-value-stage">
+              <div className="onboarding-value-hero">
+                <div className="onboarding-value-tag">
+                  <ShieldCheck size={11} />
+                  <span>本地优先与安全</span>
+                </div>
+                <h1 className="onboarding-value-title">
+                  100% Local-first.<br />
+                  <span>Your secrets stay yours.</span>
+                </h1>
+                <p className="onboarding-value-desc">
+                  所有工作流数据、技能代码与配置均存储在你的 Mac 本地；API Key 与鉴权凭据直通 macOS Keychain 硬件级保护，明文零落盘，绝不上报云端。
+                </p>
+              </div>
+
+              <div className="onboarding-value-mock-container">
+                <div className="mock-window-card">
+                  <div className="mock-header">
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-ink)' }}>
+                      隐私与凭据沙盒
+                    </span>
+                    <span className="onboarding-badge onboarding-badge--success">
+                      <Lock size={10} />
+                      <span>Keychain 已锁定</span>
+                    </span>
+                  </div>
+
+                  <div className="mock-security-list">
+                    <div className="mock-security-item">
+                      <CheckCircle2 size={14} className="mock-security-icon" />
+                      <div>
+                        <div className="mock-security-title">本地优先存储架构</div>
+                        <div className="mock-security-desc">全量工作流资产保存在 ~/.trace，支持完全离线运行</div>
+                      </div>
+                    </div>
+
+                    <div className="mock-security-item">
+                      <Key size={14} className="mock-security-icon" />
+                      <div>
+                        <div className="mock-security-title">系统 Keychain 凭据安全</div>
+                        <div className="mock-security-desc">MCP Secret 存入苹果安全钥匙串，JSON 仅存脱敏引用</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= STEP 4: SETUP SKILLS ================= */}
+          {stage === 'setup-skills' && (
+            <>
+              <div className="onboarding-step-lead">
+                <h2 className="onboarding-step-title">迁移全局 AI 技能资产</h2>
+                <p className="onboarding-step-desc">
+                  扫描已安装的全局 AI 工具（Agents / Codex / Claude），一次性接管进 Trace 中心库统一管理。
+                </p>
+              </div>
+
               {globalSkillFeedback && (
                 <div
                   className={`onboarding-feedback-card ${
-                    globalSkillFeedback.failedCount > 0 ? 'is-partial' : 'is-success'
+                    globalSkillFeedback.failedCount === 0 ? 'is-success' : 'is-partial'
                   }`}
                 >
                   <div className="onboarding-feedback-title">
-                    {globalSkillFeedback.failedCount > 0 ? (
-                      <>
-                        <AlertCircle size={14} />
-                        <span>
-                          部分技能迁移完成：成功 {globalSkillFeedback.migratedCount} 项，失败{' '}
-                          {globalSkillFeedback.failedCount} 项
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 size={14} />
-                        <span>已成功迁移 {globalSkillFeedback.migratedCount} 项技能</span>
-                      </>
-                    )}
+                    <CheckCircle2 size={14} />
+                    <span>
+                      {globalSkillFeedback.failedCount === 0
+                        ? `成功迁移 ${globalSkillFeedback.migratedCount} 个全局技能`
+                        : `迁移完成：${globalSkillFeedback.migratedCount} 个成功，${globalSkillFeedback.failedCount} 个失败`}
+                    </span>
                   </div>
                   {globalSkillFeedback.failures.length > 0 && (
                     <ul className="onboarding-feedback-failures">
                       {globalSkillFeedback.failures.map((f, i) => (
                         <li key={i}>
-                          <strong>{f.label}：</strong>
-                          <span>{f.error}</span>
+                          <strong>{f.label}:</strong> {f.error}
                         </li>
                       ))}
                     </ul>
@@ -713,86 +882,73 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
                 </div>
               )}
 
-              {globalSkills.length === 0 && !busy ? (
-                <div className="onboarding-empty-notice">
-                  <Layers size={24} />
-                  <span>未发现可迁移的全局技能资产。</span>
+              {globalSkills.length === 0 ? (
+                <div className="onboarding-project-card">
+                  <Sparkles size={24} style={{ color: 'var(--color-muted)' }} />
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--color-muted)' }}>
+                    未在已支持的全局目录（~/.agents、~/.codex、~/.claude）中发现可迁移的技能
+                  </p>
                 </div>
               ) : (
                 globalSkillGroups.map(([groupLabel, items]) => (
                   <div key={groupLabel} className="onboarding-group-card">
                     <div className="onboarding-group-header">
-                      <span className="onboarding-group-title">{groupLabel}</span>
+                      <span className="onboarding-group-title">{groupLabel} 全局技能</span>
                       <span className="onboarding-group-count">{items.length} 个候选</span>
                     </div>
+
                     <div className="onboarding-item-list">
-                      {items.map((item) => {
-                        const isSelected = selectedGlobalSkillPaths.has(item.absolutePath)
-                        const isConflict = Boolean(item.conflictsWithCentralId)
+                      {items.map((skill) => {
+                        const isSelected = selectedGlobalSkillPaths.has(skill.absolutePath)
+                        const isConflict = Boolean(skill.conflictsWithCentralId)
                         const currentStrategy =
-                          globalSkillConflicts[item.absolutePath] || DEFAULT_CONFLICT_STRATEGY
+                          globalSkillConflicts[skill.absolutePath] || DEFAULT_CONFLICT_STRATEGY
 
                         return (
                           <div
-                            key={item.absolutePath}
-                            className={`onboarding-item-row ${
-                              item.alreadyLinked ? 'is-disabled' : ''
-                            }`}
+                            key={skill.absolutePath}
+                            className={`onboarding-item-row ${skill.alreadyLinked ? 'is-disabled' : ''}`}
                           >
                             <div className="onboarding-item-left">
                               <input
                                 type="checkbox"
                                 className="onboarding-item-checkbox"
-                                checked={!item.alreadyLinked && isSelected}
-                                disabled={item.alreadyLinked || busy}
-                                onChange={() => handleToggleGlobalSkill(item.absolutePath)}
+                                checked={isSelected}
+                                disabled={skill.alreadyLinked}
+                                onChange={() => handleToggleGlobalSkill(skill.absolutePath)}
                               />
                               <div className="onboarding-item-info">
-                                <span className="onboarding-item-name">{item.skillName}</span>
-                                <span className="onboarding-item-sub font-mono">
-                                  {item.absolutePath}
-                                </span>
+                                <span className="onboarding-item-name">{skill.skillName}</span>
+                                <span className="onboarding-item-sub">{skill.absolutePath}</span>
                               </div>
                             </div>
 
                             <div className="onboarding-item-right">
-                              {item.alreadyLinked && (
-                                <span className="onboarding-badge onboarding-badge--neutral">
-                                  已接管
-                                </span>
-                              )}
-
-                              {isConflict && !item.alreadyLinked && (
+                              {skill.alreadyLinked ? (
+                                <span className="onboarding-badge onboarding-badge--neutral">已由中心库接管</span>
+                              ) : isConflict ? (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <span className="onboarding-badge onboarding-badge--warning">
-                                    冲突
-                                  </span>
-                                  {/* Conflict 3-choice Segmented Switcher (24px height) */}
-                                  <div
-                                    className="onboarding-segmented-tab-container"
-                                    role="tablist"
-                                    aria-label="冲突策略选择"
-                                  >
-                                    {CONFLICT_STRATEGY_OPTIONS.map((option) => (
+                                  <span className="onboarding-badge onboarding-badge--warning">同名冲突</span>
+                                  <div className="onboarding-segmented-tab-container">
+                                    {CONFLICT_STRATEGY_OPTIONS.map((opt) => (
                                       <button
-                                        key={option.id}
+                                        key={opt.id}
                                         type="button"
-                                        role="tab"
-                                        aria-selected={currentStrategy === option.id}
-                                        title={option.hint}
                                         className={`onboarding-segmented-tab-btn ${
-                                          currentStrategy === option.id ? 'is-active' : ''
+                                          currentStrategy === opt.id ? 'is-active' : ''
                                         }`}
-                                        disabled={busy}
+                                        title={opt.hint}
                                         onClick={() =>
-                                          handleGlobalSkillConflictChange(item.absolutePath, option.id)
+                                          handleGlobalSkillConflictChange(skill.absolutePath, opt.id)
                                         }
                                       >
-                                        {option.label}
+                                        {opt.label}
                                       </button>
                                     ))}
                                   </div>
                                 </div>
+                              ) : (
+                                <span className="onboarding-badge onboarding-badge--neutral">就绪</span>
                               )}
                             </div>
                           </div>
@@ -805,45 +961,35 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
             </>
           )}
 
-          {/* STEP 2: Global MCP */}
-          {currentStepIndex === 1 && (
+          {/* ================= STEP 5: SETUP MCP ================= */}
+          {stage === 'setup-mcp' && (
             <>
               <div className="onboarding-step-lead">
-                <h3 className="onboarding-step-title">接入全局 MCP 服务</h3>
+                <h2 className="onboarding-step-title">接管全局 MCP 外部服务</h2>
                 <p className="onboarding-step-desc">
-                  纳管外部工具配置的 MCP 服务，敏感凭据将自动迁移并隔离存放至系统原生钥匙串中。
+                  汇聚全局 MCP Server 配置。API Key 等敏感凭据一律写入 macOS Keychain，保证明文零落盘。
                 </p>
               </div>
 
-              {/* Feedback Summary if available */}
               {globalMcpFeedback && (
                 <div
                   className={`onboarding-feedback-card ${
-                    globalMcpFeedback.failedCount > 0 ? 'is-partial' : 'is-success'
+                    globalMcpFeedback.failedCount === 0 ? 'is-success' : 'is-partial'
                   }`}
                 >
                   <div className="onboarding-feedback-title">
-                    {globalMcpFeedback.failedCount > 0 ? (
-                      <>
-                        <AlertCircle size={14} />
-                        <span>
-                          部分 MCP 服务迁移完成：成功 {globalMcpFeedback.migratedCount} 项，失败{' '}
-                          {globalMcpFeedback.failedCount} 项
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 size={14} />
-                        <span>已成功接入 {globalMcpFeedback.migratedCount} 项 MCP 服务</span>
-                      </>
-                    )}
+                    <CheckCircle2 size={14} />
+                    <span>
+                      {globalMcpFeedback.failedCount === 0
+                        ? `成功迁移 ${globalMcpFeedback.migratedCount} 个 MCP 服务`
+                        : `迁移完成：${globalMcpFeedback.migratedCount} 个成功，${globalMcpFeedback.failedCount} 个失败`}
+                    </span>
                   </div>
                   {globalMcpFeedback.failures.length > 0 && (
                     <ul className="onboarding-feedback-failures">
                       {globalMcpFeedback.failures.map((f, i) => (
                         <li key={i}>
-                          <strong>{f.label}：</strong>
-                          <span>{f.error}</span>
+                          <strong>{f.label}:</strong> {f.error}
                         </li>
                       ))}
                     </ul>
@@ -851,73 +997,61 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
                 </div>
               )}
 
-              {globalMcps.length === 0 && !busy ? (
-                <div className="onboarding-empty-notice">
-                  <Server size={24} />
-                  <span>未发现可纳管的全局 MCP 服务。</span>
+              {globalMcps.length === 0 ? (
+                <div className="onboarding-project-card">
+                  <Server size={24} style={{ color: 'var(--color-muted)' }} />
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--color-muted)' }}>
+                    未扫描到可导入的全局 MCP 服务配置
+                  </p>
                 </div>
               ) : (
                 <div className="onboarding-group-card">
                   <div className="onboarding-group-header">
-                    <span className="onboarding-group-title">发现的 MCP 服务</span>
-                    <span className="onboarding-group-count">{globalMcps.length} 个服务</span>
+                    <span className="onboarding-group-title">发现的全局 MCP 列表</span>
+                    <span className="onboarding-group-count">{globalMcps.length} 个配置</span>
                   </div>
-                  <div className="onboarding-item-list">
-                    {globalMcps.map((candidate) => {
-                      const isSelected = selectedGlobalMcpIds.has(candidate.serverId)
 
+                  <div className="onboarding-item-list">
+                    {globalMcps.map((mcp) => {
+                      const isSelected = selectedGlobalMcpIds.has(mcp.serverId)
                       return (
                         <div
-                          key={candidate.serverId}
-                          className={`onboarding-item-row ${
-                            candidate.alreadyManaged ? 'is-disabled' : ''
-                          }`}
+                          key={mcp.serverId}
+                          className={`onboarding-item-row ${mcp.alreadyManaged ? 'is-disabled' : ''}`}
                         >
                           <div className="onboarding-item-left">
                             <input
                               type="checkbox"
                               className="onboarding-item-checkbox"
-                              checked={!candidate.alreadyManaged && isSelected}
-                              disabled={candidate.alreadyManaged || busy}
-                              onChange={() => handleToggleGlobalMcp(candidate.serverId)}
+                              checked={isSelected}
+                              disabled={mcp.alreadyManaged}
+                              onChange={() => handleToggleGlobalMcp(mcp.serverId)}
                             />
                             <div className="onboarding-item-info">
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span className="onboarding-item-name">{candidate.serverName}</span>
-                                <span className="onboarding-badge onboarding-badge--neutral">
-                                  {candidate.sourceToolId}
-                                </span>
-                                <span className="onboarding-badge onboarding-badge--neutral">
-                                  {candidate.transport}
-                                </span>
-                              </div>
-
-                              {/* Secrets Notice & Desensitized Field Paths */}
-                              {candidate.hasSecrets && (
+                              <span className="onboarding-item-name">{mcp.serverName}</span>
+                              <span className="onboarding-item-sub">
+                                {mcp.sourceToolId ? `来源: ${mcp.sourceToolId} · 传输: ${mcp.transport}` : `传输: ${mcp.transport}`}
+                              </span>
+                              {mcp.secretFieldPaths && mcp.secretFieldPaths.length > 0 && (
                                 <div className="onboarding-mcp-secrets">
-                                  <span className="onboarding-badge onboarding-badge--key">
-                                    <Key size={10} />
-                                    含鉴权凭据，将存入系统钥匙串
-                                  </span>
-                                  {candidate.secretFieldPaths?.length > 0 && (
-                                    <div className="onboarding-secret-tags font-mono">
-                                      {candidate.secretFieldPaths.map((fp) => (
-                                        <span key={fp} className="onboarding-secret-tag">
-                                          {fp}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
+                                  <div className="onboarding-secret-tags">
+                                    {mcp.secretFieldPaths.map((sec) => (
+                                      <span key={sec} className="onboarding-secret-tag">
+                                        <Key size={10} style={{ display: 'inline', marginRight: 2 }} />
+                                        {sec} (Keychain 托管)
+                                      </span>
+                                    ))}
+                                  </div>
                                 </div>
                               )}
                             </div>
                           </div>
 
                           <div className="onboarding-item-right">
-                            {candidate.alreadyManaged && (
-                              <span className="onboarding-badge onboarding-badge--neutral">
-                                已纳管
-                              </span>
+                            {mcp.alreadyManaged ? (
+                              <span className="onboarding-badge onboarding-badge--neutral">已在管理中</span>
+                            ) : (
+                              <span className="onboarding-badge onboarding-badge--neutral">{mcp.transport}</span>
                             )}
                           </div>
                         </div>
@@ -929,512 +1063,380 @@ export function OnboardingWizard({ onFinished }: OnboardingWizardProps): JSX.Ele
             </>
           )}
 
-          {/* STEP 3: Select Project */}
-          {currentStepIndex === 2 && (
+          {/* ================= STEP 6: SELECT PROJECT ================= */}
+          {stage === 'setup-project' && (
             <>
               <div className="onboarding-step-lead">
-                <h3 className="onboarding-step-title">选择工作区项目</h3>
+                <h2 className="onboarding-step-title">接入首个工作区项目</h2>
                 <p className="onboarding-step-desc">
-                  绑定一个正在开发的代码工程文件夹，以支持项目范围专有的 Skills 和 MCP 配置。
+                  绑定一个本地工作区仓库，Trace 将自动挂载该项目下的专用技能与 MCP 配置。
                 </p>
               </div>
 
-              {!selectedProject ? (
-                <div className="onboarding-project-card">
-                  <div className="onboarding-project-icon-box">
-                    <Folder size={20} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-ink)' }}>
-                      尚未绑定本地项目工程
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 2 }}>
-                      选择工程文件夹后，向导将扫描并导入该项目专有的 Skills 及 MCP 配置
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn--primary"
-                    disabled={busy}
-                    onClick={handleSelectProjectFolder}
-                  >
-                    <FolderOpen size={13} style={{ marginRight: 6 }} />
-                    选择项目文件夹
-                  </button>
-                </div>
-              ) : (
+              {selectedProject ? (
                 <div className="onboarding-project-selected-card">
                   <div className="onboarding-project-selected-info">
                     <div className="onboarding-project-icon-box">
-                      <Folder size={20} />
+                      <FolderOpen size={20} />
                     </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-ink)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-ink)' }}>
                         {selectedProject.name}
-                      </div>
-                      <div
-                        className="font-mono"
-                        style={{
-                          fontSize: 11,
-                          color: 'var(--color-muted)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          marginTop: 2,
-                        }}
-                      >
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>
                         {selectedProject.path}
-                      </div>
+                      </span>
                     </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btn--capsule"
+                    style={{ background: 'var(--color-surface-raised)', color: 'var(--color-ink)' }}
+                    onClick={handleSelectProjectFolder}
+                  >
+                    更换目录
+                  </button>
+                </div>
+              ) : (
+                <div className="onboarding-project-card">
+                  <Folder size={32} style={{ color: 'var(--color-primary)' }} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-ink)' }}>
+                      选择你经常使用的项目代码库
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>
+                      支持自动识别 .agents, .claude, .cursor, .gemini 等环境配置
+                    </span>
                   </div>
                   <button
                     type="button"
-                    className="btn btn--sm btn--secondary"
-                    disabled={busy}
+                    className="btn btn--primary-cta"
                     onClick={handleSelectProjectFolder}
                   >
-                    重新选择
+                    <FolderOpen size={13} />
+                    <span>浏览本地文件夹...</span>
                   </button>
                 </div>
               )}
             </>
           )}
 
-          {/* STEP 4: Project Assets */}
-          {currentStepIndex === 3 && (
+          {/* ================= STEP 7: PROJECT ASSETS ================= */}
+          {stage === 'setup-project-assets' && (
             <>
               <div className="onboarding-step-lead">
-                <h3 className="onboarding-step-title">导入项目专有资产</h3>
+                <h2 className="onboarding-step-title">项目专属资产接管</h2>
                 <p className="onboarding-step-desc">
-                  {selectedProject
-                    ? `从工程「${selectedProject.name}」中扫描出项目特定的技能与 MCP 配置。`
-                    : '未指定项目工程，无需迁移项目资产。'}
+                  在项目 <strong>{selectedProject?.name}</strong> 中扫描到的技能与 MCP 服务配置。
                 </p>
               </div>
 
-              {/* Feedback Summary if available */}
               {projectAssetsFeedback && (
                 <div
                   className={`onboarding-feedback-card ${
-                    projectAssetsFeedback.failedCount > 0 ? 'is-partial' : 'is-success'
+                    projectAssetsFeedback.failedCount === 0 ? 'is-success' : 'is-partial'
                   }`}
                 >
                   <div className="onboarding-feedback-title">
-                    {projectAssetsFeedback.failedCount > 0 ? (
-                      <>
-                        <AlertCircle size={14} />
-                        <span>
-                          部分项目资产迁移完成：成功 {projectAssetsFeedback.migratedCount} 项，失败{' '}
-                          {projectAssetsFeedback.failedCount} 项
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 size={14} />
-                        <span>已成功迁移 {projectAssetsFeedback.migratedCount} 项项目资产</span>
-                      </>
-                    )}
+                    <CheckCircle2 size={14} />
+                    <span>
+                      {projectAssetsFeedback.failedCount === 0
+                        ? `成功迁移 ${projectAssetsFeedback.migratedCount} 个项目资产`
+                        : `迁移完成：${projectAssetsFeedback.migratedCount} 个成功，${projectAssetsFeedback.failedCount} 个失败`}
+                    </span>
                   </div>
-                  {projectAssetsFeedback.failures.length > 0 && (
-                    <ul className="onboarding-feedback-failures">
-                      {projectAssetsFeedback.failures.map((f, i) => (
-                        <li key={i}>
-                          <strong>{f.label}：</strong>
-                          <span>{f.error}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
                 </div>
               )}
 
-              {!selectedProject || projectStepSkipped ? (
-                <div className="onboarding-project-card">
-                  <div className="onboarding-project-icon-box" style={{ opacity: 0.8 }}>
-                    <Layers size={20} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-ink)' }}>
-                      未选择项目，已跳过
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 2 }}>
-                      后续您可随时在主界面或设置页中添加代码工程。现在您可以直接完成初始引导。
-                    </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 12 }}>
+                <div className="onboarding-segmented-tab-container">
+                  <button
+                    type="button"
+                    className={`onboarding-segmented-tab-btn ${
+                      projectAssetsTab === 'skills' ? 'is-active' : ''
+                    }`}
+                    onClick={() => setProjectAssetsTab('skills')}
+                  >
+                    项目技能 ({projectSkills.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`onboarding-segmented-tab-btn ${
+                      projectAssetsTab === 'mcp' ? 'is-active' : ''
+                    }`}
+                    onClick={() => setProjectAssetsTab('mcp')}
+                  >
+                    项目 MCP ({projectMcps.length})
+                  </button>
+                </div>
+              </div>
+
+              {projectAssetsTab === 'skills' && (
+                <div className="onboarding-group-card">
+                  <div className="onboarding-item-list">
+                    {projectSkills.length === 0 ? (
+                      <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--color-muted)' }}>
+                        未在项目中发现技能目录
+                      </div>
+                    ) : (
+                      projectSkills.map((s) => (
+                        <div key={s.absolutePath} className="onboarding-item-row">
+                          <div className="onboarding-item-left">
+                            <input
+                              type="checkbox"
+                              className="onboarding-item-checkbox"
+                              checked={selectedProjectSkillPaths.has(s.absolutePath)}
+                              onChange={() => handleToggleProjectSkill(s.absolutePath)}
+                            />
+                            <div className="onboarding-item-info">
+                              <span className="onboarding-item-name">{s.skillName}</span>
+                              <span className="onboarding-item-sub">{s.absolutePath}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
-              ) : (
-                <>
-                  {/* Segmented Tab Switcher (24px height) between Skills and MCP */}
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <div
-                      className="onboarding-segmented-tab-container"
-                      role="tablist"
-                      aria-label="资产类型切换"
-                    >
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={projectAssetsTab === 'skills'}
-                        className={`onboarding-segmented-tab-btn ${
-                          projectAssetsTab === 'skills' ? 'is-active' : ''
-                        }`}
-                        onClick={() => setProjectAssetsTab('skills')}
-                      >
-                        项目 Skills ({projectSkills.length})
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={projectAssetsTab === 'mcp'}
-                        className={`onboarding-segmented-tab-btn ${
-                          projectAssetsTab === 'mcp' ? 'is-active' : ''
-                        }`}
-                        onClick={() => setProjectAssetsTab('mcp')}
-                      >
-                        项目 MCP ({projectMcps.length})
-                      </button>
-                    </div>
+              )}
+
+              {projectAssetsTab === 'mcp' && (
+                <div className="onboarding-group-card">
+                  <div className="onboarding-item-list">
+                    {projectMcps.length === 0 ? (
+                      <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--color-muted)' }}>
+                        未在项目中发现 MCP 配置
+                      </div>
+                    ) : (
+                      projectMcps.map((m) => (
+                        <div key={m.serverId} className="onboarding-item-row">
+                          <div className="onboarding-item-left">
+                            <input
+                              type="checkbox"
+                              className="onboarding-item-checkbox"
+                              checked={selectedProjectMcpIds.has(m.serverId)}
+                              onChange={() => handleToggleProjectMcp(m.serverId)}
+                            />
+                            <div className="onboarding-item-info">
+                              <span className="onboarding-item-name">{m.serverName}</span>
+                              <span className="onboarding-item-sub">{m.transport}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
-
-                  {/* Skills Tab Content */}
-                  {projectAssetsTab === 'skills' && (
-                    <div className="onboarding-group-card">
-                      <div className="onboarding-group-header">
-                        <span className="onboarding-group-title">项目 Skills 候选</span>
-                        <span className="onboarding-group-count">{projectSkills.length} 个候选</span>
-                      </div>
-                      <div className="onboarding-item-list">
-                        {projectSkills.length === 0 ? (
-                          <div className="onboarding-empty-notice" style={{ padding: '24px 16px' }}>
-                            <span>该项目下未发现可纳管的 Skills。</span>
-                          </div>
-                        ) : (
-                          projectSkills.map((item) => {
-                            const isSelected = selectedProjectSkillPaths.has(item.absolutePath)
-                            const isConflict = Boolean(item.conflictsWithCentralId)
-                            const currentStrategy =
-                              projectSkillConflicts[item.absolutePath] || DEFAULT_CONFLICT_STRATEGY
-
-                            return (
-                              <div
-                                key={item.absolutePath}
-                                className={`onboarding-item-row ${
-                                  item.alreadyLinked ? 'is-disabled' : ''
-                                }`}
-                              >
-                                <div className="onboarding-item-left">
-                                  <input
-                                    type="checkbox"
-                                    className="onboarding-item-checkbox"
-                                    checked={!item.alreadyLinked && isSelected}
-                                    disabled={item.alreadyLinked || busy}
-                                    onChange={() => handleToggleProjectSkill(item.absolutePath)}
-                                  />
-                                  <div className="onboarding-item-info">
-                                    <span className="onboarding-item-name">{item.skillName}</span>
-                                    <span className="onboarding-item-sub font-mono">
-                                      {item.absolutePath}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="onboarding-item-right">
-                                  {item.alreadyLinked && (
-                                    <span className="onboarding-badge onboarding-badge--neutral">
-                                      已接管
-                                    </span>
-                                  )}
-
-                                  {isConflict && !item.alreadyLinked && (
-                                    <div
-                                      style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                                    >
-                                      <span className="onboarding-badge onboarding-badge--warning">
-                                        冲突
-                                      </span>
-                                      <div
-                                        className="onboarding-segmented-tab-container"
-                                        role="tablist"
-                                        aria-label="冲突策略选择"
-                                      >
-                                        {CONFLICT_STRATEGY_OPTIONS.map((option) => (
-                                          <button
-                                            key={option.id}
-                                            type="button"
-                                            role="tab"
-                                            aria-selected={currentStrategy === option.id}
-                                            title={option.hint}
-                                            className={`onboarding-segmented-tab-btn ${
-                                              currentStrategy === option.id ? 'is-active' : ''
-                                            }`}
-                                            disabled={busy}
-                                            onClick={() =>
-                                              handleProjectSkillConflictChange(
-                                                item.absolutePath,
-                                                option.id
-                                              )
-                                            }
-                                          >
-                                            {option.label}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )
-                          })
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* MCP Tab Content */}
-                  {projectAssetsTab === 'mcp' && (
-                    <div className="onboarding-group-card">
-                      <div className="onboarding-group-header">
-                        <span className="onboarding-group-title">项目 MCP 服务候选</span>
-                        <span className="onboarding-group-count">{projectMcps.length} 个服务</span>
-                      </div>
-                      <div className="onboarding-item-list">
-                        {projectMcps.length === 0 ? (
-                          <div className="onboarding-empty-notice" style={{ padding: '24px 16px' }}>
-                            <span>该项目下未发现可纳管的 MCP 服务。</span>
-                          </div>
-                        ) : (
-                          projectMcps.map((candidate) => {
-                            const isSelected = selectedProjectMcpIds.has(candidate.serverId)
-
-                            return (
-                              <div
-                                key={candidate.serverId}
-                                className={`onboarding-item-row ${
-                                  candidate.alreadyManaged ? 'is-disabled' : ''
-                                }`}
-                              >
-                                <div className="onboarding-item-left">
-                                  <input
-                                    type="checkbox"
-                                    className="onboarding-item-checkbox"
-                                    checked={!candidate.alreadyManaged && isSelected}
-                                    disabled={candidate.alreadyManaged || busy}
-                                    onChange={() => handleToggleProjectMcp(candidate.serverId)}
-                                  />
-                                  <div className="onboarding-item-info">
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                      <span className="onboarding-item-name">
-                                        {candidate.serverName}
-                                      </span>
-                                      <span className="onboarding-badge onboarding-badge--neutral">
-                                        {candidate.sourceToolId}
-                                      </span>
-                                      <span className="onboarding-badge onboarding-badge--neutral">
-                                        {candidate.transport}
-                                      </span>
-                                    </div>
-
-                                    {candidate.hasSecrets && (
-                                      <div className="onboarding-mcp-secrets">
-                                        <span className="onboarding-badge onboarding-badge--key">
-                                          <Key size={10} />
-                                          含鉴权凭据，将存入系统钥匙串
-                                        </span>
-                                        {candidate.secretFieldPaths?.length > 0 && (
-                                          <div className="onboarding-secret-tags font-mono">
-                                            {candidate.secretFieldPaths.map((fp) => (
-                                              <span key={fp} className="onboarding-secret-tag">
-                                                {fp}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="onboarding-item-right">
-                                  {candidate.alreadyManaged && (
-                                    <span className="onboarding-badge onboarding-badge--neutral">
-                                      已纳管
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            )
-                          })
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </>
+                </div>
               )}
             </>
           )}
+
+          {/* ================= STEP 8: READY & CELEBRATION ================= */}
+          {stage === 'ready' && (
+            <div className="onboarding-ready-stage">
+              <div className="onboarding-ready-badge">
+                <Sparkles size={28} />
+              </div>
+              <h1 className="onboarding-ready-title">Trace is ready to go 🥳</h1>
+              <p className="onboarding-ready-desc">
+                你的统一工作流与 Skill 资产中心已完成初始化。所有配置与安全凭据均已本地落库。
+              </p>
+
+              <div className="onboarding-ready-stats-grid">
+                <div className="onboarding-ready-stat-card">
+                  <span className="onboarding-ready-stat-value">{totalMigratedSkills}</span>
+                  <span className="onboarding-ready-stat-label">已接管技能资产</span>
+                </div>
+                <div className="onboarding-ready-stat-card">
+                  <span className="onboarding-ready-stat-value">{totalMigratedMcps}</span>
+                  <span className="onboarding-ready-stat-label">已托管 MCP 服务</span>
+                </div>
+                <div className="onboarding-ready-stat-card">
+                  <span className="onboarding-ready-stat-value">
+                    {selectedProject ? '已连接' : '跳过'}
+                  </span>
+                  <span className="onboarding-ready-stat-label">本地工作区状态</span>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
 
-        {/* Wizard Footer Actions */}
+        {/* Wizard Footer Controls */}
         <footer className="onboarding-footer">
+          {/* Left: Back Button */}
           <div className="onboarding-footer__left">
-            <button
-              type="button"
-              className="btn btn--secondary"
-              disabled={currentStepIndex === 0 || busy}
-              onClick={handlePrevStep}
-            >
-              <ArrowLeft size={13} style={{ marginRight: 4 }} />
-              上一步
-            </button>
+            {stage !== 'value-1' && stage !== 'ready' && (
+              <button
+                type="button"
+                className="btn--secondary-cta"
+                onClick={handlePrev}
+                disabled={busy}
+              >
+                <ArrowLeft size={13} />
+                <span>返回</span>
+              </button>
+            )}
           </div>
 
+          {/* Middle: Segmented Capsule Indicators */}
+          <div className="onboarding-indicators" aria-label="向导阶段指示器">
+            {STAGE_ORDER.map((s, idx) => {
+              const isActive = idx === currentProgressIndex
+              const isPassed = idx < currentProgressIndex
+              return (
+                <div
+                  key={s}
+                  className={`onboarding-indicator-bar ${isActive ? 'is-active' : ''} ${
+                    isPassed ? 'is-passed' : ''
+                  }`}
+                />
+              )
+            })}
+          </div>
+
+          {/* Right: Actions */}
           <div className="onboarding-footer__right">
-            {/* STEP 1: Global Skills Actions */}
-            {currentStepIndex === 0 && (
+            {/* Value 1 */}
+            {stage === 'value-1' && (
+              <button
+                type="button"
+                className="btn--primary-cta"
+                onClick={() => setStage('value-2')}
+              >
+                <span>即刻开始</span>
+                <ArrowRight size={13} />
+              </button>
+            )}
+
+            {/* Value 2 */}
+            {stage === 'value-2' && (
+              <button
+                type="button"
+                className="btn--primary-cta"
+                onClick={() => setStage('value-3')}
+              >
+                <span>继续了解</span>
+                <ArrowRight size={13} />
+              </button>
+            )}
+
+            {/* Value 3 */}
+            {stage === 'value-3' && (
+              <button
+                type="button"
+                className="btn--primary-cta"
+                onClick={() => setStage('setup-skills')}
+              >
+                <span>我准备好了</span>
+                <ArrowRight size={13} />
+              </button>
+            )}
+
+            {/* Setup Skills */}
+            {stage === 'setup-skills' && (
               <>
                 <button
                   type="button"
-                  className="btn btn--ghost"
+                  className="btn--secondary-cta"
                   disabled={busy}
                   onClick={handleSkipGlobalSkills}
                 >
-                  跳过
+                  暂不接管
                 </button>
-                {globalSkillFeedback && globalSkillFeedback.failedCount > 0 ? (
-                  <button
-                    type="button"
-                    className="btn btn--primary"
-                    disabled={busy}
-                    onClick={() => setCurrentStepIndex(1)}
-                  >
-                    继续下一步
-                    <ArrowRight size={13} style={{ marginLeft: 4 }} />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn--primary"
-                    disabled={busy}
-                    onClick={handleMigrateGlobalSkills}
-                  >
-                    {busy && <RefreshCw size={12} className="animate-spin" style={{ marginRight: 4 }} />}
-                    迁移选中项
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn--primary-cta"
+                  disabled={busy || selectedGlobalSkillPaths.size === 0}
+                  onClick={handleMigrateGlobalSkills}
+                >
+                  {busy ? <RefreshCw size={13} className="spin" /> : <ArrowRight size={13} />}
+                  <span>导入选定技能 ({selectedGlobalSkillPaths.size})</span>
+                </button>
               </>
             )}
 
-            {/* STEP 2: Global MCP Actions */}
-            {currentStepIndex === 1 && (
+            {/* Setup MCP */}
+            {stage === 'setup-mcp' && (
               <>
                 <button
                   type="button"
-                  className="btn btn--ghost"
+                  className="btn--secondary-cta"
                   disabled={busy}
                   onClick={handleSkipGlobalMcp}
                 >
-                  跳过
+                  暂不导入
                 </button>
-                {globalMcpFeedback && globalMcpFeedback.failedCount > 0 ? (
-                  <button
-                    type="button"
-                    className="btn btn--primary"
-                    disabled={busy}
-                    onClick={() => setCurrentStepIndex(2)}
-                  >
-                    继续下一步
-                    <ArrowRight size={13} style={{ marginLeft: 4 }} />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn--primary"
-                    disabled={busy}
-                    onClick={handleMigrateGlobalMcp}
-                  >
-                    {busy && <RefreshCw size={12} className="animate-spin" style={{ marginRight: 4 }} />}
-                    迁移选中项
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn--primary-cta"
+                  disabled={busy || selectedGlobalMcpIds.size === 0}
+                  onClick={handleMigrateGlobalMcp}
+                >
+                  {busy ? <RefreshCw size={13} className="spin" /> : <ArrowRight size={13} />}
+                  <span>接入 Keychain 托管 ({selectedGlobalMcpIds.size})</span>
+                </button>
               </>
             )}
 
-            {/* STEP 3: Select Project Actions */}
-            {currentStepIndex === 2 && (
+            {/* Setup Project */}
+            {stage === 'setup-project' && (
               <>
                 <button
                   type="button"
-                  className="btn btn--ghost"
+                  className="btn--secondary-cta"
                   disabled={busy}
                   onClick={handleSkipProjectSelection}
                 >
-                  跳过
+                  稍后连接
                 </button>
                 <button
                   type="button"
-                  className="btn btn--primary"
-                  disabled={!selectedProject || busy}
+                  className="btn--primary-cta"
+                  disabled={busy || !selectedProject}
                   onClick={handleConfirmProjectSelection}
                 >
-                  确认并继续
-                  <ArrowRight size={13} style={{ marginLeft: 4 }} />
+                  <span>确认并继续</span>
+                  <ArrowRight size={13} />
                 </button>
               </>
             )}
 
-            {/* STEP 4: Project Assets Actions */}
-            {currentStepIndex === 3 && (
+            {/* Setup Project Assets */}
+            {stage === 'setup-project-assets' && (
               <>
-                {!selectedProject || projectStepSkipped ? (
-                  <button
-                    type="button"
-                    className="btn btn--primary"
-                    disabled={busy}
-                    onClick={() => handleFinishAll('skipped')}
-                  >
-                    {busy && <RefreshCw size={12} className="animate-spin" style={{ marginRight: 4 }} />}
-                    完成引导
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="btn btn--ghost"
-                      disabled={busy}
-                      onClick={handleSkipProjectAssets}
-                    >
-                      跳过
-                    </button>
-                    {projectAssetsFeedback && projectAssetsFeedback.failedCount > 0 ? (
-                      <button
-                        type="button"
-                        className="btn btn--primary"
-                        disabled={busy}
-                        onClick={() =>
-                          handleFinishAll('partial', {
-                            migratedCount: projectAssetsFeedback.migratedCount,
-                            failedCount: projectAssetsFeedback.failedCount,
-                          })
-                        }
-                      >
-                        确认完成
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn btn--primary"
-                        disabled={busy}
-                        onClick={handleMigrateProjectAssets}
-                      >
-                        {busy && (
-                          <RefreshCw size={12} className="animate-spin" style={{ marginRight: 4 }} />
-                        )}
-                        迁移并完成
-                      </button>
-                    )}
-                  </>
-                )}
+                <button
+                  type="button"
+                  className="btn--secondary-cta"
+                  disabled={busy}
+                  onClick={handleSkipProjectAssets}
+                >
+                  跳过此步
+                </button>
+                <button
+                  type="button"
+                  className="btn--primary-cta"
+                  disabled={busy}
+                  onClick={handleMigrateProjectAssets}
+                >
+                  {busy ? <RefreshCw size={13} className="spin" /> : <ArrowRight size={13} />}
+                  <span>完成迁移</span>
+                </button>
               </>
+            )}
+
+            {/* Ready */}
+            {stage === 'ready' && (
+              <button
+                type="button"
+                className="btn--primary-cta"
+                disabled={busy}
+                onClick={handleCompleteAll}
+              >
+                <span>开启 Trace 工作台</span>
+                <ArrowRight size={13} />
+              </button>
             )}
           </div>
         </footer>

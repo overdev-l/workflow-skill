@@ -1,6 +1,6 @@
 /* =========================================================================
-   Onboarding Wizard (OPC-214 Phase D2a)
-   Liquid Glass & Obsidian / Titanium design tokens from packages/ui/src/styles.css
+   Onboarding Wizard (OPC-219: Modern macOS Immersive Experience)
+   Liquid Glass, Segmented Indicators, Value Carousel & Obsidian Tokens
    ========================================================================= */
 
 .onboarding-wizard-container {
@@ -15,140 +15,354 @@
   overflow: hidden;
 }
 
-/* Glass dialog surface */
+/* Glass dialog surface with liquid depth */
 .onboarding-wizard-dialog {
   position: relative;
   z-index: 2;
-  width: min(780px, calc(100vw - 48px));
-  height: min(640px, calc(100vh - 48px));
+  width: min(860px, calc(100vw - 48px));
+  height: min(580px, calc(100vh - 64px));
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-lg);
-  background: var(--surface-overlay);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  background: oklch(0.120 0.004 250 / 0.72);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   border: 1px solid var(--glass-border-specular);
   color: var(--color-ink);
   overflow: hidden;
-  box-shadow: none;
+  box-shadow: 0 24px 48px -12px oklch(0 0 0 / 0.5);
+  animation: onboardingDialogFadeIn 240ms var(--motion-smooth);
 }
 
-/* Header & Progress */
-.onboarding-header {
+@keyframes onboardingDialogFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* macOS Top Bar (Traffic Lights & Quick Actions) */
+.onboarding-top-bar {
   flex-shrink: 0;
-  padding: var(--space-4) var(--space-6) var(--space-3);
-  border-bottom: 1px solid var(--color-border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.onboarding-header__top {
+  height: 38px;
+  padding: 0 var(--space-4);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
-.onboarding-header__title-wrap {
+.onboarding-traffic-lights {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 7px;
 }
 
-.onboarding-header__logo {
-  color: var(--color-primary);
-  display: flex;
-  align-items: center;
-}
-
-.onboarding-header__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-ink);
-  margin: 0;
-}
-
-/* 4-Step Stepper */
-.onboarding-stepper {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-}
-
-.onboarding-step-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: 1;
-  position: relative;
-}
-
-.onboarding-step-indicator {
-  width: 20px;
-  height: 20px;
+.onboarding-traffic-dot {
+  width: 10px;
+  height: 10px;
   border-radius: var(--radius-pill);
+  opacity: 0.85;
+}
+
+.onboarding-traffic-dot--close {
+  background-color: #ff5f56;
+}
+
+.onboarding-traffic-dot--min {
+  background-color: #ffbd2e;
+}
+
+.onboarding-traffic-dot--max {
+  background-color: #27c93f;
+}
+
+.onboarding-top-bar__brand {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: var(--space-2);
   font-size: 11px;
   font-weight: 600;
-  background: var(--control-bg);
-  border: 1px solid var(--control-border);
+  letter-spacing: 0.04em;
   color: var(--color-muted);
-  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.onboarding-top-bar__brand svg {
+  color: var(--color-primary);
+}
+
+.onboarding-skip-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
   transition: all var(--motion-fast) var(--motion-standard);
 }
 
-.onboarding-step-item.is-active .onboarding-step-indicator {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: var(--btn-primary-text);
-}
-
-.onboarding-step-item.is-completed .onboarding-step-indicator {
-  background: var(--color-success-bg);
-  border-color: var(--color-success);
-  color: var(--color-success-ink);
-}
-
-.onboarding-step-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-muted);
-  white-space: nowrap;
-}
-
-.onboarding-step-item.is-active .onboarding-step-label {
+.onboarding-skip-btn:hover {
   color: var(--color-ink);
-  font-weight: 600;
-}
-
-.onboarding-step-line {
-  flex: 1;
-  height: 1px;
-  background: var(--color-border-subtle);
-  margin-left: var(--space-2);
+  background: var(--color-surface-hover);
 }
 
 /* Main Body */
 .onboarding-body {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-4) var(--space-6);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Value Carousel Stages (Cards 1, 2, 3) */
+.onboarding-value-stage {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  align-items: center;
+  gap: var(--space-8);
+  animation: onboardingStageEnter 220ms var(--motion-smooth);
+}
+
+@keyframes onboardingStageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.onboarding-value-hero {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
 
+.onboarding-value-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
+  font-size: 11px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.onboarding-value-title {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.onboarding-value-title span {
+  color: var(--color-accent);
+}
+
+.onboarding-value-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-muted);
+  margin: 0;
+}
+
+/* Interactive Mocks for Value Cards */
+.onboarding-value-mock-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  perspective: 1000px;
+}
+
+.mock-window-card {
+  width: 100%;
+  max-width: 340px;
+  background: var(--control-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  box-shadow: 0 16px 32px -8px oklch(0 0 0 / 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.mock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.mock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+}
+
+.mock-badge--rec {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-ink);
+  border: 1px solid var(--color-danger);
+}
+
+.mock-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulseDot 1.4s infinite;
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.mock-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mock-step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--color-ink);
+}
+
+.mock-step-num {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.mock-skill-result {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: var(--color-primary-subtle);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mock-skill-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+/* Ecosystem Mock */
+.mock-ecosystem-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mock-eco-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+
+.mock-eco-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.mock-eco-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--color-success-ink);
+}
+
+/* Security Mock */
+.mock-security-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mock-security-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.mock-security-icon {
+  color: var(--color-success);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.mock-security-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.mock-security-desc {
+  font-size: 10px;
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+/* Setup Steps (Skills, MCP, Project) */
 .onboarding-step-lead {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  margin-bottom: var(--space-4);
 }
 
 .onboarding-step-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--color-ink);
   margin: 0;
@@ -167,7 +381,9 @@
   background: var(--control-bg);
   overflow: hidden;
   display: flex;
+  flex-shrink: 0;
   flex-direction: column;
+  margin-bottom: var(--space-3);
 }
 
 .onboarding-group-header {
@@ -228,8 +444,8 @@
 }
 
 .onboarding-item-checkbox {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   border-radius: var(--radius-sm);
   accent-color: var(--color-primary);
   cursor: pointer;
@@ -425,6 +641,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .onboarding-feedback-card.is-success {
@@ -456,6 +673,79 @@
   gap: 2px;
 }
 
+/* Ready Stage (Celebration / Launch) */
+.onboarding-ready-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  animation: onboardingStageEnter 260ms var(--motion-smooth);
+}
+
+.onboarding-ready-badge {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary-subtle);
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 24px var(--color-primary-subtle);
+}
+
+.onboarding-ready-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.onboarding-ready-desc {
+  font-size: 13px;
+  color: var(--color-muted);
+  max-width: 480px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.onboarding-ready-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 560px;
+  margin: var(--space-2) 0;
+}
+
+.onboarding-ready-stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3);
+  background: var(--control-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  gap: 4px;
+}
+
+.onboarding-ready-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-ink);
+}
+
+.onboarding-ready-stat-label {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
 /* Error Banner */
 .onboarding-error-banner {
   display: flex;
@@ -467,25 +757,14 @@
   color: var(--color-danger-ink);
   border-radius: var(--radius-md);
   font-size: 12px;
+  margin-bottom: var(--space-3);
 }
 
-/* Empty State Notice */
-.onboarding-empty-notice {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-8) var(--space-4);
-  gap: var(--space-2);
-  color: var(--color-muted);
-  text-align: center;
-  font-size: 13px;
-}
-
-/* Footer Actions */
+/* Footer & Segmented Bars */
 .onboarding-footer {
   flex-shrink: 0;
-  padding: var(--space-3) var(--space-6);
+  height: 52px;
+  padding: 0 var(--space-6);
   border-top: 1px solid var(--color-border-subtle);
   display: flex;
   align-items: center;
@@ -499,24 +778,79 @@
   gap: var(--space-2);
 }
 
-/* Enforcing Strict Button and Input Metrics */
-.onboarding-wizard .btn,
+/* Segmented Indicator Bars (UnifiedChat Video Style) */
+.onboarding-indicators {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.onboarding-indicator-bar {
+  width: 22px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-border-subtle);
+  transition: all var(--motion-fast) var(--motion-standard);
+}
+
+.onboarding-indicator-bar.is-active {
+  background: var(--color-primary);
+  width: 32px;
+  box-shadow: 0 0 8px var(--color-primary);
+}
+
+.onboarding-indicator-bar.is-passed {
+  background: var(--color-primary);
+  opacity: 0.5;
+}
+
+/* Button & Capsule Metrics */
 .onboarding-wizard-dialog .btn {
-  height: 24px;
+  height: 26px;
+  font-size: 12px;
 }
 
-.onboarding-wizard .btn.btn--sm,
-.onboarding-wizard-dialog .btn.btn--sm {
-  height: 22px;
-}
-
-.onboarding-wizard .btn--capsule,
 .onboarding-wizard-dialog .btn--capsule {
-  height: 24px;
+  height: 26px;
   border-radius: var(--radius-capsule);
+  padding: 0 var(--space-3);
 }
 
-.onboarding-wizard input[type="text"],
-.onboarding-wizard-dialog input[type="text"] {
+.onboarding-wizard-dialog .btn--primary-cta {
   height: 28px;
+  background: var(--color-primary);
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-capsule);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--motion-fast) var(--motion-standard);
+}
+
+.onboarding-wizard-dialog .btn--primary-cta:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.onboarding-wizard-dialog .btn--secondary-cta {
+  height: 28px;
+  background: transparent;
+  color: var(--color-muted);
+  border: 1px solid transparent;
+  font-weight: 500;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-capsule);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--motion-fast) var(--motion-standard);
+}
+
+.onboarding-wizard-dialog .btn--secondary-cta:hover:not(:disabled) {
+  color: var(--color-ink);
+  background: var(--color-surface-hover);
 }
