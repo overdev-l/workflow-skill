@@ -28,7 +28,12 @@
 
 import assert from 'node:assert/strict'
 import { groupAntigravityQuotaWindows, mergeQuotaWindows } from '../apps/desktop/src/utils/quota-grouping.ts'
-import { formatQuotaWindowLabel } from '../apps/desktop/src/utils/quota-label.ts'
+import {
+  formatQuotaCountdown,
+  formatQuotaPeriodShortLabel,
+  formatQuotaUpdatedAgo,
+  formatQuotaWindowLabel,
+} from '../apps/desktop/src/utils/quota-label.ts'
 import { randomUUID } from 'node:crypto'
 import {
   ALLOWED_QUOTA_URLS,
@@ -1138,6 +1143,42 @@ await test('Antigravity quota UI groups into three vendor shared pools (Google /
   const googleWeekly = groups[0].windows.find((w) => w.period === 'weekly')
   assert.equal(google5h.remainingPercent, 87) // Min of 90, 89, 88, 87
   assert.equal(googleWeekly.remainingPercent, 77) // Min of 80, 79, 78, 77
+})
+
+await test('Shared pool period rows use compact labels and honest reset countdowns', async () => {
+  const fiveHour = { id: 'google', label: 'Google / Gemini', period: 'five-hour', durationSeconds: 18000 }
+  const weekly = { id: 'google:weekly', label: 'Google / Gemini', period: 'weekly', durationSeconds: 604800 }
+
+  // Compact labels: the pool title already names the models, the row only carries the window
+  assert.equal(formatQuotaPeriodShortLabel(fiveHour, 'antigravity', 'zh-CN'), '5 小时')
+  assert.equal(formatQuotaPeriodShortLabel(weekly, 'antigravity', 'zh-CN'), '周')
+  assert.equal(formatQuotaPeriodShortLabel(fiveHour, 'antigravity', 'en-US'), '5h')
+  assert.equal(formatQuotaPeriodShortLabel(weekly, 'antigravity', 'en-US'), '7d')
+  // Unknown period falls back to the full label rather than inventing a window
+  assert.equal(formatQuotaPeriodShortLabel({ id: 'x', label: 'X' }, 'antigravity', 'zh-CN'), '额度（周期未知）')
+
+  const now = Date.UTC(2027, 0, 1, 0, 0, 0)
+  assert.equal(formatQuotaCountdown(now + 2 * 3600_000 + 13 * 60_000, now, 'zh-CN'), '2h13m')
+  assert.equal(formatQuotaCountdown(now + 4 * 86400_000 + 2 * 3600_000, now, 'zh-CN'), '4d02h')
+  assert.equal(formatQuotaCountdown(now + 41 * 60_000, now, 'zh-CN'), '41m')
+  assert.equal(formatQuotaCountdown(now + 30_000, now, 'zh-CN'), '<1 分钟')
+  assert.equal(formatQuotaCountdown(now + 30_000, now, 'en-US'), '<1m')
+  assert.equal(formatQuotaCountdown(now - 60_000, now, 'zh-CN'), '即将重置')
+  // No usable reset timestamp means the countdown column is omitted, never NaN
+  for (const resetsAt of [undefined, 0, -1, NaN, Infinity]) {
+    assert.equal(formatQuotaCountdown(resetsAt, now, 'zh-CN'), null)
+  }
+
+  assert.equal(formatQuotaUpdatedAgo(now - 5_000, now, 'zh-CN'), '刚刚')
+  assert.equal(formatQuotaUpdatedAgo(now - 3 * 60_000, now, 'zh-CN'), '3 分钟前')
+  assert.equal(formatQuotaUpdatedAgo(now - 2 * 3600_000, now, 'zh-CN'), '2 小时前')
+  assert.equal(formatQuotaUpdatedAgo(now - 3 * 60_000, now, 'en-US'), '3m ago')
+  assert.equal(formatQuotaUpdatedAgo(now - 2 * 3600_000, now, 'en-US'), '2h ago')
+  // Beyond a day the caller falls back to an absolute date
+  assert.equal(formatQuotaUpdatedAgo(now - 2 * 86400_000, now, 'zh-CN'), null)
+  for (const fetchedAt of [undefined, 0, -1, NaN, Infinity]) {
+    assert.equal(formatQuotaUpdatedAgo(fetchedAt, now, 'zh-CN'), null)
+  }
 })
 
 await test('Antigravity authoritative five-hour exhaustion overrides non-zero model window', async () => {

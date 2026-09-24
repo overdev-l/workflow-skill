@@ -35,6 +35,79 @@ export function formatQuotaPeriodLabel(window: AccountQuotaWindow, tool: Account
   return label
 }
 
+const MINUTE_MS = 60_000
+const HOUR_MS = 3_600_000
+const DAY_MS = 86_400_000
+
+/**
+ * Countdown to the next reset, e.g. `2h13m` / `4d02h`.
+ * Returns null when there is no usable reset timestamp, so the caller can omit
+ * the column entirely instead of rendering a placeholder.
+ */
+export function formatQuotaCountdown(resetsAt: number | undefined, now: number, locale: string): string | null {
+  if (!resetsAt || !Number.isFinite(resetsAt) || resetsAt <= 0) {
+    return null
+  }
+  const zh = locale.startsWith('zh')
+  const remaining = resetsAt - now
+  if (remaining <= 0) {
+    return zh ? '即将重置' : 'Due'
+  }
+  if (remaining < MINUTE_MS) {
+    return zh ? '<1 分钟' : '<1m'
+  }
+  if (remaining < HOUR_MS) {
+    return `${Math.floor(remaining / MINUTE_MS)}m`
+  }
+  if (remaining < DAY_MS) {
+    const hours = Math.floor(remaining / HOUR_MS)
+    const minutes = Math.floor((remaining % HOUR_MS) / MINUTE_MS)
+    return `${hours}h${String(minutes).padStart(2, '0')}m`
+  }
+  const days = Math.floor(remaining / DAY_MS)
+  const hours = Math.floor((remaining % DAY_MS) / HOUR_MS)
+  return `${days}d${String(hours).padStart(2, '0')}h`
+}
+
+/**
+ * Relative age of a quota snapshot, e.g. `刚刚` / `3 分钟前` / `2 小时前`.
+ * Returns null past 24 hours so the caller can fall back to an absolute date.
+ */
+export function formatQuotaUpdatedAgo(fetchedAt: number | undefined, now: number, locale: string): string | null {
+  if (!fetchedAt || !Number.isFinite(fetchedAt) || fetchedAt <= 0) {
+    return null
+  }
+  const zh = locale.startsWith('zh')
+  const elapsed = now - fetchedAt
+  if (elapsed < 0 || elapsed < MINUTE_MS) {
+    return zh ? '刚刚' : 'just now'
+  }
+  if (elapsed < HOUR_MS) {
+    const minutes = Math.floor(elapsed / MINUTE_MS)
+    return zh ? `${minutes} 分钟前` : `${minutes}m ago`
+  }
+  if (elapsed < DAY_MS) {
+    const hours = Math.floor(elapsed / HOUR_MS)
+    return zh ? `${hours} 小时前` : `${hours}h ago`
+  }
+  return null
+}
+
+/**
+ * Compact period label for the shared-pool period rows, where the vendor pool
+ * title already carries the model name and the row only needs its window.
+ */
+export function formatQuotaPeriodShortLabel(window: AccountQuotaWindow, tool: AccountTool, locale: string): string {
+  const zh = locale.startsWith('zh')
+  if (window.period === 'weekly') {
+    return zh ? '周' : '7d'
+  }
+  if (window.period === 'five-hour') {
+    return zh ? '5 小时' : '5h'
+  }
+  return formatQuotaPeriodLabel(window, tool, locale)
+}
+
 /** Keep model quotas separate from subscription usage periods. */
 export function formatQuotaWindowLabel(window: AccountQuotaWindow, tool: AccountTool, locale: string): string {
   if (tool === 'antigravity') {

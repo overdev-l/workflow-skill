@@ -16,7 +16,13 @@
 
 import React from 'react'
 import { groupAntigravityQuotaWindows } from '../utils/quota-grouping.ts'
-import { formatQuotaPeriodLabel, formatQuotaWindowLabel } from '../utils/quota-label.ts'
+import {
+  formatQuotaCountdown,
+  formatQuotaPeriodLabel,
+  formatQuotaPeriodShortLabel,
+  formatQuotaUpdatedAgo,
+  formatQuotaWindowLabel,
+} from '../utils/quota-label.ts'
 import {
   AlertCircle,
   AlertTriangle,
@@ -143,69 +149,24 @@ function formatResetTime(resetsAt?: number, locale: string = 'zh-CN'): string | 
   }
 }
 
-const QUOTA_RING_RADIUS = 14
-const QUOTA_RING_CIRCUMFERENCE = 2 * Math.PI * QUOTA_RING_RADIUS
+/** Drives reset countdowns and the relative "updated" label without refetching quota. */
+const QUOTA_TICK_INTERVAL_MS = 30_000
 
-function QuotaProgressRing({
-  percent,
-  displayValue,
-  valueLabel,
-  label,
-}: {
-  percent: number | null
-  displayValue: string
-  valueLabel: string
-  label: string
-}) {
-  const clampedPercent = percent === null
-    ? null
-    : Math.max(0, Math.min(100, percent))
-  const dashOffset = clampedPercent === null
-    ? QUOTA_RING_CIRCUMFERENCE
-    : QUOTA_RING_CIRCUMFERENCE * (1 - clampedPercent / 100)
+function useQuotaClock(enabled: boolean): number {
+  const [now, setNow] = React.useState(() => Date.now())
 
-  let modifier = 'account-quota-ring--high'
-  if (clampedPercent === null) {
-    modifier = 'account-quota-ring--unknown'
-  } else if (clampedPercent < 20) {
-    modifier = 'account-quota-ring--low'
-  } else if (clampedPercent <= 50) {
-    modifier = 'account-quota-ring--mid'
-  }
+  React.useEffect(() => {
+    if (!enabled) {
+      return
+    }
+    // Realign immediately: a card mounted long before its snapshot arrived would
+    // otherwise keep counting down from its mount time until the first tick.
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), QUOTA_TICK_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [enabled])
 
-  return (
-    <div
-      className={`account-quota-ring ${modifier}`}
-      role="progressbar"
-      aria-label={`${label} · ${valueLabel}`}
-      aria-valuenow={clampedPercent ?? undefined}
-      aria-valuemin={clampedPercent !== null ? 0 : undefined}
-      aria-valuemax={clampedPercent !== null ? 100 : undefined}
-      aria-valuetext={valueLabel}
-      title={`${label} · ${valueLabel}`}
-    >
-      <svg viewBox="0 0 36 36" aria-hidden="true" focusable="false">
-        <circle
-          className="account-quota-ring-track"
-          cx="18"
-          cy="18"
-          r={QUOTA_RING_RADIUS}
-        />
-        {clampedPercent !== null && (
-          <circle
-            className="account-quota-ring-fill"
-            cx="18"
-            cy="18"
-            r={QUOTA_RING_RADIUS}
-            strokeDasharray={QUOTA_RING_CIRCUMFERENCE}
-            strokeDashoffset={dashOffset}
-            transform="rotate(-90 18 18)"
-          />
-        )}
-      </svg>
-      <span>{displayValue}</span>
-    </div>
-  )
+  return now
 }
 
 export function AccountQuotaCard({
@@ -235,7 +196,10 @@ export function AccountQuotaCard({
   // Status badge resolution
   const status = snapshot?.status
   const isStale = Boolean(snapshot?.stale)
+  const now = useQuotaClock(Boolean(snapshot))
   const lastUpdatedTime = formatQuotaTime(snapshot?.fetchedAt, locale)
+  // Relative age keeps the header compact; the absolute time stays in the tooltip.
+  const lastUpdatedAgo = formatQuotaUpdatedAgo(snapshot?.fetchedAt, now, locale) ?? lastUpdatedTime
   const isZh = locale.startsWith('zh')
   const renewalLabels = isZh
     ? { refreshing: '正在续期', ready: '已自动续期', retrying: '续期暂时失败，将重试', 'reauth-required': '需要重新授权', unsupported: '暂不支持自动续期', blocked: '自动续期受阻' }
@@ -320,12 +284,8 @@ export function AccountQuotaCard({
     ? antigravityModelGroups.some((group) => group.windows.length > 0)
     : Boolean(snapshot?.windows && snapshot.windows.length > 0)
 
-  const renderQuotaWindow = (win: AccountQuotaWindow, modelLabel?: string) => {
-    const isGroupedModelWindow = account.tool === 'antigravity' && Boolean(modelLabel)
-    const label = isGroupedModelWindow && win.period
-      ? formatQuotaPeriodLabel(win, account.tool, locale)
-      : formatQuotaWindowLabel(win, account.tool, locale)
-    const accessibleLabel = modelLabel && label !== modelLabel ? `${modelLabel} · ${label}` : label
+  /** Shared numbers behind both the flat window list and the grouped period rows. */
+  const describeQuotaWindow = (win: AccountQuotaWindow) => {
     const hasPercent =
       typeof win.remainingPercent === 'number' &&
       Number.isFinite(win.remainingPercent) && win.remainingPercent >= 0 && win.remainingPercent <= 100
@@ -334,8 +294,6 @@ export function AccountQuotaCard({
       ? '<1'
       : percent?.toLocaleString(locale, { maximumFractionDigits: 1 })
     const percentText = percent !== null ? `${percentLabel ?? '0'}%` : '—'
-    const valueLabel = hasPercent ? `${loc.quotaRemaining} ${percentText}` : loc.quotaUnknown
-    const resetTime = formatResetTime(win.resetsAt, locale)
 
     // Determine fill bar color based on percentage
     let fillModifier = 'account-quota-fill--high'
@@ -347,36 +305,72 @@ export function AccountQuotaCard({
       }
     }
 
-    if (isGroupedModelWindow) {
-      return (
-        <div key={win.id} className="account-quota-window-item account-quota-window-item--ring">
-          <QuotaProgressRing
-            percent={percent}
-            displayValue={percentText}
-            valueLabel={valueLabel}
-            label={accessibleLabel}
-          />
-          <div className="account-quota-window-copy">
-            <div className="account-quota-window-header">
-              <span className="account-quota-window-label" title={accessibleLabel}>
-                {label}
-              </span>
-            </div>
-            {resetTime && (
-              <div className="account-quota-window-reset" title={loc.quotaResetsAt(resetTime)}>
-                <Clock size={9} />
-                <span>{loc.quotaResetsAt(resetTime)}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )
+    return {
+      hasPercent,
+      percent,
+      percentText,
+      fillModifier,
+      valueLabel: hasPercent ? `${loc.quotaRemaining} ${percentText}` : loc.quotaUnknown,
+      resetTime: formatResetTime(win.resetsAt, locale),
     }
+  }
+
+  /**
+   * One full-width period row inside a vendor shared pool: the pool title already
+   * names the models, so the row only carries period, bar, percent and countdown.
+   */
+  const renderQuotaPeriodRow = (win: AccountQuotaWindow, poolLabel: string) => {
+    const periodLabel = formatQuotaPeriodShortLabel(win, account.tool, locale)
+    const fullPeriodLabel = formatQuotaPeriodLabel(win, account.tool, locale)
+    const accessibleLabel = `${poolLabel} · ${fullPeriodLabel}`
+    const { hasPercent, percent, percentText, fillModifier, valueLabel, resetTime } = describeQuotaWindow(win)
+    const countdown = formatQuotaCountdown(win.resetsAt, now, locale)
+    const resetTitle = resetTime ? loc.quotaResetsAt(resetTime) : undefined
+
+    return (
+      <div key={win.id} className="account-quota-period-row">
+        <span className="account-quota-period-label" title={accessibleLabel}>
+          {periodLabel}
+        </span>
+        <div
+          className={`account-quota-bar-track ${hasPercent ? '' : 'account-quota-bar-track--unknown'}`}
+          role="progressbar"
+          aria-label={`${accessibleLabel} ${loc.quotaRemaining}`}
+          aria-valuenow={hasPercent ? percent! : undefined}
+          aria-valuemin={hasPercent ? 0 : undefined}
+          aria-valuemax={hasPercent ? 100 : undefined}
+          aria-valuetext={valueLabel}
+        >
+          {/* Only render a fill when percent is explicitly known, never a false 0% */}
+          {hasPercent && (
+            <div
+              className={`account-quota-bar-fill ${fillModifier}`}
+              style={{ width: `${Math.max(0, Math.min(100, percent!))}%` }}
+            />
+          )}
+        </div>
+        <span className="account-quota-period-value" title={valueLabel}>
+          {percentText}
+        </span>
+        {/* Countdown is omitted entirely when the provider gave no reset time */}
+        {countdown && (
+          <span className="account-quota-period-countdown" title={resetTitle}>
+            <Clock size={9} />
+            <span>{countdown}</span>
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  const renderQuotaWindow = (win: AccountQuotaWindow) => {
+    const label = formatQuotaWindowLabel(win, account.tool, locale)
+    const { hasPercent, percent, fillModifier, valueLabel, resetTime } = describeQuotaWindow(win)
 
     return (
       <div key={win.id} className="account-quota-window-item">
         <div className="account-quota-window-header">
-          <span className="account-quota-window-label" title={accessibleLabel}>
+          <span className="account-quota-window-label" title={label}>
             {label}
           </span>
           <span className="account-quota-window-value">
@@ -386,7 +380,7 @@ export function AccountQuotaCard({
 
         {/* Progress Bar (Only render when percent is explicitly known, never false 0%) */}
         {hasPercent && (
-          <div className="account-quota-bar-track" role="progressbar" aria-label={`${accessibleLabel} ${loc.quotaRemaining}`} aria-valuenow={percent!} aria-valuemin={0} aria-valuemax={100}>
+          <div className="account-quota-bar-track" role="progressbar" aria-label={`${label} ${loc.quotaRemaining}`} aria-valuenow={percent!} aria-valuemin={0} aria-valuemax={100}>
             <div
               className={`account-quota-bar-fill ${fillModifier}`}
               style={{
@@ -441,6 +435,18 @@ export function AccountQuotaCard({
           </div>
 
           <div className="account-card-top-actions">
+            {/* Relative snapshot age, sitting next to the control it belongs to */}
+            {lastUpdatedAgo && (
+              <span
+                className={`account-quota-updated-time ${
+                  isStale ? 'account-quota-updated-time--stale' : ''
+                }`}
+                title={lastUpdatedTime ? loc.quotaLastUpdated(lastUpdatedTime) : undefined}
+              >
+                {lastUpdatedAgo}
+              </span>
+            )}
+
             {/* Refresh Quota Icon Button */}
             <button
               type="button"
@@ -506,9 +512,10 @@ export function AccountQuotaCard({
               </span>
             )}
           </div>
-          {lastUpdatedTime && (
-            <span className="account-quota-updated-time">
-              {loc.quotaLastUpdated(lastUpdatedTime)}
+          {/* Detail presentation has no header, so the status row keeps the fallback */}
+          {presentation === 'detail' && lastUpdatedAgo && (
+            <span className="account-quota-updated-time" title={lastUpdatedTime ?? undefined}>
+              {loc.quotaLastUpdated(lastUpdatedAgo)}
             </span>
           )}
         </div>
@@ -555,7 +562,7 @@ export function AccountQuotaCard({
                       </span>
                     </div>
                     <div className="account-quota-model-windows">
-                      {group.windows.map((win) => renderQuotaWindow(win, group.label))}
+                      {group.windows.map((win) => renderQuotaPeriodRow(win, group.label))}
                     </div>
                   </div>
                 )
